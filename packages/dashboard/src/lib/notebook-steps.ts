@@ -10,10 +10,11 @@
  * button as a card. The agent is never edited for a step.
  */
 import { agentForCopy } from './experiment-copy-agent.js';
+import { inBackground } from './background.js';
 import { stepWhy, perItemWhy, type StepTry } from './notebook-step-why.js';
 import { reconcileAbout } from './notebook-reconcile.js';
 import { randomUUID } from 'node:crypto';
-import { NotebookStore, checksLeft, givenNewSince, givenWaitingReason, notebookClosedReason, notebookViewData, rankOptions, sourceJobs, stepProgress, writesUp, type Agent, type InboxActionMeta, type Notebook, type NotebookEntry, type NotebookGiven, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
+import { NotebookStore, answerTracePages, checksLeft, givenNewSince, givenWaitingReason, notebookClosedReason, notebookViewData, rankOptions, sourceJobs, stepProgress, writesUp, type Agent, type InboxActionMeta, type Notebook, type NotebookEntry, type NotebookGiven, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
 import { givenReadingReason } from './notebook-given-read.js';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
@@ -195,13 +196,13 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
   ctx.notebookPipelines.set(notebookId, { agentId, step: index + 1, of: nb.steps!.length, startedAt: Date.now() });
   store.updateStep(nb.id, step.id, { status: 'running' });
   const s = step;
-  void runStep(ctx, store, nb.id, s, agentId).catch((err: unknown) => {
+  inBackground(ctx, 'runStep', runStep(ctx, store, nb.id, s, agentId).catch((err: unknown) => {
     try { store.updateStep(notebookId, s.id, { status: 'stuck', note: err instanceof Error ? err.message.slice(0, 160) : 'It failed.' }); } catch { /* the notebook is gone */ }
   }).finally(() => {
     ctx.notebookPipelines?.delete(notebookId);
     // It paused: its card is the one waiting (an earlier round's that asks the same goes).
     reconcileStepCards(ctx, notebookId);
-  });
+  }));
   return { started: true, step, ...(resolved.note ? { note: resolved.note } : {}) };
 }
 
@@ -304,10 +305,10 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
     const index = (nb.steps ?? []).findIndex((s) => s.id === step.id);
     ctx.notebookPipelines ??= new Map();
     ctx.notebookPipelines.set(notebookId, { agentId: NOTEBOOK_WRITER_ID, step: index + 1, of: nb.steps!.length, startedAt: Date.now(), again: true });
-    void writeAgain(ctx, store, nb.id, step).catch(() => undefined).finally(() => {
+    inBackground(ctx, 'writeAgain', writeAgain(ctx, store, nb.id, step).catch(() => undefined).finally(() => {
       ctx.notebookPipelines?.delete(notebookId);
       reconcileStepCards(ctx, notebookId);
-    });
+    }));
     return { started: true, step };
   }
   // Look again: learn about them once more (new facts, a photo that's clearly them), leaving the steps where they are.
@@ -315,12 +316,12 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
     const index = (nb.steps ?? []).findIndex((s) => s.id === step.id);
     ctx.notebookPipelines ??= new Map();
     ctx.notebookPipelines.set(notebookId, { agentId: NOTEBOOK_RESEARCHER_ID, step: index + 1, of: nb.steps!.length, startedAt: Date.now(), again: true });
-    void lookAgain(ctx, store, nb.id, step).catch((err: unknown) => {
+    inBackground(ctx, 'lookAgain', lookAgain(ctx, store, nb.id, step).catch((err: unknown) => {
       try { store.noteRun(notebookId, `${step.title}, again: ${err instanceof Error ? err.message.slice(0, 160) : 'it failed'}`); } catch { /* the notebook is gone */ }
     }).finally(() => {
       ctx.notebookPipelines?.delete(notebookId);
       reconcileStepCards(ctx, notebookId);
-    });
+    }));
     return { started: true, step };
   }
   const resolved = stepAgent(ctx, step, nb.id);
@@ -330,7 +331,7 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
   ctx.notebookPipelines.set(notebookId, { agentId: resolved.agentId, step: index + 1, of: nb.steps!.length, startedAt: Date.now(), again: true });
   const agentId = resolved.agentId;
   const had = store.entries(nb.id, 1000).filter((e) => e.kind === 'option').length;
-  void runAgain(ctx, store, nb.id, step, agentId).then(async () => {
+  inBackground(ctx, 'runAgain', runAgain(ctx, store, nb.id, step, agentId).then(async () => {
     // A scheduled search that found new ones: the shortlist's write-up is written again so it names them.
     const now = store.get(notebookId);
     const writeup = opts.thenWrite && now ? writeupStep(now) : undefined;
@@ -342,7 +343,7 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
     ctx.notebookPipelines?.delete(notebookId);
     // It paused: its card is the one waiting (an earlier round's that asks the same goes).
     reconcileStepCards(ctx, notebookId);
-  });
+  }));
   return { started: true, step };
 }
 
@@ -416,7 +417,7 @@ export function updateBriefing(ctx: Ctx, notebookId: string, opts: { only?: read
   ctx.notebookPipelines.set(notebookId, running);
   // What it had before: the check step checks only what this update finds.
   const had = new Set(store.entries(notebookId, 1000).filter((e) => e.kind === 'option').map((e) => e.id));
-  void (async () => {
+  inBackground(ctx, 'notebook-steps', (async () => {
     const said: string[] = [];
     for (const step of steps) {
       if (running.stopped) { said.push(`You stopped it before **${step.title}**.`); break; }
@@ -425,6 +426,20 @@ export function updateBriefing(ctx: Ctx, notebookId: string, opts: { only?: read
         running.agentId = NOTEBOOK_RESEARCHER_ID;
         said.push(await lookAgain(ctx, store, notebookId, step, true));
         continue;
+      }
+      // A check before an answer or write-up: the sources this update found (and any not traced yet) are traced, as its Check does (no agent needed).
+      const traces = step.kind === 'check' && writesAnswer(store.get(notebookId));
+      if (traces) {
+        const pending = answerTracePages(store.entries(notebookId, 1000)).filter((e) => !e.trace).length;
+        if (pending) {
+          const t = await traceAnswerSources(store, notebookId, ctx.notebookTrace);
+          const left = answerTracePages(store.entries(notebookId, 1000));
+          store.updateStep(notebookId, step.id, { note: `${String(left.filter((e) => e.trace).length)} of ${String(left.length)} sources traced` });
+          store.noteRun(notebookId, `${step.title}: ${traceWords(t)}`);
+          said.push(`Traced the new sources (**${step.title}**): ${traceWords(t)}.`);
+        }
+        // One with no checks of its own (the answer's check is the trace): nothing more to do.
+        if (!store.get(notebookId)?.checks.length) continue;
       }
       const agent = stepAgent(ctx, step, notebookId);
       if (!agent.agentId) { said.push(`Skipped **${step.title}**: ${agent.reason ?? 'it has no agent'}.`); continue; }
@@ -451,9 +466,12 @@ export function updateBriefing(ctx: Ctx, notebookId: string, opts: { only?: read
   }).finally(() => {
     ctx.notebookPipelines?.delete(notebookId);
     reconcileStepCards(ctx, notebookId);
-  });
+  }));
   return { started: true, steps };
 }
+
+/** Whether a notebook writes an answer or a write-up (its sources are traced before it does). */
+const writesAnswer = (nb: Notebook | undefined): boolean => !!nb?.steps?.some((s) => s.kind === 'write' && (s.shape === 'answer' || s.shape === 'writeup'));
 
 /**
  * A done check step, for the options an update found (not in `had`): one
@@ -593,7 +611,7 @@ async function writeAgain(ctx: Ctx, store: NotebookStore, notebookId: string, st
   store.finishPass(passId, `${NOTEBOOK_WRITER_ID}, again: ${sentenceOf(said) || 'wrote'}`);
   store.noteRun(notebookId, `${step.title}, again: ${said.join('; ')}`);
   // Written once more: its parts may have changed (a new diagram, a table gone), so the page is composed again.
-  if (WRITTEN_SHAPES.has(step.shape ?? '')) void pageAfterWritten(ctx, store, notebookId).catch(() => undefined);
+  if (WRITTEN_SHAPES.has(step.shape ?? '')) inBackground(ctx, 'pageAfterWritten', pageAfterWritten(ctx, store, notebookId).catch(() => undefined));
   return `Wrote again (**${step.title}**)${said.length ? `: ${said.join('; ')}` : ''}.`;
 }
 
@@ -621,12 +639,12 @@ export function rewriteAfterDecide(ctx: Ctx, notebookId: string): { started: boo
   const index = (nb.steps ?? []).findIndex((s) => s.id === step.id);
   ctx.notebookPipelines ??= new Map();
   ctx.notebookPipelines.set(notebookId, { agentId: NOTEBOOK_WRITER_ID, step: index + 1, of: nb.steps!.length, startedAt: Date.now(), again: true });
-  void writeAgain(ctx, store, nb.id, step).then(() => {
+  inBackground(ctx, 'writeAgain', writeAgain(ctx, store, nb.id, step).then(() => {
     store.noteRun(notebookId, `${step.title}: written again now that you decided`);
   }).catch(() => undefined).finally(() => {
     ctx.notebookPipelines?.delete(notebookId);
     reconcileStepCards(ctx, notebookId);
-  });
+  }));
   return { started: true };
 }
 
@@ -651,12 +669,12 @@ export function replaceTalkingPoint(ctx: Ctx, notebookId: string, at: number, te
   ctx.notebookPipelines ??= new Map();
   ctx.notebookPipelines.set(notebookId, { agentId: NOTEBOOK_WRITER_ID, step: index + 1, of: nb.steps!.length, startedAt: Date.now(), again: true });
   // Not a pass of the step: one point isn't a rewrite (What's new compares whole writes).
-  void swapTalkingPoint(ctx, store, notebookId, step, at, text).then((said) => {
+  inBackground(ctx, 'swapTalkingPoint', swapTalkingPoint(ctx, store, notebookId, step, at, text).then((said) => {
     store.noteRun(notebookId, `${step.title}, a new point: ${said.join('; ')}`);
   }).catch(() => undefined).finally(() => {
     ctx.notebookPipelines?.delete(notebookId);
     reconcileStepCards(ctx, notebookId);
-  });
+  }));
   return { started: true };
 }
 
@@ -748,6 +766,14 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
     const now = stepProgress(nb, store.entries(nb.id, 1000), step);
     store.updateStep(nb.id, step.id, { tries, note: progressWords(step, now) });
     return finish(ctx, store, notebookId, { ...step, tries }, now, wrote, !now.met, sentenceOf(wrote));
+  }
+  // A notebook with options that also writes an answer or a write-up: its source pages are traced first, in code,
+  // then its options are checked as before (ADR-0082). Traced and checked already: done.
+  if (step.kind === 'check' && agentId === NOTEBOOK_CHECKER_ID && before.unit !== 'sources traced' && before.missing.some((m) => m.startsWith('source not traced yet'))) {
+    await traceAnswerSources(store, notebookId, ctx.notebookTrace);
+    nb = store.get(notebookId)!;
+    before = stepProgress(nb, store.entries(nb.id, 1000), step);
+    if (before.met) return finish(ctx, store, notebookId, step, before, ['its sources traced; its options were already checked']);
   }
   // An answer's check step: no options to check, so it traces the answer's sources, each quote looked for on its page, in code (ADR-0082).
   if (step.kind === 'check' && agentId === NOTEBOOK_CHECKER_ID && before.unit === 'sources traced') {
@@ -966,10 +992,10 @@ function finish(ctx: Ctx, store: NotebookStore, notebookId: string, step: Notebo
   store.noteRun(notebookId, `${step.title}: ${words}${notes.length ? ` · ${notes.join(' · ')}` : ''}`);
   postStepCard(ctx, nb, step.id, p);
   // What it found may disagree with who it's about (a new employer, a move): checked in the background.
-  if (step.kind === 'find' || step.kind === 'source' || step.kind === 'profile') void reconcileAbout(ctx, store, notebookId).catch(() => undefined);
-  if (p.met && nb.steps?.[0]?.id === step.id) void pageAfterFirstStep(ctx, store, notebookId);
+  if (step.kind === 'find' || step.kind === 'source' || step.kind === 'profile') inBackground(ctx, 'reconcileAbout', reconcileAbout(ctx, store, notebookId).catch(() => undefined));
+  if (p.met && nb.steps?.[0]?.id === step.id) inBackground(ctx, 'pageAfterFirstStep', pageAfterFirstStep(ctx, store, notebookId));
   // Written (an answer, a plan, a write-up): the page can be composed around its parts.
-  else if (p.met && step.kind === 'write' && WRITTEN_SHAPES.has(step.shape ?? '')) void pageAfterWritten(ctx, store, notebookId);
+  else if (p.met && step.kind === 'write' && WRITTEN_SHAPES.has(step.shape ?? '')) inBackground(ctx, 'pageAfterWritten', pageAfterWritten(ctx, store, notebookId));
 }
 
 /**
@@ -1002,6 +1028,8 @@ export async function pageAfterWritten(ctx: Ctx, store: NotebookStore, notebookI
   if (!nb || nb.experimentRun || !(pageIsItsOwn(nb) || pageIsPicked(nb)) || (!nb.answer?.text && !nb.plan?.items.length)) return;
   // A briefing on a subject: its ready-made page already places every part in order; composing it again would pick one part as a hero and demote the rest.
   if (nb.briefOn && nb.layout?.preset === 'subject') return;
+  // A runbook's ready-made page places each part by what it's for (ready, the steps, what goes wrong): composing it again would trade that for a hero.
+  if (nb.layout?.preset === 'runbook') return;
   // A shortlist's write-up: the ready-made shortlist page already shows it; a drawn page is composed around it but keeps its kind.
   const writeup = writesUp(nb);
   if (writeup && !nb.layout) return;

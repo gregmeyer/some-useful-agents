@@ -47,7 +47,7 @@ describe('notebook layouts (A2UI documents)', () => {
     expect(checkNotebookLayout(page).ok).toBe(true);
     expect(checkNotebookLayout(DEFAULT_NOTEBOOK_LAYOUT.components).ok).toBe(true);
     expect(checkNotebookLayout([{ id: 'root', component: 'Column', children: ['x'] }, { id: 'x', component: 'Text', text: 'hi', when: 'sunny' }]))
-      .toEqual({ ok: false, errors: ['x: "when" must be one of map, funnel, steps, options, decided, about, person, company, competitors, affiliations, answered, planned, written, numbers, bars (or !one).'] });
+      .toEqual({ ok: false, errors: ['x: "when" must be one of map, funnel, steps, options, decided, about, person, company, competitors, affiliations, answered, planned, written, numbers, bars, lesson, needs (or !one).'] });
     expect(checkNotebookLayout([{ id: 'root', component: 'Column', children: ['x'] }, { id: 'x', component: 'Nope' }]).ok).toBe(false);
     expect(checkNotebookLayout('no').ok).toBe(false);
     expect(cleanLayout('shortlist')).toBe(DEFAULT_NOTEBOOK_LAYOUT);
@@ -59,7 +59,7 @@ describe('notebook layouts (A2UI documents)', () => {
     const kept = { components: [{ id: 'who', component: 'ProfileCard', name: { path: '/notebook/person/name' }, quote: { path: '/notebook/leadQuote' } }, { id: 't', component: 'Text', text: 'x' }] } as never;
     expect(notebookLayoutOf({ layout: kept }).components[0]).toMatchObject({ quoteFrom: { path: '/notebook/leadQuoteFrom' }, quoteBy: { path: '/notebook/leadQuoteBy' } });
     expect(notebookLayoutOf({ layout: kept }).components[1]).toEqual({ id: 't', component: 'Text', text: 'x' });
-    expect(NOTEBOOK_LAYOUT_PRESETS.map((p) => p.id)).toEqual(['shortlist', 'dossier', 'company', 'subject', 'answer', 'plan', 'watch']);
+    expect(NOTEBOOK_LAYOUT_PRESETS.map((p) => p.id)).toEqual(['shortlist', 'dossier', 'company', 'subject', 'answer', 'runbook', 'plan', 'watch']);
     expect(layoutPreset('company')).toMatchObject({ label: 'Company briefing' });
     // Every ready-made page is a page that checks out.
     for (const p of NOTEBOOK_LAYOUT_PRESETS) expect(checkNotebookLayout(p.layout.components), p.id).toMatchObject({ ok: true });
@@ -75,7 +75,7 @@ describe('notebook layouts (A2UI documents)', () => {
     expect(s.get(nb.id)!.layout).toEqual({ components: page });
     expect(s.saveTemplate('Car search', nb.id).setup.layout).toEqual({ components: page });
     expect(() => s.setLayout(nb.id, { components: [{ id: 'root', component: 'Column', children: ['x'] }, { id: 'x', component: 'Text', text: 'hi', when: 'sunny' }] }))
-      .toThrow('That layout can\'t be drawn: x: "when" must be one of map, funnel, steps, options, decided, about, person, company, competitors, affiliations, answered, planned, written, numbers, bars (or !one).');
+      .toThrow('That layout can\'t be drawn: x: "when" must be one of map, funnel, steps, options, decided, about, person, company, competitors, affiliations, answered, planned, written, numbers, bars, lesson, needs (or !one).');
     expect(s.setLayout(nb.id, null).layout).toBeUndefined();
     expect(s.saveTemplate('Car search', nb.id).setup.layout).toBeUndefined();
   });
@@ -397,5 +397,21 @@ describe('the ready-made pages and the representation parts', () => {
     expect(cs.find((c) => c.id === 'intro_row')).toMatchObject({ children: ['intro', 'lead_low'], widths: [2, 1] });
     expect(cs.find((c) => c.id === 'lead_low')).toMatchObject({ component: 'Lead', stat: { path: '/notebook/numbers/lead/best' } });
     expect(resolveNotebookLayout(layoutPreset('watch')!.layout.components, { options: true }, {}).find((c) => c.id === 'intro_row')!.children).toEqual(['intro']);
+  });
+});
+
+describe("the list of who publishes an answer's sources", () => {
+  it('has its own title, in the preset and on a page saved before it had one (not the Agenda\'s "Talking points")', async () => {
+    const { resolveNotebookLayout, layoutPreset } = await import('./notebook-layout.js');
+    const preset = layoutPreset('answer')!.layout.components.find((c) => c.id === 'sources');
+    expect(preset).toMatchObject({ component: 'Agenda', title: 'By publisher' });
+    const saved = [
+      { id: 'root', component: 'Column', children: ['sources'] },
+      { id: 'sources', component: 'Agenda', points: { path: '/notebook/sources' } },
+      { id: 'talk', component: 'Agenda', points: { path: '/notebook/talk' } },
+    ];
+    const out = resolveNotebookLayout(saved, {}, {});
+    expect(out.find((c) => c.id === 'sources')).toMatchObject({ title: 'By publisher' });
+    expect(out.find((c) => c.id === 'talk')?.title).toBeUndefined();
   });
 });

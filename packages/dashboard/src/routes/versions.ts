@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { getContext } from '../context.js';
+import { localBack } from '../lib/local-back.js';
 import { renderVersionsList, renderVersionDetail } from '../views/versions.js';
 import { validateScheduleInterval, CronInvalidError, CronTooFrequentError, LLM_PROVIDERS, type LlmProvider } from '@some-useful-agents/core';
 
@@ -597,9 +598,9 @@ versionsRouter.post('/agents/:id/permissions/allow-host', (req: Request, res: Re
   // Two callers: the client banner's `fetch` (wants JSON) and the
   // server-rendered Allow form on a failed run (a plain POST that needs a
   // redirect back). When the form supplies a same-origin `redirect` path we
-  // answer with a 303; otherwise we keep the JSON contract. Only `/`-relative
-  // paths are honoured (no open redirect).
-  const redirectTo = typeof body.redirect === 'string' && body.redirect.startsWith('/') ? body.redirect : null;
+  // answer with a 303; otherwise we keep the JSON contract. Only a page on
+  // this dashboard is honoured (localBack: not //host or /\host; no open redirect).
+  const redirectTo = localBack(body.redirect) ?? null;
   const fail = (status: number, error: string): void => {
     if (redirectTo) { res.redirect(303, redirectTo); return; }
     res.status(status).json({ ok: false, error });

@@ -15,11 +15,11 @@
 import { answerCover, answerDiagramView, type AnswerDiagramView } from './answer-art.js';
 import { readerPage, answerConfidence, findingStatus, type FindingTrace, answerSubjects, evidenceOrigin, sourceSpread, sourceSpreadCaution, SOURCE_KINDS, type SourceKind } from '@some-useful-agents/core';
 import { missingExperimentData, rankBy, rankOptions, isRange,
-  notebookViewData, notebookLayoutOf, resolveNotebookLayout, splitNotebookHeader, resolvePointer, type NotebookLayout, type NotebookLayoutFlag, type NotebookLayoutValueKey, cleanData, fieldNumber, validateViewComponents, viewToMessages,
+  notebookViewData, notebookLayoutOf, withTldrCardSlot, resolveNotebookLayout, splitNotebookHeader, resolvePointer, type NotebookLayout, type NotebookLayoutFlag, type NotebookLayoutValueKey, cleanData, fieldNumber, validateViewComponents, viewToMessages,
   type Notebook, type NotebookAffiliation, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
   type NotebookRange, type NotebookSearchSource, type NotebookViewOption, type ViewComponent,
   notebookChanges, type NotebookChange, type NotebookChangeKind, type NotebookFieldValue,
-  answerSectionLines, sectionKey, writesUp, subjectHost,
+  answerSectionLines, sectionKey, writesUp, subjectHost, runbookRole, runbookCopyPlaces, runbookTotalTime, runbookNeeds, type NotebookRunbookRole, type NotebookAnswerSection,
 } from '@some-useful-agents/core';
 import { formatFieldValue } from './field-format.js';
 import { whatsNew, whatsNewLines, type WhatsNew } from './notebook-whats-new.js';
@@ -218,11 +218,14 @@ export interface NotebookWidgetData extends NotebookViewData {
     /** What to weigh about where its sources come from (Agenda questions). */
     sourceCautions: Array<{ text: string }>;
     /** The parts the answer was asked for (AnswerSections), each step and row with links to what it rests on. */
-    answerSections: Array<{ key: string; title: string; kind: 'steps' | 'table' | 'text' | 'diagram'; items?: Array<{ text: string; detail?: string; refs: Array<{ label: string; href: string }> }>; columns?: string[]; rows?: Array<{ cells: string[]; refs: Array<{ label: string; href: string }> }>; note?: string; body?: string; diagram?: AnswerDiagramView; caption?: string; refs?: Array<{ label: string; href: string }> }>;
+    answerSections: Array<{ key: string; title: string; kind: 'steps' | 'table' | 'text' | 'diagram' | 'copy'; /** What it is for in a runbook (core runbookRole). */ role?: NotebookRunbookRole; /** A part to copy drawn inside a step of the method: AnswerSections leaves it out on its own. */ inStep?: boolean; label?: string; lang?: string; items?: Array<{ text: string; detail?: string; how?: string; see?: string; ifNot?: string; time?: string; advice?: boolean; /** Its phase ("Prep"): consecutive steps with one are grouped under it. */ phase?: string; /** The part to copy this step uses, drawn inside it. */ copyPart?: { key: string; title: string; kind: 'copy'; body?: string; label?: string; lang?: string }; refs: Array<{ label: string; href: string }> }>; columns?: string[]; rows?: Array<{ cells: string[]; refs: Array<{ label: string; href: string }> }>; note?: string; body?: string; diagram?: AnswerDiagramView; caption?: string; refs?: Array<{ label: string; href: string }> }>;
     /** A plan's parts besides its days (AnswerSections), the same shapes as an answer's. */
     planSections: NotebookWidgetData['notebook']['answerSections'];
     /** Each written part by its key (`/notebook/section/<key>`), an answer's and a plan's, for a page composed around them. */
     section: Record<string, NotebookWidgetData['notebook']['answerSections'][number]>;
+    /** A runbook at a glance (KeyValue rows): its time in all, how many steps, for whom, what you end with. */
+    /** A runbook's card (At a glance) and its lesson (ADR-0097): what you'll be able to do, what you'll need (from its ready part when it has no lesson), how you know you're done, what to remember, what's next, a self-check. */
+    runbook: { glance: Array<{ label: string; value: string }>; lesson: { goals: string[]; needs: string[]; done?: string; keyPoints: string[]; next?: string; selfCheck: Array<{ q: string; a: string }>; written: boolean } };
     /** The notebook's numbers by field key, from the options in the running: the best by the field's better way, the high, the low, the count (Lead stat). Money and number fields only. */
     numbers: Record<string, { best: NotebookLeadStat; high: NotebookLeadStat; low: NotebookLeadStat; count: NotebookLeadStat }>;
     /** The notebook's TL;DR picture (Picture): its image, what it shows, and where it's redrawn. */
@@ -485,6 +488,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       ...(nb.experimentId ? { experiment: history?.experiment?.(nb.experimentId) ?? missingExperimentData(nb.experimentId) } : {}),
       ...written,
       section: Object.fromEntries([...written.answerSections, ...written.planSections].map((x) => [x.key, x])),
+      runbook: { glance: runbookGlance(nb.answer, written.answerSections), lesson: runbookLessonView(nb.answer) },
       numbers,
       // Its TL;DR picture; the address changes when the notebook or the way it's drawn does, so a browser shows the new one.
       picture: { src: `/notebooks/${encodeURIComponent(nb.id)}/tldr.png?v=${encodeURIComponent(`${nb.updatedAt}.${nb.tldr?.at ?? 'standard'}`)}`, alt: `${nb.title}, in short`, href: `/notebooks/${encodeURIComponent(nb.id)}/tldr`, caption: 'The TL;DR picture. Open it to redraw or download it.' },
@@ -727,7 +731,9 @@ function sectionViews(sections: NonNullable<NonNullable<Notebook['answer']>['sec
   const struck = new Set(struckList ?? []);
   return (sections ?? []).map((x): SectionView => {
     const key = sectionKey(x);
-    if (x.kind === 'steps') return { key, title: x.title, kind: x.kind, items: x.items.filter((i) => !struck.has(i.text)).map((i) => ({ text: i.text, ...(i.detail ? { detail: i.detail } : {}), refs: refs(i.from, `${i.text} ${i.detail ?? ''}`) })) };
+    if (x.kind === 'steps') return { key, title: x.title, kind: x.kind, items: x.items.filter((i) => !struck.has(i.text)).map((i) => ({ text: i.text, ...(i.detail ? { detail: i.detail } : {}), ...(i.how ? { how: i.how } : {}), ...(i.see ? { see: i.see } : {}), ...(i.ifNot ? { ifNot: i.ifNot } : {}), ...(i.time ? { time: i.time } : {}), ...(i.advice ? { advice: true } : {}), ...(i.phase ? { phase: i.phase } : {}), refs: refs(i.from, `${i.text} ${i.detail ?? ''}`) })) };
+    // Something to copy, as written; struck, it's gone.
+    if (x.kind === 'copy') return struck.has(answerSectionLines(x)[0]) ? { key, title: x.title, kind: 'text', body: '' } : { key, title: x.title, kind: 'copy', body: x.body, ...(x.label ? { label: x.label } : {}), ...(x.lang ? { lang: x.lang } : {}) };
     if (x.kind === 'table') {
       const rows = x.rows.filter((r) => !struck.has(r.cells.join(' · '))).map((r) => ({ cells: r.cells, refs: refs(r.from, r.cells.join(' · ')) }));
       const every = rows.length > 1 ? rows[0].refs.filter((f) => rows.every((r) => r.refs.some((g) => g.href === f.href))) : [];
@@ -918,7 +924,7 @@ function answerViews(nb: Notebook, active: readonly NotebookViewOption[], summar
   const caution = answerSourceCaution(nb, entries);
   const refs = answerRefs(nb, active, entries, all);
   const byId = new Map(entries.map((e) => [e.id, e]));
-  const answerSections = sectionViews(a.sections, a.struck, refs);
+  const answerSections = runbookPlaced(a.sections ?? [], sectionViews(a.sections, a.struck, refs));
   const writeup = writesUp(nb);
   // How sure, capped by its evidence (ADR-0083), and why it isn't higher than the writer said.
   const sure = answerConfidence(nb, entries) ?? { said: a.confidence, shown: a.confidence, why: [] };
@@ -934,6 +940,47 @@ function answerViews(nb: Notebook, active: readonly NotebookViewOption[], summar
     sources: sourcePoints(nb, entries),
     sourceCautions: caution ? [{ text: caution }] : [],
   };
+}
+
+/**
+ * An answer's parts with what each is for in a runbook (core runbookRole),
+ * and each part to copy inside the step that uses it (core
+ * runbookCopyPlaces): a recipe says "paste this" where you paste it. Pure.
+ */
+function runbookPlaced(sections: readonly NotebookAnswerSection[], views: SectionView[]): SectionView[] {
+  const roleOf = new Map(sections.map((x) => [sectionKey(x), runbookRole(x)]));
+  const out = views.map((v) => ({ ...v, ...(roleOf.has(v.key) ? { role: roleOf.get(v.key) } : {}) }));
+  for (const place of runbookCopyPlaces(sections)) {
+    if (place.index < 0) continue;
+    const copy = out.find((v) => v.key === place.copy && v.kind === 'copy');
+    const steps = out.find((v) => v.key === place.steps && v.kind === 'steps');
+    const item = steps?.items?.[place.index];
+    if (!copy || !steps || !item) continue;
+    steps.items = steps.items!.map((it, i) => (i === place.index ? { ...it, copyPart: { key: copy.key, title: copy.title, kind: 'copy' as const, ...(copy.body !== undefined ? { body: copy.body } : {}), ...(copy.label ? { label: copy.label } : {}), ...(copy.lang ? { lang: copy.lang } : {}) } } : it));
+    copy.inStep = true;
+  }
+  return out;
+}
+
+/** A runbook at a glance, as KeyValue rows: its time (as the writer said, else its steps' times added up), how many steps, for whom, what you end with. Rows it can't say are left out. Pure. */
+/** A runbook's lesson for the page: as the writer gave it, else what to have ready from its ready part (`written` false: no lesson yet). Pure. */
+function runbookLessonView(a: Notebook['answer']): NotebookViewDataLesson {
+  const l = a?.lesson;
+  return { goals: l?.goals ?? [], needs: runbookNeeds(a), ...(l?.done ? { done: l.done } : {}), keyPoints: l?.keyPoints ?? [], ...(l?.next ? { next: l.next } : {}), selfCheck: l?.selfCheck ?? [], written: !!l };
+}
+type NotebookViewDataLesson = { goals: string[]; needs: string[]; done?: string; keyPoints: string[]; next?: string; selfCheck: Array<{ q: string; a: string }>; written: boolean };
+
+function runbookGlance(a: Notebook['answer'], views: readonly SectionView[]): Array<{ label: string; value: string }> {
+  const method = views.filter((v) => v.kind === 'steps' && v.role === 'method');
+  if (!a || !method.length) return [];
+  const items = method.flatMap((v) => v.items ?? []);
+  const time = a.glance?.time ?? runbookTotalTime(items);
+  return [
+    ...(time ? [{ label: 'Takes', value: time }] : []),
+    { label: 'Steps', value: String(items.length) },
+    ...(a.glance?.level ? [{ label: 'For', value: a.glance.level }] : []),
+    ...(a.glance?.makes ? [{ label: 'You\u2019ll end with', value: a.glance.makes }] : []),
+  ];
 }
 
 /** What a layout's `when` tests, for this notebook (core NOTEBOOK_LAYOUT_FLAGS). */
@@ -979,6 +1026,8 @@ export function notebookLayoutFlags(nb: LayoutNotebook, hasOptions = true): Reco
     written: !!nb.answer?.text || !!nb.plan?.items.length,
     numbers: !!leadFieldOf(nb),
     bars: !!leadFieldOf(nb) && !(nb.fields.some((f) => f.role === 'price') && nb.fields.some((f) => f.role === 'measure')),
+    lesson: !!nb.answer?.lesson,
+    needs: runbookNeeds(nb.answer).length > 0,
   };
 }
 
@@ -1027,18 +1076,35 @@ export function emptyPartsGo(layout: NotebookLayout, data: unknown): { data?: un
 }
 
 /** The notebook's page as drawn for it now: its layout resolved, with the header (if it has one) taken out. */
-function resolvedPage(nb: Notebook, entries: readonly NotebookEntry[], data?: unknown, pending = false): ReturnType<typeof splitNotebookHeader> {
+/**
+ * The page's layout as it's drawn: the notebook's, with a place for the TL;DR
+ * card when you set it to Always and the page has none (a ready-made page), so
+ * the page, its brief and its PDF all show it.
+ */
+export function drawnNotebookLayout(nb: Notebook): NotebookLayout {
   const layout = notebookLayoutOf(nb);
+  return nb.tldrCard === 'always' ? { ...layout, components: withTldrCardSlot(layout.components) } : layout;
+}
+
+function resolvedPage(nb: Notebook, entries: readonly NotebookEntry[], data?: unknown, pending = false): ReturnType<typeof splitNotebookHeader> {
+  const layout = drawnNotebookLayout(nb);
   // Nothing to quote ever (no quote field, and not about a person): its quotes panel isn't held open while a step runs.
   const cantFill = canQuote(nb) ? undefined : new Set(['QuoteList']);
   return splitNotebookHeader(resolveNotebookLayout(layout.components, notebookLayoutFlags(nb, entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb, data), { ...emptyPartsGo(layout, data), ...(pending ? { pending } : {}), ...(cantFill ? { cantFill } : {}) }));
 }
 
+/** The page's data without its TL;DR card (`drop`): a Picture part with nothing to show goes. */
+export function withoutTldrCard<T extends { notebook: { picture?: unknown } }>(data: T, drop: boolean): T {
+  if (!drop) return data;
+  const { picture: _gone, ...rest } = data.notebook;
+  return { ...data, notebook: rest } as T;
+}
+
 /** The notebook's widgets as A2UI messages, or undefined when it has nothing to show as widgets yet. */
-export function notebookWidgetMessages(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory, opts: { /** A step is running: empty parts keep their place as skeletons. */ pending?: boolean } = {}): unknown[] | undefined {
+export function notebookWidgetMessages(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory, opts: { /** A step is running: empty parts keep their place as skeletons. */ pending?: boolean; /** false: the TL;DR card isn't shown (showsTldrCard), so its Picture part goes. */ tldrCard?: boolean } = {}): unknown[] | undefined {
   // The shortlist needs fields and options; a page drawn for this notebook shows what it has.
   if (!nb.layout && (nb.fields.length === 0 || !entries.some((e) => e.kind === 'option'))) return undefined;
-  const data = notebookWidgetData(nb, entries, history);
+  const data = withoutTldrCard(notebookWidgetData(nb, entries, history), opts.tldrCard === false);
   const v = validateViewComponents(resolvedPage(nb, entries, data, opts.pending === true).rest);
   if (!v.ok) return undefined;
   return viewToMessages(`notebook-${nb.id}`, v.components, data);

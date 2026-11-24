@@ -21,6 +21,7 @@
  * normal `runTriageAgent`.
  */
 import { isInboxAutoTriageEnabled } from '@some-useful-agents/core';
+import { inBackground } from './background.js';
 import type { getContext } from '../context.js';
 
 type Ctx = ReturnType<typeof getContext>;
@@ -73,7 +74,7 @@ export function maybeAutoFirstTouch(ctx: Ctx, messageId: string, runTriage: Tria
   if (ctx.inboxTriageStopped?.has(messageId)) return false;
   if (ctx.inboxTriageAbortControllers.has(messageId)) return false;
   if (ctx.inboxStore.listResponses(messageId).length > 0) return false;
-  void runTriage(ctx, messageId).catch(() => { /* engine logs its own failures */ });
+  inBackground(ctx, 'runTriage', runTriage(ctx, messageId).catch(() => { /* engine logs its own failures */ }));
   return true;
 }
 
@@ -104,7 +105,7 @@ export function sweepInboxOnce(ctx: Ctx, runTriage: TriageFn, minAgeMs = AUTO_TR
     if (ctx.inboxTriageAbortControllers.size + kicked >= AUTO_TRIAGE_MAX_CONCURRENT) break;
     if (ctx.inboxTriageStopped?.has(msg.id)) continue;
     if (ctx.inboxTriageAbortControllers.has(msg.id)) continue;
-    void runTriage(ctx, msg.id).catch(() => { /* engine logs its own failures */ });
+    inBackground(ctx, 'runTriage', runTriage(ctx, msg.id).catch(() => { /* engine logs its own failures */ }));
     kicked += 1;
   }
   return kicked;

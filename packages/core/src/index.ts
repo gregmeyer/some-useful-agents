@@ -58,6 +58,9 @@ export * from './secret-redactor.js';
 export * from './input-resolver.js';
 export * from './http-auth.js';
 export * from './daemon-supervisor.js';
+export * from './backup-retention.js';
+export * from './provider-health.js';
+export * from './fallback-spend.js';
 export * from './agent-v2-types.js';
 export * from './failure-explain.js';
 export * from './error-catalog.js';
@@ -565,10 +568,16 @@ export {
   SUA_CATALOG_ID,
   A2UI_PROTOCOL_VERSION,
   suaCatalog,
+  suaCatalogDocument,
+  SUA_FUNCTION_NAMES,
+  SUA_AGENT_FUNCTION_NAMES,
+  SUA_CATALOG_INSTRUCTIONS,
   suaCatalogComponentNames,
   suaComponentDocs,
   boardComponentDocs,
   BOARD_COMPONENT_NAMES,
+  tldrComponentDocs,
+  TLDR_COMPONENT_NAMES,
   type SuaComponentDoc,
 } from './a2ui/catalog.js';
 export {
@@ -592,6 +601,7 @@ export {
   type ViewValidation,
   type ResolvedView,
 } from './a2ui/view.js';
+export { NOTEBOOK_SURFACE_URI, NOTEBOOK_SURFACE_ID, A2UI_MIME, notebookSurfaceTemplate, notebookSurfaceData } from './a2ui/notebook-surface.js';
 export { a2uiId, componentForRender, componentsForRender, normalizeComponent, normalizeComponents } from './a2ui/normalize.js';
 export { starterView, humanizeName, type StarterViewArgs } from './a2ui/starter.js';
 export { viewAuthoringGuide, viewOutputNames } from './a2ui/guide.js';
@@ -671,6 +681,8 @@ export {
 export * from './notebook-request.js';
 export * from './board-review.js';
 export * from './edition-prefs.js';
+export * from './edition-actions.js';
+export * from './edition-facts.js';
 
 // Items: the canonical layer of goal surfaces (ADR-0049, S1).
 export * from './items/index.js';
@@ -681,4 +693,4 @@ export { sanitizeSvg, MAX_SVG_BYTES } from './svg-sanitizer.js';
 export { createLiveProgress, newLiveCursor, takeNewProgress, type LiveCursor } from './live-progress.js';
 export * from './agent-catalog-store.js';
 export * from './person-photo.js';
-export { noteProviderFailure, clearProviderCooldown, providerCooldown, providerCooldowns, withoutCoolingProviders, retryAtFrom, resetProviderCooldowns, COOLDOWN_MS, type ProviderCooldown } from './provider-cooldown.js';
+export { noteProviderFailure, clearProviderCooldown, providerCooldown, providerCooldowns, withoutCoolingProviders, retryAtFrom, resetProviderCooldowns, useProviderCooldownFile, COOLDOWN_MS, type ProviderCooldown } from './provider-cooldown.js';

@@ -364,14 +364,14 @@ describe('Dashboard nav structure (Pulse hero + Agents section tabs)', () => {
 
   it('/pulse is a first-class page (the signals board)', async () => {
     const app = await makeApp();
-    const res = await authed(app, '/pulse');
+    const res = await authed(app, '/pulse/agents');
     expect(res.status).toBe(200);
     expect(res.text).toContain('data-board-canvas="pulse"');
   });
 
   it('/pulse carries a scheduler health tile', async () => {
     const app = await makeApp();
-    const res = await authed(app, '/pulse');
+    const res = await authed(app, '/pulse/agents');
     expect(res.status).toBe(200);
     // With no heartbeat file in the test data dir the scheduler reads as
     // stopped — the state the board was silent about for nine days.
@@ -708,6 +708,16 @@ describe('Dashboard /runs/:id per-node table', () => {
     // Non-`/` redirect is ignored → falls back to the JSON contract.
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
+    // So is a path a browser reads as another site (//host, /\host).
+    for (const redirect of ['//evil.example/x', '/\\evil.example']) {
+      const again = await request(app).post('/agents/allowme2/permissions/allow-host')
+        .type('form')
+        .send({ host: 'apod.nasa.gov', redirect })
+        .set('Host', `127.0.0.1:${PORT}`)
+        .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+      expect(again.status).toBe(200);
+      expect(again.headers.location).toBeUndefined();
+    }
   });
 
   it('does not render the per-node table for a v1 run', async () => {
@@ -4933,6 +4943,49 @@ describe('Cost and usage', () => {
     await post(app, '/settings/llm/price').send('key=codex&clear=1');
     expect(llmSettingsStore.get().pricing).toBeUndefined();
     rmSync(settingsDir, { recursive: true, force: true });
+  });
+
+  it('sets, shows and clears the daily cap on fallback spend', async () => {
+    const settingsDir = mkdtempSync(join(tmpdir(), 'sua-llm-'));
+    const llmSettingsStore = new LlmSettingsStore(join(settingsDir, 'llm-settings.json'));
+    const app = await makeApp({ llmSettingsStore });
+    try {
+      expect((await get(app, '/settings/llm')).text).toContain('placeholder="No cap"');
+      const saved = await post(app, '/settings/llm/fallback-cap').send('capUsd=20');
+      expect(saved.status).toBe(303);
+      expect(llmSettingsStore.get().fallbackCapUsd).toBe(20);
+      const page = await get(app, '/settings/llm');
+      expect(page.text).toContain('value="20"');
+      expect(page.text).toContain('Today so far: $0.');
+      const bad = await post(app, '/settings/llm/fallback-cap').send('capUsd=-1');
+      expect(decodeURIComponent(bad.headers.location)).toContain('error=');
+      expect(llmSettingsStore.get().fallbackCapUsd).toBe(20);
+      await post(app, '/settings/llm/fallback-cap').send('capUsd=');
+      expect(llmSettingsStore.get().fallbackCapUsd).toBeUndefined();
+    } finally {
+      rmSync(settingsDir, { recursive: true, force: true });
+    }
+  });
+
+  it('shows a provider skipped for now, and Try it now puts it back', async () => {
+    const { noteProviderFailure, providerCooldown, resetProviderCooldowns } = await import('@some-useful-agents/core');
+    const settingsDir = mkdtempSync(join(tmpdir(), 'sua-llm-'));
+    const llmSettingsStore = new LlmSettingsStore(join(settingsDir, 'llm-settings.json'));
+    llmSettingsStore.setProviders(['codex', 'claude']);
+    const app = await makeApp({ llmSettingsStore });
+    try {
+      noteProviderFailure('codex', 'quota_exceeded');
+      const page = await get(app, '/settings/llm');
+      expect(page.text).toContain('out of quota.');
+      expect(page.text).toContain('Try it now');
+      const res = await post(app, '/settings/llm/cooldown/clear').send('provider=codex');
+      expect(res.status).toBe(303);
+      expect(decodeURIComponent(res.headers.location.replace(/\+/g, ' '))).toContain('The next node will try codex again.');
+      expect(providerCooldown('codex')).toBeUndefined();
+    } finally {
+      resetProviderCooldowns();
+      rmSync(settingsDir, { recursive: true, force: true });
+    }
   });
 });
 

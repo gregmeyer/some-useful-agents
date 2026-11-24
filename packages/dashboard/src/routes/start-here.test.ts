@@ -1,25 +1,19 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import request from 'supertest';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   AgentStore,
   DashboardsStore,
-  LocalProvider,
-  MemorySecretsStore,
   PacksStore,
   RunStore,
-  buildLoopbackAllowlist,
-  loadAgents,
   loadBuiltinPacks,
   installPack,
 } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
-import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
-import { MemorySecretsSession } from '../secrets-session.js';
+import { createTestContext, closeTestContext, type TestContext } from '../test-harness.js';
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3992;
@@ -30,68 +24,36 @@ const PACKS_DIR = join(
   dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'core', 'packs',
 );
 
-let dir: string;
-let provider: LocalProvider;
+let t: TestContext | undefined;
 let runStore: RunStore;
 let agentStore: AgentStore;
 let packsStore: PacksStore;
 let dashboardsStore: DashboardsStore;
 
 async function makeApp(opts: { installStarters?: boolean; withPacks?: boolean } = {}) {
-  dir = mkdtempSync(join(tmpdir(), 'sua-start-here-'));
-  const dbPath = join(dir, 'runs.db');
-  const agentsDir = join(dir, 'agents', 'local');
-  mkdirSync(agentsDir, { recursive: true });
-  writeFileSync(join(agentsDir, 'hello.yaml'), 'name: hello\ntype: shell\ncommand: echo hi\n');
-
-  const secretsStore = new MemorySecretsStore();
-  runStore = new RunStore(dbPath);
-  agentStore = new AgentStore(dbPath);
-  packsStore = new PacksStore(dbPath);
-  dashboardsStore = new DashboardsStore(dbPath);
-  provider = new LocalProvider(dbPath, secretsStore);
-  await provider.initialize();
+  t = await createTestContext({ port: PORT, prefix: 'sua-start-here-', extra: ({ dbPath }) => {
+    packsStore = new PacksStore(dbPath);
+    dashboardsStore = new DashboardsStore(dbPath);
+    return { packsStore: opts.withPacks === false ? undefined : packsStore, dashboardsStore };
+  } });
+  const { ctx } = t;
+  writeFileSync(join(t.agentsDir, 'hello.yaml'), 'name: hello\ntype: shell\ncommand: echo hi\n');
+  runStore = ctx.runStore;
+  agentStore = ctx.agentStore;
 
   if (opts.withPacks !== false) loadBuiltinPacks(packsStore, PACKS_DIR);
   if (opts.installStarters) {
     installPack('playground-starters', { packsStore, dashboardsStore, agentStore });
   }
 
-  const ctx = {
-    token: TOKEN,
-    allowlist: buildLoopbackAllowlist(PORT),
-    port: PORT,
-    provider,
-    runStore,
-    agentStore,
-    loadAgents: () => loadAgents({ directories: [agentsDir] }),
-    secretsStore,
-    secretsSession: new MemorySecretsSession({ backing: secretsStore }),
-    tokenPath: join(dir, 'mcp-token'),
-    retentionDays: 30,
-    dbPath,
-    secretsPath: join(dir, 'secrets.enc'),
-    rotateToken: () => 'r'.repeat(64),
-    packsStore: opts.withPacks === false ? undefined : packsStore,
-    dashboardsStore,
-    allowUntrustedShell: new Set<string>(),
-    activeRuns: new Map(),
-    inboxTriageAbortControllers: new Map(),
-    inboxTriagePendingRefires: new Set(),
-    dataDir: dir,
-    dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
-  } as unknown as DashboardContext;
-
   return buildDashboardApp(ctx);
 }
 
 afterEach(async () => {
-  if (provider) await provider.shutdown();
-  try { runStore?.close(); } catch { /* ignore */ }
-  try { agentStore?.close(); } catch { /* ignore */ }
-  try { packsStore?.close(); } catch { /* ignore */ }
-  try { dashboardsStore?.close(); } catch { /* ignore */ }
-  if (dir) rmSync(dir, { recursive: true, force: true });
+  // Without packs the store isn't on ctx, so closeTestContext won't close it.
+  if (t && !t.ctx.packsStore) { try { packsStore.close(); } catch { /* ignore */ } }
+  await closeTestContext(t);
+  t = undefined;
 });
 
 describe('GET /start', () => {

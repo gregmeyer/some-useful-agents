@@ -9,32 +9,19 @@
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import request from 'supertest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  AgentStore,
-  LocalProvider,
-  MemorySecretsStore,
-  RunStore,
-  buildLoopbackAllowlist,
-  loadAgents,
-  loadBehaviors,
-} from '@some-useful-agents/core';
+import { loadBehaviors } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
-import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
-import { MemorySecretsSession } from '../secrets-session.js';
+import { createTestContext, closeTestContext, type TestContext } from '../test-harness.js';
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3995;
 const HDRS = { Host: `127.0.0.1:${PORT}`, Cookie: `${SESSION_COOKIE}=${TOKEN}` };
 
-let dir: string;
 let specRoot: string;
-let provider: LocalProvider;
-let runStore: RunStore;
-let agentStore: AgentStore;
+let t: TestContext | undefined;
 
 function writeSpec(root: string, name: string, opts: { front?: string; body?: string } = {}): void {
   const d = join(root, '.agents', 'behaviors', name);
@@ -45,45 +32,13 @@ function writeSpec(root: string, name: string, opts: { front?: string; body?: st
 
 /** `wire: false` simulates a host that never configured discovery. */
 async function makeApp(opts: { wire?: boolean } = {}) {
-  dir = mkdtempSync(join(tmpdir(), 'sua-behaviors-route-'));
-  specRoot = dir;
-  const dbPath = join(dir, 'runs.db');
-  const agentsDir = join(dir, 'agents', 'local');
-  mkdirSync(agentsDir, { recursive: true });
-
-  const secretsStore = new MemorySecretsStore();
-  runStore = new RunStore(dbPath);
-  agentStore = new AgentStore(dbPath);
-  provider = new LocalProvider(dbPath, secretsStore);
-  await provider.initialize();
-
-  const ctx = {
-    token: TOKEN,
-    allowlist: buildLoopbackAllowlist(PORT),
-    port: PORT,
-    provider,
-    runStore,
-    agentStore,
-    loadAgents: () => loadAgents({ directories: [agentsDir] }),
-    ...(opts.wire === false ? {} : {
-      loadBehaviors: () => loadBehaviors({
-        scopes: [{ scope: 'project' as const, rootDir: specRoot, optional: true }],
-      }),
+  t = await createTestContext({ port: PORT, prefix: 'sua-behaviors-route-', extra: ({ dir }) => (opts.wire === false ? {} : {
+    loadBehaviors: () => loadBehaviors({
+      scopes: [{ scope: 'project' as const, rootDir: dir, optional: true }],
     }),
-    secretsStore,
-    secretsSession: new MemorySecretsSession({ backing: secretsStore }),
-    tokenPath: join(dir, 'mcp-token'),
-    retentionDays: 30,
-    dbPath,
-    secretsPath: join(dir, 'secrets.enc'),
-    rotateToken: () => 'r'.repeat(64),
-    allowUntrustedShell: new Set<string>(),
-    activeRuns: new Map(),
-    inboxTriageAbortControllers: new Map(),
-    inboxTriagePendingRefires: new Set(),
-    dataDir: dir,
-    dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
-  } as unknown as DashboardContext;
+  }) });
+  specRoot = t.dir;
+  const { ctx } = t;
 
   return buildDashboardApp(ctx);
 }
@@ -92,10 +47,8 @@ const get = (app: Awaited<ReturnType<typeof makeApp>>, url: string) =>
   request(app).get(url).set(HDRS);
 
 afterEach(async () => {
-  if (provider) await provider.shutdown();
-  try { runStore?.close(); } catch { /* ignore */ }
-  try { agentStore?.close(); } catch { /* ignore */ }
-  if (dir) rmSync(dir, { recursive: true, force: true });
+  await closeTestContext(t);
+  t = undefined;
 });
 
 describe('GET /behaviors', () => {

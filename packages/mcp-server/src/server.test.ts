@@ -489,6 +489,41 @@ describe('MCP board tools', () => {
     }
   });
 
+  it("edition-read says how Today's edition is made and how fresh each part is; edition-apply changes it, with undo and a policy", async () => {
+    const dbPath = join(dataDir, 'runs.db');
+    const agents = new AgentStore(dbPath);
+    agents.createAgent(parseAgent(`id: wx\nname: Weather\nstatus: active\nschedule: "0 7 * * *"\nsignal:\n  title: Weather\n  template: text-headline\nnodes:\n  - id: n\n    type: shell\n    command: echo hi\n`), 'cli');
+    agents.close();
+    const { RunStore, EditionPrefsStore } = await import('@some-useful-agents/core');
+    const runs = new RunStore(dbPath);
+    const old = new Date(Date.now() - 15 * 86_400_000).toISOString();
+    runs.createRun({ id: 'r-wx', agentName: 'wx', status: 'completed', startedAt: old, completedAt: old, result: '{}', triggeredBy: 'schedule' } as never);
+    runs.close();
+    serverHandle = await startMcpServer({ port: 0, host: '127.0.0.1', agentDirs: [dataDir], dbPath, secretsPath: join(dataDir, 'secrets.enc'), tokenPath: join(dataDir, 'mcp-token') });
+    const c = await client();
+    try {
+      const read = text(await c.callTool({ name: 'edition-read', arguments: {} }));
+      expect(read).toContain("How it's made: automatically (no changes of yours).");
+      expect(read).toContain('- Weather (wx): not in it, result 15 days old, scheduled');
+      const applied = await c.callTool({ name: 'edition-apply', arguments: { ops: [{ op: 'include', agentId: 'wx' }] } });
+      expect(applied.isError).toBeFalsy();
+      expect(text(applied)).toContain('Always show Weather.');
+      expect(text(await c.callTool({ name: 'edition-read', arguments: {} }))).toContain('- Weather (wx): in today\'s edition, result 15 days old, always shown');
+      const bad = await c.callTool({ name: 'edition-apply', arguments: { ops: [{ op: 'lead', agentId: 'nope' }] } });
+      expect(bad.isError).toBe(true);
+      expect(text(await c.callTool({ name: 'edition-apply', arguments: { undo: true } }))).toContain('Put back how the edition was');
+      const prefs = new EditionPrefsStore(new RunStore(dbPath).databaseHandle());
+      expect(prefs.get().include).toEqual([]);
+      mkdirSync(join(dataDir, '.sua'), { recursive: true });
+      writeFileSync(join(dataDir, '.sua', 'policies.json'), JSON.stringify({ version: 1, defaultAction: 'allow', rules: [{ tool: 'edition-apply', resources: ['today'], effect: 'deny', reason: 'Leave the edition alone.' }] }));
+      const denied = await c.callTool({ name: 'edition-apply', arguments: { ops: [{ op: 'numbers', on: false }] } });
+      expect(denied.isError).toBe(true);
+      expect(text(denied)).toBe('Leave the edition alone.');
+    } finally {
+      await c.close();
+    }
+  });
+
   it('items-read lists what needs attention, filtered, as text or JSON', async () => {
     const dbPath = join(dataDir, 'runs.db');
     const agents = new AgentStore(dbPath);
@@ -524,6 +559,15 @@ describe('MCP board tools', () => {
       expect(read.isError).toBeFalsy();
       expect(text(read)).toContain('# Brief: northwind.example');
       expect(text(read)).toContain('They raised a Series B');
+      // A host that draws A2UI (ADR-0090): the notebook's data for the a2ui://notebook layout, named in _meta.ui.
+      const res = (read.content as Array<{ type: string; resource?: { uri: string; mimeType: string; text: string } }>).find((x) => x.type === 'resource')!.resource!;
+      expect(res).toMatchObject({ uri: `a2ui://notebook/data/${nb.id}`, mimeType: 'application/a2ui+json' });
+      const [data] = JSON.parse(res.text) as Array<{ version: string; updateDataModel: { surfaceId: string; value: { title: string } } }>;
+      expect(data).toMatchObject({ version: '1.0', updateDataModel: { surfaceId: 'sua_notebook', value: { title: '## Brief: northwind.example' } } });
+      expect((read as { _meta?: unknown })._meta).toEqual({ ui: { resourceUri: 'a2ui://notebook', mimeType: 'application/a2ui+json' } });
+      const layout = await c.readResource({ uri: 'a2ui://notebook' });
+      const msgs = JSON.parse((layout.contents[0] as { text: string }).text) as Array<Record<string, unknown>>;
+      expect(msgs.map((m) => Object.keys(m).find((k) => k !== 'version'))).toEqual(['createSurface', 'updateComponents']);
       const json = JSON.parse(text(await c.callTool({ name: 'notebook-read', arguments: { notebook: nb.id, format: 'json', part: 'notes' } }))) as { archived: boolean; notes: { items: unknown[] } };
       expect(json).toMatchObject({ archived: true, notes: { items: [expect.objectContaining({ title: 'They raised a Series B' })] } });
 
@@ -565,6 +609,17 @@ describe('MCP board tools', () => {
       expect(text(await c.callTool({ name: 'notebook-tldr', arguments: { notebook: nb.id, action: 'standard' } }))).toContain('Back to the standard picture');
       const store = new NotebookStore(dbPath);
       try { expect(store.get(nb.id)!.tldr).toBeUndefined(); expect(store.tldrUndos(nb.id)).toBe(2); } finally { store.close(); }
+
+      // A composed card (drawn on the Redraw page): a tone keeps its view; a layout replaces it.
+      const view = [{ id: 'root', component: 'TldrPart', part: 'stats' }];
+      const composed = new NotebookStore(dbPath);
+      try { composed.setTldr(nb.id, { size: 'landscape', tone: 'plain', layout: 'stack', parts: ['lead'], view: view as never }); } finally { composed.close(); }
+      await c.callTool({ name: 'notebook-tldr', arguments: { notebook: nb.id, tone: 'bold' } });
+      const toned = new NotebookStore(dbPath);
+      try { expect(toned.get(nb.id)!.tldr!.view).toEqual(view); } finally { toned.close(); }
+      await c.callTool({ name: 'notebook-tldr', arguments: { notebook: nb.id, layout: 'split' } });
+      const laid = new NotebookStore(dbPath);
+      try { expect(laid.get(nb.id)!.tldr).toMatchObject({ layout: 'split', tone: 'bold' }); expect(laid.get(nb.id)!.tldr!.view).toBeUndefined(); } finally { laid.close(); }
 
       mkdirSync(join(dataDir, '.sua'), { recursive: true });
       writeFileSync(join(dataDir, '.sua', 'policies.json'), JSON.stringify({ version: 1, defaultAction: 'allow', rules: [{ tool: 'notebook-tldr', resources: [nb.id], effect: 'deny', reason: 'Leave that picture alone.' }] }));

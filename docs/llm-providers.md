@@ -84,6 +84,13 @@ named entry with an `apiBase`, an optional `apiKey`, and a `model`. Set `"vision
   keyed by provider id or a custom provider's name). Claude without one tries
   Sonnet; the others go straight on. If the fallback is busy too, the waterfall
   moves on to the next provider.
+- **An answer in the wrong shape gets one more try on the same provider.**
+  When a node declares an output contract (`outputContract`, such as a
+  required `<answer>` block) and the provider answers without it, that
+  provider is asked once more. The prompt then ends with what was missing
+  ("Your previous answer to this was not in the required format: …"). If the
+  second answer misses too, the node goes on to the next provider. Both
+  attempts count toward the node's tokens and cost.
 - **A provider that's down stays skipped for a while.** Out of quota or credit,
   not installed or not reachable, signed out, or rate limited: the next nodes
   don't try it again until its cooldown ends. The cooldown runs until the reset
@@ -94,8 +101,9 @@ named entry with an `apiBase`, an optional `apiKey`, and a `model`. Set `"vision
   (quota_exceeded) 4 min ago; tried again after 12:28 PM.") and in the log as
   `[llm-fallback] …: skipping codex (quota_exceeded) until …`. When it works
   again it's back at once. When every provider is cooling down, the chain is
-  tried as configured. The cooldown is kept in memory by each process (the
-  worker, the dashboard), so a restart forgets it. Before this, an out-of-quota
+  tried as configured. Cooldowns are shared by every sua process through
+  `data/provider-cooldowns.json` and survive a restart (see "Skipped for
+  now" below). Before this, an out-of-quota
   provider and a local model that wasn't running cost every node about 16
   seconds.
 - When every attempt fails, the node's error says what each one ran into, in
@@ -225,6 +233,31 @@ reason, agent/node). Each run's node execution also stores `usedProvider` (which
 provider actually produced the output) and the full `attemptedProviders` trail,
 visible on the run-detail page: every llm node shows which provider it ran on,
 plus the failed hops when the waterfall fell through.
+
+### How each provider did lately
+
+The waterfall hides a provider that never works, because its nodes still succeed on the next one. To make that visible, sua reads the last 7 days of node records:
+- **Settings → LLM** shows a line under each provider: *answered N · failed M (mostly out of quota) · last answered 2 hours ago*. It also says how many nodes went to a later provider, and what they cost.
+- **`sua doctor`** has a *Model providers (last 7 days)* check. It fails only for a provider that has never answered, which is a setup problem: not started, not installed, or the wrong URL.
+- **When the dashboard starts**, it logs a `[providers]` line for an enabled provider that never answered (5 or more tries), or that failed at least half of 10 or more tries.
+
+Passing over a provider while it cools down after a failure isn't counted as a try.
+
+### Skipped for now
+
+A provider that fails in a way that will keep failing is skipped by every node until its cooldown ends, instead of being tried and failing again each time. That covers running out of quota or credit, a CLI or server that isn't there, being signed out, and being rate limited. The cooldown lasts until the time the error gives, or until the default for that kind of failure (30 minutes for quota, 5 for an unreachable provider). A success clears it.
+
+Cooldowns are shared through `data/provider-cooldowns.json`, so the dashboard, the worker and the scheduler learn about a failure once between them, and a cooldown survives a restart. Settings → LLM shows each provider that's being skipped, with why and until when, and a **Try it now** button that clears the cooldown.
+
+### A daily cap on fallback spend
+
+When your first provider runs out of quota, every node's next stop may be a paid one. Set **Daily cap on fallbacks** in Settings → LLM (USD a day, local time) to put a limit on that. Once the day's fallback spend reaches the cap, a node stops instead of falling back to a paid provider, and its error says so. A paid fallback that still has room is held to what's left; Claude gets it as `--max-budget-usd`.
+
+- **Paid** means Claude, or any provider with a price in Pricing. A free fallback, such as a local model or a CLI with no price, is never held back.
+- **A node whose first provider answers** is never held back.
+- **Fallback spend** is the recorded cost of nodes that tried, or skipped, an earlier provider. The setting shows today's total.
+
+There's no cap by default.
 
 ## Tool-calling
 

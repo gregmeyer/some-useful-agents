@@ -21,14 +21,18 @@
 .nb-hero__main { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; container-type: inline-size; }
 /* A notebook drawn as widgets: "Done when" lives in the widgets, so the header is one column with its actions beside the title. */
 .nb-hero--wide { grid-template-columns: minmax(0, 1fr); }
-.nb-hero__titlerow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.nb-hero__titlerow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); }
+/* The title wraps in its own column; the star (and a status that isn't "active") sit after it. */
+.nb-hero__nameline { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); min-width: 0; }
+/* Narrow (a phone, or beside a drawn side part): the buttons take their own row under the title. */
+@container (max-width: 720px) { .nb-hero__acts { grid-column: 1 / -1; justify-self: start; } }
 /* A drawn page's header (its layout's NotebookHeader): a subtitle under the title, a drawn side part, steps that fold. */
 .nb-hero--side { grid-template-columns: minmax(0, 1fr) minmax(260px, 340px); }
 @media (max-width: 900px) { .nb-hero--side { grid-template-columns: minmax(0, 1fr); } }
 .nb-hero__names { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .nb-hero__subtitle { margin: 0; font-family: var(--font-mono); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-primary); }
 .nb-hero__side--drawn { min-width: 0; }
-.nb-hero__acts { margin-left: auto; }
+.nb-hero__acts { justify-self: end; }
 .nb-hero__acts .nb-acts { align-items: center; }
 .nb-hero__icon {
   flex: none;
@@ -55,7 +59,9 @@
   font-size: var(--font-size-xs);
   color: var(--color-text);
 }
-.nb-hero__meta { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.nb-hero__meta { font-size: var(--font-size-sm); color: var(--color-text-subtle); }
+/* Its parts already sit apart by the hero's gap: no margins of their own on top. */
+.nb-hero__main > .nb-meeting, .nb-hero__main > .nb-chips, .nb-hero__main > .nb-steps { margin-top: 0; margin-bottom: 0; }
 .nb-decided {
   padding: var(--space-2) var(--space-3);
   border-left: 3px solid var(--color-ok);
@@ -150,6 +156,10 @@
 .nb-share__as { flex: none; display: flex; gap: var(--space-1); }
 .nb-share__as a { padding: 3px var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); color: var(--color-text); text-decoration: none; font-size: var(--font-size-xs); line-height: 1.4; white-space: nowrap; }
 .nb-share__as a:hover, .nb-share__as a:focus-visible { border-color: var(--color-primary); background: var(--color-primary-soft); color: var(--color-primary); }
+/* The TL;DR card switch: Auto · Always · Never, the one in force filled. */
+.nb-share__as .nb-share__mode { padding: 3px var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: none; color: var(--color-text); font: inherit; font-size: var(--font-size-xs); cursor: pointer; }
+.nb-share__as .nb-share__mode:hover, .nb-share__as .nb-share__mode:focus-visible { border-color: var(--color-primary); color: var(--color-primary); }
+.nb-share__as .nb-share__mode.is-on { border-color: var(--color-primary); background: var(--color-primary-soft); color: var(--color-primary); font-weight: 600; }
 .nb-csv__brief-label { margin-top: var(--space-2); border-top: 1px solid var(--color-border); }
 .nb-csv__hint { border-top: 0 !important; padding-top: 0 !important; padding-left: var(--space-3); }
 .nb-csv__item { display: flex; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); color: var(--color-text); text-decoration: none; font-size: var(--font-size-sm); }
@@ -709,7 +719,7 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nbt__side { display: grid; gap: var(--space-4); min-width: 0; }
 .nbt__h { margin: 0 0 var(--space-2); font-family: var(--font-mono); font-size: var(--font-size-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-muted); }
 .nbt__spec { margin: 0; font-size: var(--font-size-sm); }
-.nbt__about, .nbt__asked, .nbt__hint { margin: var(--space-2) 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); line-height: 1.5; }
+.nbt__about, .nbt__asked, .nbt__prefer, .nbt__hint { margin: var(--space-2) 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); line-height: 1.5; }
 .nbt__hint { font-size: var(--font-size-xs); }
 .nbt__form { display: grid; gap: var(--space-2); justify-items: start; margin: 0; }
 .nbt__form textarea { width: 100%; }
@@ -801,12 +811,6 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nb-step__how:hover, .nb-step__how:focus-visible { color: var(--color-primary); }
 
 /* What made the notebook, under its steps: agents, runs, when last, and the way into How it was made. */
-.nb-madeby { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); margin: var(--space-2) 0 var(--space-3); padding: var(--space-2) var(--space-3); border: 1px dashed var(--color-border-strong); border-radius: var(--radius-md); color: var(--color-text); text-decoration: none; }
-.nb-madeby:hover, .nb-madeby:focus-visible { border-style: solid; border-color: var(--color-primary); }
-.nb-madeby__text { display: grid; gap: 2px; min-width: 0; }
-.nb-madeby__line { font-size: var(--font-size-sm); }
-.nb-madeby__who { font: var(--font-size-xs) var(--font-mono); color: var(--color-text-muted); overflow-wrap: anywhere; }
-.nb-madeby__go { flex: none; }
 
 /* What's new since the last run (a briefing rerun): views/notebooks.ts whatsNewBand. */
 .nb-new { margin: 0 0 var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); background: var(--color-primary-soft); }
@@ -1047,7 +1051,7 @@ body.has-sua-panel .nb-toast { display: none; }
 .nbt-hand > summary { cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-muted); }
 .nbt-hand[open] > summary { margin-bottom: var(--space-3); }
 /* Beside a drawn side part the title row is narrow: the buttons take their own row, under the title. */
-.nb-hero--side .nb-hero__acts { margin-left: 0; flex-basis: 100%; }
+.nb-hero--side .nb-hero__acts { grid-column: 1 / -1; justify-self: start; }
 
 /* How it looks (Edit): each look drawn small from its own page, picked like a brand in Appearance. */
 .nbe-looks { display: grid; gap: var(--space-1); }
@@ -1312,3 +1316,31 @@ body.has-sua-panel .nb-toast { display: none; }
 .nbd-add__hint { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .nbd-add__body { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
 .nbd-add__body textarea { width: 100%; resize: vertical; }
+
+/* ---------- Star a notebook ---------- */
+/* A card's star sits over its cover, beside the link (a form can't go in a link). Shown on hover or focus until starred; always on touch. */
+.nbl-cardwrap { position: relative; display: flex; }
+.nbl-cardwrap > .nbl-card { flex: 1; min-width: 0; }
+.nbl-card__star { position: absolute; top: var(--space-2); left: var(--space-2); z-index: 2; margin: 0; }
+.nbl-card__star .btn-star { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 999px; /* over the photo itself, so the same in either theme */ background: rgb(0 0 0 / 0.55); color: #fff; backdrop-filter: blur(4px); opacity: 0; transition: opacity 120ms ease; }
+.nbl-card__star .btn-star.is-starred, .nbl-cardwrap:hover .btn-star, .nbl-cardwrap:focus-within .btn-star { opacity: 1; }
+.nbl-card__star .btn-star.is-starred, .nbl-card__star .btn-star:hover { color: #e8a100; }
+@media (hover: none) { .nbl-card__star .btn-star { opacity: 1; } }
+.nb-hero__star { margin: 0; }
+.nb-hero__star .btn-star { font-size: var(--font-size-lg); padding: var(--space-1); }
+.nbt__failed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.nbt__failed p { margin: 0; flex: 1 1 16rem; }
+.nbt__failed form { margin: 0; }
+
+/* The header's add row: Add the meeting, what you gave, Add a file or paste, as a line of links; one opens under the row at a time. */
+.nb-hero__adds { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-4); font-size: var(--font-size-sm); }
+.nb-hero__adds > .nb-meeting { display: contents; }
+.nb-hero__adds .nb-meeting__line, .nb-hero__adds .nb-meeting__stale { flex-basis: 100%; order: -1; }
+.nb-hero__add > summary { cursor: pointer; list-style: none; color: var(--color-primary); min-height: var(--control-h-sm); display: inline-flex; align-items: center; }
+.nb-hero__add > summary::-webkit-details-marker { display: none; }
+.nb-hero__add > summary::before { content: none; display: none; }
+.nb-hero__add > summary:hover, .nb-hero__add > summary:focus-visible { text-decoration: underline; }
+.nb-hero__add[open] { flex-basis: 100%; order: 1; }
+.nb-hero__addpanel { display: grid; gap: var(--space-3); margin-top: var(--space-2); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-muted); }
+.nb-hero__addpart + .nb-hero__addpart { border-top: 1px solid var(--color-border); padding-top: var(--space-3); }
+.nb-given--fresh { margin: var(--space-3) 0 var(--space-4); }

@@ -1,6 +1,7 @@
-import { renderBoardPage, renderTodayEdition } from './boards.js';
-import { editionPrefsStoreOf } from '../lib/today-edition.js';
-import { applyEditionAsk, discardEditionAsk, startEditionAsk } from '../lib/edition-ask.js';
+import { renderBoardPage, renderTodayEdition, renderTodayEmpty } from './boards.js';
+import { editionFreshness, editionPrefsStoreOf, todayEdition } from '../lib/today-edition.js';
+import { lastRunInputs, startAgentRun } from './widget-run.js';
+import { actOnEditionRow, applyEditionAsk, discardEditionAsk, startEditionAsk } from '../lib/edition-ask.js';
 import { applyEditionOps } from '@some-useful-agents/core';
 import { Router, type Request, type Response } from 'express';
 import { PULSE_BOARD_ID, parseAgent, getSchedulerStatus, type Agent, type AgentSignal, type SignalTemplate, type SignalAccent } from '@some-useful-agents/core';
@@ -10,7 +11,7 @@ import { getContext } from '../context.js';
 import type { PulseTile } from '../views/pulse.js';
 import { buildPulseTile, withTileSignal, attachLayoutHints } from '../views/pulse-tile-builder.js';
 import { TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
-import { schedulerTileState } from '../lib/scheduler-tile.js';
+import { schedulerProblem, schedulerTileState } from '../lib/scheduler-tile.js';
 
 export const pulseRouter: Router = Router();
 
@@ -118,6 +119,32 @@ function buildSystemTiles(ctx: ReturnType<typeof getContext>): PulseTile[] {
   ];
 }
 
+/**
+ * All agents' health in one line, problems first (no boxes, no emoji): the
+ * scheduler when it's stopped, then runs in the last day and how many
+ * failed (linked to them). `quiet` is true when nothing is wrong.
+ */
+export function pulseHealthLine(ctx: ReturnType<typeof getContext>, now = Date.now()): { parts: Array<{ text: string; href?: string; bad?: boolean }>; quiet: boolean } {
+  const dayAgo = new Date(now - 86_400_000).toISOString();
+  let runs = 0;
+  let failed = 0;
+  try {
+    for (const r of ctx.runStore.queryRuns({ limit: 500, offset: 0 }).rows) {
+      if (r.startedAt < dayAgo) continue;
+      runs++;
+      if (r.status === 'failed') failed++;
+    }
+  } catch { /* no runs */ }
+  const parts: Array<{ text: string; href?: string; bad?: boolean }> = [];
+  const scheduler = schedulerProblem(ctx);
+  if (scheduler) parts.push({ text: scheduler.replace(/\.$/, ''), href: '/scheduled', bad: true });
+  if (failed) parts.push({ text: `${String(failed)} of ${String(runs)} run${runs === 1 ? '' : 's'} failed in the last day`, href: '/runs?status=failed', bad: true });
+  else parts.push({ text: runs ? `${String(runs)} run${runs === 1 ? '' : 's'} in the last day, none failed` : 'No runs in the last day' });
+  return { parts, quiet: !scheduler && !failed };
+}
+
+export { schedulerProblem };
+
 /** Scheduler health as a board tile. Mapping lives in lib/scheduler-tile.ts. */
 function schedulerTile(ctx: ReturnType<typeof getContext>): PulseTile {
   const { status, heartbeat } = getSchedulerStatus(ctx.dataDir);
@@ -139,10 +166,9 @@ function schedulerTile(ctx: ReturnType<typeof getContext>): PulseTile {
 // ── Routes ───────────────────────────────────────────────────────────────
 
 /**
- * Assemble the live Pulse board data: the 5 virtual system tiles + a tile per
- * visible signal agent (two visibility gates) + the hidden count + dashboards
- * and available packs. Shared by GET /pulse and the Mission Control home (`/`)
- * so both render the identical board with zero divergence. Idempotent —
+ * Assemble the live Pulse board data (All agents, `/pulse/agents`): the 5
+ * virtual system tiles + a tile per visible signal agent (two visibility
+ * gates) + the hidden agents + dashboards and available packs. Idempotent —
  * `autoImportSignalExamples` only upserts examples not already installed.
  */
 export function buildPulseBoardData(ctx: ReturnType<typeof getContext>): {
@@ -198,8 +224,9 @@ pulseRouter.get('/pulse', (req: Request, res: Response) => {
   const flash = parsePulseFlash(req);
   // `?edition=` is a message about the edition itself: it stays on the edition.
   const said = typeof req.query.edition === 'string' ? { kind: 'ok' as const, message: req.query.edition } : undefined;
-  const edition = flash ? undefined : renderTodayEdition(ctx, said ? { flash: said } : {});
-  res.type('html').send(edition ?? renderBoardPage(ctx, PULSE_BOARD_ID, { flash })!);
+  // A flash from the grid lands on the grid; otherwise Today, with what would fill it when there's nothing yet.
+  if (flash) { res.type('html').send(renderBoardPage(ctx, PULSE_BOARD_ID, { flash })!); return; }
+  res.type('html').send(renderTodayEdition(ctx, said ? { flash: said } : {}) ?? renderTodayEmpty(ctx, said ? { flash: said } : {}));
 });
 
 /** Change the edition by asking (ADR-0076): sua works out the changes; you apply or discard them. */
@@ -217,9 +244,40 @@ pulseRouter.post('/pulse/edition/ask/:id/apply', (req: Request, res: Response) =
   const out = applyEditionAsk(getContext(req.app.locals), String(req.params.id));
   res.redirect(303, `/pulse?edition=${encodeURIComponent(out.message)}`);
 });
+/** One row of the proposal: apply or skip a change, or run a part again (its own button; never in Apply all). */
+pulseRouter.post('/pulse/edition/ask/:id/row/:n', (req: Request, res: Response) => {
+  const what = String((req.body as { do?: unknown } | undefined)?.do ?? '');
+  if (what !== 'apply' && what !== 'skip' && what !== 'run' && what !== 'draft') { res.redirect(303, '/pulse'); return; }
+  const out = actOnEditionRow(getContext(req.app.locals), String(req.params.id), Number(req.params.n), what);
+  res.redirect(303, `/pulse?edition=${encodeURIComponent(out.message)}`);
+});
 pulseRouter.post('/pulse/edition/ask/:id/discard', (req: Request, res: Response) => {
   discardEditionAsk(getContext(req.app.locals), String(req.params.id));
   res.redirect(303, '/pulse');
+});
+
+/** Run one scheduled agent from Today's empty state (its last inputs), then back to Today. */
+pulseRouter.post('/pulse/edition/run', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const agent = ctx.agentStore.getAgent(String((req.body as { agentId?: unknown } | undefined)?.agentId ?? ''));
+  if (!agent || agent.status !== 'active') { res.redirect(303, `/pulse?edition=${encodeURIComponent('No such agent to run.')}`); return; }
+  startAgentRun(ctx, agent, lastRunInputs(ctx, agent));
+  res.redirect(303, `/pulse?edition=${encodeURIComponent(`Running ${agent.name || agent.id}. Its result shows here when it's done.`)}`);
+});
+
+/** Run the edition's parts that are older than a day again, each with its last inputs (one press; nothing runs on its own). */
+pulseRouter.post('/pulse/edition/run-older', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const ed = todayEdition(ctx);
+  const old = ed ? [...editionFreshness(ed.tiles)].filter(([, f]) => f.old).map(([id]) => id) : [];
+  let n = 0;
+  for (const id of old) {
+    const agent = ctx.agentStore.getAgent(id);
+    if (!agent || agent.status !== 'active') continue;
+    startAgentRun(ctx, agent, lastRunInputs(ctx, agent));
+    n++;
+  }
+  res.redirect(303, `/pulse?edition=${encodeURIComponent(n ? `Running ${String(n)} older part${n === 1 ? '' : 's'} again. Each updates on the page when it's done.` : 'Nothing older than a day to run.')}`);
 });
 
 /** Undo the last change to the edition's preferences, forget them all, or bring back an agent you left out (ADR-0076). */

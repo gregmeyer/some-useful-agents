@@ -44,4 +44,22 @@ describe("an answer's check step traces its sources (ADR-0082)", () => {
     const d = notebookWidgetData(s.get(nb.id)!, s.entries(nb.id, 1000)).notebook;
     expect(d.findings.map((f) => f.trace)).toEqual(['verified', 'unverified']);
   });
+
+  it('a notebook with options that writes too: its check step is not done while a source page is untraced', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-trace2-'));
+    const s = NotebookStore.fromHandle(new RunStore(join(dir, 'runs.db')).databaseHandle());
+    const nb = s.create({ title: 'Find jobs' });
+    s.setChecks(nb.id, ['Open']);
+    const steps = s.setSteps(nb.id, [{ title: 'Find', kind: 'find', target: 1 }, { title: 'Check', kind: 'check' }, { title: 'Write up', kind: 'write', shape: 'writeup' }]).steps!;
+    const o = s.addEntry(nb.id, { kind: 'option', title: 'A job', by: 'x' });
+    s.checkOption(nb.id, o.id, 'Open', true);
+    const g = s.addEntry(nb.id, { kind: 'evidence', title: 'A guide', body: '"Ask about the band before the offer" Guide (found by the Web search)', by: 'x', source: 'https://guide.example/x' });
+    let p = stepProgress(s.get(nb.id)!, s.entries(nb.id, 1000), steps[1]);
+    expect(p).toMatchObject({ met: false, have: 1, want: 1 });
+    expect(p.missing).toEqual(['source not traced yet — A guide']);
+    s.setEntryTrace(nb.id, g.id, 'found');
+    p = stepProgress(s.get(nb.id)!, s.entries(nb.id, 1000), steps[1]);
+    expect(p).toMatchObject({ met: true, missing: [] });
+  });
 });
+

@@ -3,7 +3,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_BRAND_THEME, brandThemeCss, loadBrandTheme } from '@some-useful-agents/core';
+import { DEFAULT_BRAND_THEME, brandThemeCss, loadBrandTheme, suaCatalogDocument } from '@some-useful-agents/core';
 import { CLIENT_BUNDLE_JS } from '../views/client-bundle.js';
 import { GRAPH_EDIT_JS } from '../views/graph-edit.js.js';
 
@@ -736,9 +736,35 @@ assetsRouter.get('/assets/vendor/a2ui-v1_0.js', (_req: Request, res: Response) =
   res.setHeader('Cache-Control', 'no-cache');
   res.type('application/javascript').send(A2UI_VENDOR_JS);
 });
+// The sua catalog as an A2UI v1.0 catalog document (ADR-0085): what its catalogId names, for a tool or agent that reads catalogs.
+assetsRouter.get('/a2ui/catalogs/sua/v1.json', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/json').send(JSON.stringify(suaCatalogDocument(), null, 2));
+});
+// Vega and Vega-Lite (ADR-0089), loaded by a2ui-sua.js only when a page draws a VegaChart.
+const A2UI_VEGA_JS = readAsset('vendor/a2ui-vega.js');
+assetsRouter.get('/assets/vendor/a2ui-vega.js', (_req: Request, res: Response) => {
+  if (!A2UI_VEGA_JS) { res.status(500).type('text/plain').send('vega renderer missing; run npm run build'); return; }
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(A2UI_VEGA_JS);
+});
 assetsRouter.get('/assets/a2ui-sua.js', (_req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.type('application/javascript').send(readAsset('a2ui-sua.js'));
+});
+
+// sua's A2UI functions (join, relativeTime, formatRange, count; ADR-0087), imported by a2ui-sua.js.
+const SUA_FUNCTIONS_JS = readAsset('sua-functions.js');
+assetsRouter.get('/assets/sua-functions.js', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(SUA_FUNCTIONS_JS);
+});
+
+// What a drawn surface needs to become a new copy of itself (ADR-0086), imported by a2ui-sua.js.
+const SURFACE_DIFF_JS = readAsset('surface-diff.js');
+assetsRouter.get('/assets/surface-diff.js', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(SURFACE_DIFF_JS);
 });
 
 // Chart arithmetic (ticks, nearest point, a point's note), imported by a2ui-sua.js.

@@ -4,6 +4,9 @@
  * tick a criterion, edit, decide, stop / reopen. Every form redirects back
  * with a flash.
  */
+import { answerAgentFunction } from '../lib/a2ui-agent-functions.js';
+import { inBackground } from '../lib/background.js';
+import { briefChartPictures } from '../lib/brief-charts.js';
 import { ATTACH_FILE_TYPES, chosenPhotoId, attachFileWords, attachTypeOfMime } from '@some-useful-agents/core';
 import { docxText } from '../lib/docx-text.js';
 import { takeAttachments } from '../lib/conversation-attach.js';
@@ -35,7 +38,7 @@ import {
   type NotebookEntry,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
-import { cleanBriefing, cleanTag, cleanTldrSpec, htmlToPdf, htmlToPng, TLDR_SIZES, loadBrandTheme, notebookTags, similarNotebooks, subjectOut, TEMPLATE_SUBJECT } from '@some-useful-agents/core';
+import { cleanBriefing, cleanTag, cleanTldrSpec, htmlToPdf, htmlToPng, TLDR_SIZES, loadBrandTheme, notebookTags, similarNotebooks, subjectOut, TEMPLATE_SUBJECT, tldrPreferenceWords } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { experimentDataFor } from '../lib/experiment-notebook.js';
 import { rerunNotebook, createNotebookFrom } from '../lib/notebook-create.js';
@@ -48,9 +51,10 @@ import { parseFlash as parseQueryFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { renderNotebookBrief, type BriefPicture } from '../views/notebook-brief.js';
 import { briefIsPage, renderPageBrief } from '../views/notebook-page-brief.js';
-import { renderNotebookTldr, tldrData } from '../views/notebook-tldr.js';
+import { chosenPhotoPath, chosenTldrPhoto, renderNotebookTldr, showsTldrCard, tldrData, type TldrData } from '../views/notebook-tldr.js';
 import { renderTldrRedraw } from '../views/notebook-tldr-redraw.js';
-import { startTldrRedraw, tldrRedrawState, clearTldrRedraw } from '../lib/notebook-tldr-redraw.js';
+import { startTldrRedraw, tldrRedrawState, clearTldrRedraw, tldrPreferenceFor } from '../lib/notebook-tldr-redraw.js';
+import { localBack } from '../lib/local-back.js';
 import { notebookCard, notebookCover, notebookCoverSrc, notebookLead } from '../lib/notebook-card.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook, skipUnfiledRuns } from '../lib/notebook-pipeline.js';
 import { keepPhotos, startListingPhotos } from '../lib/notebook-photos.js';
@@ -98,24 +102,26 @@ notebooksRouter.get('/notebooks', (req: Request, res: Response) => {
   if (req.query.new === '1') { res.redirect(302, `/notebooks/new${req.query.flash ? `?flash=${encodeURIComponent(str(req.query.flash))}` : ''}`); return; }
   const s = store(req);
   const q = str(req.query.q).trim().slice(0, 100);
-  const status = (['active', 'decided', 'stopped', 'all', 'archived'] as const).find((v) => v === req.query.status) ?? 'active';
+  const status = (['active', 'decided', 'stopped', 'all', 'starred', 'archived'] as const).find((v) => v === req.query.status) ?? 'active';
   const sort = (['updated', 'created', 'title'] as const).find((v) => v === req.query.sort) ?? 'updated';
   // Archived notebooks show only under Archived; All means everything not archived.
   const all = s.list();
   const archived = s.list({ archived: 'only' });
-  const counts = { active: 0, decided: 0, stopped: 0, all: all.length, archived: archived.length };
-  for (const nb of all) counts[nb.status]++;
+  const counts = { active: 0, decided: 0, stopped: 0, all: all.length, starred: 0, archived: archived.length };
+  for (const nb of all) { counts[nb.status]++; if (nb.starredAt) counts.starred++; }
   const needle = q.toLowerCase();
   const tag = cleanTag(str(req.query.tag));
   const onTab = (status === 'archived' ? archived : all)
-    .filter((nb) => status === 'all' || status === 'archived' || nb.status === status);
+    .filter((nb) => status === 'all' || status === 'archived' || (status === 'starred' ? !!nb.starredAt : nb.status === status));
   // The tab's tags, most used first; the one filtered by stays listed even when nothing has it now.
   const tags = tagCounts(onTab);
   if (tag && !tags.some((t) => t.tag === tag)) tags.unshift({ tag, count: 0 });
   const found = (nb: Notebook) => (!tag || notebookTags(nb).includes(tag))
     && (!needle || [nb.title, nb.statement, nb.decision ?? '', ...nb.params, ...notebookTags(nb), nb.tags?.subject ?? ''].some((t) => t.toLowerCase().includes(needle)));
   const matches = onTab.filter(found)
-    .sort((a, b) => sort === 'title' ? a.title.localeCompare(b.title) : sort === 'created' ? b.createdAt.localeCompare(a.createdAt) : b.updatedAt.localeCompare(a.updatedAt));
+    // Starred ones first, whatever the sort.
+    .sort((a, b) => Number(!!b.starredAt) - Number(!!a.starredAt)
+      || (sort === 'title' ? a.title.localeCompare(b.title) : sort === 'created' ? b.createdAt.localeCompare(a.createdAt) : b.updatedAt.localeCompare(a.updatedAt)));
   // Nothing here for a search or tag: where it does match (All, Archived), so it isn't a dead end.
   const elsewhere = matches.length || !(needle || tag) ? [] : ([['all', all], ['archived', archived]] as const)
     .filter(([st]) => st !== status)
@@ -448,6 +454,17 @@ notebooksRouter.get('/notebooks/:id/about/:who/photo', (req: Request, res: Respo
   res.end(Buffer.from(photo.bytes));
 });
 
+/**
+ * A notebook page's A2UI agent function call (callAgentFunction), answered
+ * (agentFunctionResponse; ADR-0088): only for that notebook's own page, about
+ * that notebook, and only reading it.
+ */
+notebooksRouter.post('/a2ui/agent-functions', (req: Request, res: Response) => {
+  const answer = answerAgentFunction(store(req), req.body);
+  if (!answer) { res.status(400).json({ error: 'Not a callAgentFunction message.' }); return; }
+  res.json(answer);
+});
+
 /** The picture chosen for the notebook itself, as kept (never loaded from its site). */
 notebooksRouter.get('/notebooks/:id/photo', (req: Request, res: Response) => {
   const photo = store(req).photo(chosenPhotoId(String(req.params.id)));
@@ -634,7 +651,7 @@ notebooksRouter.get('/notebooks/:id/template', (req: Request, res: Response) => 
   const ctx = getContext(req.app.locals);
   const s = store(req);
   const entries = s.entries(nb.id, 1000);
-  const widgets = notebookWidgetMessages(nb, entries, widgetHistory(ctx, s));
+  const widgets = notebookWidgetMessages(nb, entries, widgetHistory(ctx, s), { tldrCard: showsTldrCard(nb, entries, widgetHistory(ctx, s)) });
   const msg = nb.conversationId ? ctx.inboxStore?.get(nb.conversationId) : undefined;
   res.type('html').send(renderTemplateSave({
     nb, preview: templatePreviewFor(ctx, nb), flash: parseFlash(req),
@@ -818,6 +835,21 @@ notebooksRouter.post('/notebooks/:id/given/:key', (req: Request, res: Response) 
     res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
   }
 });
+
+/**
+ * POST /notebooks/:id/star — star or unstar it (`starred=1|0`; no value
+ * flips it). Back to the page you starred it from (this dashboard only).
+ */
+notebooksRouter.post('/notebooks/:id/star', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const s = store(req);
+  const nb = s.get(id);
+  if (!nb) { res.redirect(303, '/notebooks'); return; }
+  const want = req.body?.starred === '1' ? true : req.body?.starred === '0' ? false : !nb.starredAt;
+  s.setStarred(id, want);
+  res.redirect(303, localBack(req.body?.back) ?? `/notebooks/${encodeURIComponent(id)}`);
+});
+
 
 notebooksRouter.post('/notebooks/:id/archive', (req: Request, res: Response) => {
   const id = String(req.params.id);
@@ -1167,6 +1199,19 @@ notebooksRouter.post('/notebooks/:id/narrow', (req: Request, res: Response) => {
   }
 });
 
+// Whether the page, brief and PDF show the TL;DR card: Auto (when it adds something), Always or Never.
+notebooksRouter.post('/notebooks/:id/tldr-card', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const mode = str(req.body?.mode);
+  if (mode !== 'auto' && mode !== 'always' && mode !== 'never') { res.redirect(303, back(id, 'Choose Auto, Always or Never.')); return; }
+  try {
+    store(req).setTldrCard(id, mode);
+    res.redirect(303, back(id, mode === 'auto' ? 'The TL;DR card shows when it adds something: a chart or a photo.' : mode === 'always' ? 'The TL;DR card always shows.' : 'The TL;DR card is hidden. The TL;DR picture is still under Download / share.'));
+  } catch (err) {
+    res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
+  }
+});
+
 notebooksRouter.post('/notebooks/:id/status', (req: Request, res: Response) => {
   const id = String(req.params.id);
   const status = str(req.body?.status);
@@ -1305,7 +1350,7 @@ notebooksRouter.post('/notebooks/:id/ask', (req: Request, res: Response) => {
   const sent = takeAttachments(ctx, threadId, text);
   const said = ctx.inboxStore.addResponse(threadId, 'user', option ? `About “${shortName(option.title)}”: ${sent}` : str(req.body?.template) === '1' ? `About this notebook's template: ${sent}` : sent);
   publishInboxEvent(ctx, threadId, 'message:created', { responseId: said.id, role: 'user', body: said.body, createdAt: said.createdAt });
-  void runTriageAgent(ctx, threadId).catch(() => { /* logged in helper */ });
+  inBackground(ctx, 'runTriageAgent', runTriageAgent(ctx, threadId).catch(() => { /* logged in helper */ }));
   publishInboxChanged(ctx, threadId, 'open');
   if (isAjax(req)) { res.setHeader('X-Inbox-Id', threadId); res.status(204).end(); return; }
   res.redirect(303, `/inbox/${encodeURIComponent(threadId)}`);
@@ -1327,22 +1372,24 @@ notebooksRouter.get('/notebooks/:id/data.json', (req: Request, res: Response) =>
  * pictures inside it (a saved file or a PDF can't load them from the
  * dashboard). `print`: it opens the browser's print dialog.
  */
-function briefPage(req: Request, s: NotebookStore, nb: Notebook, o: { embed: boolean; print: boolean; mode?: 'light' | 'dark' }): { page: string; full: boolean; latest: boolean } {
+function briefPage(req: Request, s: NotebookStore, nb: Notebook, o: { embed: boolean; print: boolean; mode?: 'light' | 'dark'; charts?: ReadonlyMap<string, string> }): { page: string; full: boolean; latest: boolean; withNew: boolean } {
   const ctx = getContext(req.app.locals);
   // ?full=1: the extended brief, each option in full after the summary.
   const full = req.query.full === '1';
   const entries = s.entries(nb.id, 1000);
   // ?latest=1: only the options the last run found for the first time.
   const latest = req.query.latest === '1';
+  // ?new=1: what's new since the last run, at the top. Left out unless asked: the brief is where the notebook stands.
+  const withNew = req.query.new === '1';
   // The dashboard's look: its brand theme, in your mode (?theme=light|dark; the share links pass yours).
   const dataDir = (req.app.locals as { dataDir?: string }).dataDir;
   const mode = o.mode ?? (req.query.theme === 'light' || req.query.theme === 'dark' ? req.query.theme : undefined);
   const theme = briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode);
   // A page drawn for the notebook (a meeting briefing) prints as that page; a shortlist, as the shortlist brief.
   const page = briefIsPage(nb) && !latest
-    ? renderPageBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(full ? { full: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries), aboutPicture: embeddedAboutPicture(s, nb) } : {}) })
-    : renderNotebookBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(full ? { full: true } : {}), ...(latest ? { latest: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries) } : {}) });
-  return { page, full, latest };
+    ? renderPageBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(withNew ? { whatsNew: true } : {}), ...(o.charts?.size ? { charts: o.charts } : {}), ...(full ? { full: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries), aboutPicture: embeddedAboutPicture(s, nb) } : {}) })
+    : renderNotebookBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(full ? { full: true } : {}), ...(latest ? { latest: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries), aboutPicture: embeddedAboutPicture(s, nb) } : {}) });
+  return { page, full, latest, withNew };
 }
 
 /** A file name from a notebook's title, as you'd name it yourself ("Choose batteries for a 2000 EZGO TXT"), safe on any disk. */
@@ -1363,7 +1410,7 @@ To get a PDF now, <button type="button" onclick="print()" style="font:inherit;pa
 </div>`;
 
 /** A notebook as a brief to share: one self-contained page (?download=1 saves it). */
-notebooksRouter.get('/notebooks/:id/brief.html', (req: Request, res: Response) => {
+notebooksRouter.get('/notebooks/:id/brief.html', async (req: Request, res: Response) => {
   const s = store(req);
   const nb = s.get(String(req.params.id));
   if (!nb) { res.status(404).type('text/plain').send('No such notebook.'); return; }
@@ -1371,7 +1418,9 @@ notebooksRouter.get('/notebooks/:id/brief.html', (req: Request, res: Response) =
   const download = req.query.download === '1';
   // Sent here because the PDF couldn't be made: it says so (on screen only) in place of opening the print dialog unasked.
   const noPdf = req.query.nopdf === '1' && !download;
-  const made = briefPage(req, s, nb, { embed: download || noPdf, print: req.query.print === '1' && !download && !noPdf });
+  // Its charts drawn as pictures first, so the page, the saved file and the PDF show them (ADR-0091).
+  const charts = briefIsPage(nb) ? await briefChartPictures(nb, s.entries(nb.id, 1000), widgetHistory(getContext(req.app.locals), s)).catch(() => new Map<string, string>()) : undefined;
+  const made = briefPage(req, s, nb, { embed: download || noPdf, print: req.query.print === '1' && !download && !noPdf, ...(charts ? { charts } : {}) });
   const { full, latest } = made;
   const page = noPdf ? made.page.replace(/<body[^>]*>/, (m) => `${m}${NO_PDF_NOTE}`) : made.page;
   const name = `${nb.id.replace(/[^a-z0-9-]/gi, '').slice(0, 80) || 'notebook'}-brief${latest ? '-new' : ''}${full ? '-extended' : ''}.html`;
@@ -1392,13 +1441,14 @@ notebooksRouter.get('/notebooks/:id/brief.pdf', async (req: Request, res: Respon
   const s = store(req);
   const nb = s.get(String(req.params.id));
   if (!nb) { res.status(404).type('text/plain').send('No such notebook.'); return; }
-  const { page, full, latest } = briefPage(req, s, nb, { embed: true, print: false, mode: 'light' });
+  const charts = briefIsPage(nb) ? await briefChartPictures(nb, s.entries(nb.id, 1000), widgetHistory(getContext(req.app.locals), s)).catch(() => new Map<string, string>()) : undefined;
+  const { page, full, latest, withNew } = briefPage(req, s, nb, { embed: true, print: false, mode: 'light', ...(charts ? { charts } : {}) });
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const opts = { footer: `${nb.title} · ${date}`, paper: req.query.paper === 'a4' ? 'A4' as const : 'Letter' as const };
   const out = await (ctx.notebookPdf ?? htmlToPdf)(page, opts);
   if (!out.available) {
     console.warn(`[notebooks] brief PDF not made for ${nb.id}: ${out.reason}`);
-    const qs = [full ? 'full=1' : '', latest ? 'latest=1' : '', 'nopdf=1', 'theme=light'].filter(Boolean).join('&');
+    const qs = [full ? 'full=1' : '', latest ? 'latest=1' : '', withNew ? 'new=1' : '', 'nopdf=1', 'theme=light'].filter(Boolean).join('&');
     res.redirect(303, `/notebooks/${encodeURIComponent(nb.id)}/brief.html?${qs}`);
     return;
   }
@@ -1427,11 +1477,21 @@ function tldrPage(req: Request, s: NotebookStore, nb: Notebook, embed: boolean):
     ? cleanTldrSpec({ ...(nb.tldr ?? {}), ...Object.fromEntries(['size', 'tone', 'layout', 'picture', 'headline', 'takeaway'].filter((k) => typeof req.query[k] === 'string').map((k) => [k, req.query[k]])), ...(typeof req.query.parts === 'string' ? { parts: req.query.parts.split(',') } : {}), ...(typeof req.query.bars === 'string' ? { bars: Number(req.query.bars) } : {}) })
     : nb.tldr;
   // The picture chosen for the notebook leads its photos (inside the picture when it's made into a file).
-  const chosenPath = nb.photo ? `/notebooks/${encodeURIComponent(nb.id)}/photo?v=${encodeURIComponent(nb.photo.at)}` : undefined;
-  const chosenSrc = chosenPath ? (embed ? embeddedAboutPicture(s, nb)(chosenPath) : chosenPath) : undefined;
-  const chosen = nb.photo && chosenSrc ? { src: chosenSrc, credit: (() => { try { return new URL(nb.photo!.page ?? nb.photo!.image).hostname.replace(/^www\./, ''); } catch { return 'chosen'; } })(), name: nb.photo.alt ?? nb.title } : undefined;
+  const chosenPath = chosenPhotoPath(nb);
+  const chosen = chosenTldrPhoto(nb, chosenPath ? (embed ? embeddedAboutPicture(s, nb)(chosenPath) : chosenPath) : undefined);
   const page = renderNotebookTldr({ nb, entries, history: widgetHistory(ctx, s), theme: briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode), pictures: embed ? embeddedPictures(s, nb, entries) : (o) => o.image, ...(aboutPicture ? { aboutPicture } : {}), ...(chosen ? { chosen } : {}), ...(spec ? { spec } : {}) });
   return { page, width: TLDR_SIZES[spec?.size ?? 'standard'].width };
+}
+
+/**
+ * What the picture says now, for sua to compose around: its words and
+ * numbers, and which pictures there are (their addresses stand in for them,
+ * so a card leads with a picture only when there is one).
+ */
+function redrawCard(ctx: ReturnType<typeof getContext>, s: NotebookStore, nb: Notebook): TldrData {
+  const kept = nb.about ? s.aboutPhotos(nb.id) : new Set<string>();
+  const who = nb.about?.person?.name && kept.has('person') ? 'person' as const : nb.about?.company?.name && !nb.about?.person?.name && kept.has('company') ? 'company' as const : undefined;
+  return tldrData(nb, s.entries(nb.id, 1000), widgetHistory(ctx, s), (o) => o.image, who ? { src: 'kept', ...(s.aboutPhoto(nb.id, who)?.kind === 'logo' ? { logo: true } : {}) } : undefined, nb.photo ? { src: 'chosen', credit: 'chosen', name: nb.photo.alt ?? nb.title } : undefined);
 }
 
 /** The Redraw page: the picture as it is, and a box to say how you'd like it drawn. */
@@ -1443,7 +1503,8 @@ notebooksRouter.get('/notebooks/:id/tldr', (req: Request, res: Response) => {
   const state = tldrRedrawState(ctx, nb.id);
   // How the last one ended is said once.
   clearTldrRedraw(ctx, nb.id);
-  res.type('html').send(renderTldrRedraw({ nb, ...(state && state.status !== 'done' ? { state } : {}), undos: s.tldrUndos(nb.id), flash: parseFlash(req) }));
+  const prefer = tldrPreferenceWords(tldrPreferenceFor(nb, redrawCard(ctx, s, nb)));
+  res.type('html').send(renderTldrRedraw({ nb, prefer, ...(state && state.status !== 'done' ? { state } : {}), undos: s.tldrUndos(nb.id), flash: parseFlash(req) }));
 });
 
 /** Whether a redraw is under way (the Redraw page polls this, and reloads when it's over). */
@@ -1462,12 +1523,7 @@ notebooksRouter.post('/notebooks/:id/tldr/redraw', (req: Request, res: Response)
   if (!nb) { res.redirect(303, `/notebooks?flash=${encodeURIComponent('No such notebook.')}`); return; }
   const ask = str(req.body?.ask).trim();
   if (!ask) { res.redirect(303, to('Say how you want it drawn.')); return; }
-  // What the picture says now, for sua to choose around: its words and numbers, and which pictures there are
-  // (their addresses stand in for them: a layout that leads with a picture is chosen only when there is one).
-  const kept = nb.about ? s.aboutPhotos(nb.id) : new Set<string>();
-  const who = nb.about?.person?.name && kept.has('person') ? 'person' as const : nb.about?.company?.name && !nb.about?.person?.name && kept.has('company') ? 'company' as const : undefined;
-  const card = tldrData(nb, s.entries(nb.id, 1000), widgetHistory(ctx, s), (o) => o.image, who ? { src: 'kept', ...(s.aboutPhoto(nb.id, who)?.kind === 'logo' ? { logo: true } : {}) } : undefined, nb.photo ? { src: 'chosen', credit: 'chosen', name: nb.photo.alt ?? nb.title } : undefined);
-  const started = startTldrRedraw(ctx, nb.id, card, ask);
+  const started = startTldrRedraw(ctx, nb.id, redrawCard(ctx, s, nb), ask);
   res.redirect(303, started ? to() : to('sua is already redrawing it. Ask again when it\'s done.'));
 });
 

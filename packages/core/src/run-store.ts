@@ -1,3 +1,5 @@
+import type { ProviderHealthInput } from './provider-health.js';
+import { BLOB_MIN_CHARS, blobRefs, packLargeStrings, unpackLargeStrings } from './run-blobs.js';
 import type { LlmUsage, NodeUsage, UsageTotal } from './usage.js';
 import { DatabaseSync } from 'node:sqlite';
 import type { ToolCallRecord } from './tool-call-record.js';
@@ -302,6 +304,9 @@ export class RunStore {
       if (!execCols.has(col)) addColumnIfMissing(this.db, `ALTER TABLE node_executions ADD COLUMN ${col} ${type}`);
     }
 
+    // Large strings in stored inputs, kept once (run-blobs.ts).
+    this.db.exec(`CREATE TABLE IF NOT EXISTS run_blobs (hash TEXT PRIMARY KEY, body TEXT NOT NULL, bytes INTEGER NOT NULL)`);
+
     // Every tool call a model made during a node (see tool-call-record.ts).
     // Child of node_executions by (runId, nodeId). RunStore does not enable
     // foreign_keys, so retention deletes these explicitly (sweepExpired).
@@ -384,7 +389,102 @@ export class RunStore {
       `DELETE FROM runs WHERE startedAt < datetime('now', ?)`,
     );
     const result = stmt.run(cutoff);
-    return Number(result.changes ?? 0);
+    const changes = Number(result.changes ?? 0);
+    if (changes > 0) this.pruneBlobs();
+    return changes;
+  }
+
+  /** Node rows since `sinceIso` with what provider-health.ts needs (who answered, who failed first, cost). */
+  providerHealthRows(sinceIso: string): ProviderHealthInput[] {
+    return (this.db.prepare(
+      `SELECT usedProvider, provider_failures_json AS providerFailures, cost_usd AS costUsd, startedAt FROM node_executions
+       WHERE startedAt >= ? AND (usedProvider IS NOT NULL OR provider_failures_json IS NOT NULL)`,
+    ).all(sinceIso) as unknown) as ProviderHealthInput[];
+  }
+
+  // -- Large strings in stored inputs, kept once (run-blobs.ts) --
+
+  // Methods, not arrow fields: fromHandle() builds the store with Object.create, which skips field initialisers.
+  private putBlob(hash: string, body: string): void {
+    this.db.prepare('INSERT OR IGNORE INTO run_blobs (hash, body, bytes) VALUES (?, ?, ?)').run(hash, body, Buffer.byteLength(body));
+  }
+
+  private getBlob(hash: string): string | undefined {
+    const row = this.db.prepare('SELECT body FROM run_blobs WHERE hash = ?').get(hash) as { body: string } | undefined;
+    return row?.body;
+  }
+
+  private pack(json: string | undefined): string | undefined {
+    return packLargeStrings(json, (h, b) => this.putBlob(h, b));
+  }
+
+  private unpack(json: string | null | undefined): string | undefined {
+    return unpackLargeStrings(json ?? undefined, (h) => this.getBlob(h));
+  }
+
+  /** Delete stored strings no run refers to any more (after a retention sweep). Returns how many. */
+  pruneBlobs(): number {
+    const used = new Set<string>();
+    const like = '%"$sua_blob"%';
+    for (const r of this.db.prepare('SELECT inputsJson AS a, upstreamInputsJson AS b FROM node_executions WHERE inputsJson LIKE ? OR upstreamInputsJson LIKE ?').iterate(like, like) as Iterable<{ a: string | null; b: string | null }>) {
+      for (const h of [...blobRefs(r.a), ...blobRefs(r.b)]) used.add(h);
+    }
+    for (const r of this.db.prepare('SELECT resume_context_json AS a FROM runs WHERE resume_context_json LIKE ?').iterate(like) as Iterable<{ a: string | null }>) {
+      for (const h of blobRefs(r.a)) used.add(h);
+    }
+    let removed = 0;
+    const del = this.db.prepare('DELETE FROM run_blobs WHERE hash = ?');
+    for (const r of this.db.prepare('SELECT hash FROM run_blobs').all() as Array<{ hash: string }>) {
+      if (!used.has(r.hash)) { del.run(r.hash); removed += 1; }
+    }
+    return removed;
+  }
+
+  /**
+   * Rewrite rows stored before large strings were kept once, a batch at a
+   * time, then drop stored strings nothing refers to. Returns how many rows
+   * changed and the characters they shrank by. Safe to run again.
+   */
+  compactStoredInputs(batch = 200): { rows: number; charsSaved: number } {
+    let rows = 0;
+    let charsSaved = 0;
+    const min = BLOB_MIN_CHARS;
+    let after = 0;
+    for (;;) {
+      const page = this.db.prepare(
+        `SELECT rowid AS id, inputsJson AS a, upstreamInputsJson AS b FROM node_executions
+         WHERE rowid > ? AND (length(inputsJson) >= ? OR length(upstreamInputsJson) >= ?) ORDER BY rowid LIMIT ?`,
+      ).all(after, min, min, batch) as Array<{ id: number; a: string | null; b: string | null }>;
+      if (page.length === 0) break;
+      for (const r of page) {
+        after = r.id;
+        const a = this.pack(r.a ?? undefined);
+        const b = this.pack(r.b ?? undefined);
+        if (a !== (r.a ?? undefined) || b !== (r.b ?? undefined)) {
+          this.db.prepare('UPDATE node_executions SET inputsJson = ?, upstreamInputsJson = ? WHERE rowid = ?').run(a ?? null, b ?? null, r.id);
+          rows += 1;
+          charsSaved += (r.a?.length ?? 0) + (r.b?.length ?? 0) - (a?.length ?? 0) - (b?.length ?? 0);
+        }
+      }
+    }
+    let afterRun = '';
+    for (;;) {
+      const page = this.db.prepare(
+        'SELECT id, resume_context_json AS a FROM runs WHERE id > ? AND length(resume_context_json) >= ? ORDER BY id LIMIT ?',
+      ).all(afterRun, min, batch) as Array<{ id: string; a: string }>;
+      if (page.length === 0) break;
+      for (const r of page) {
+        afterRun = r.id;
+        const a = this.pack(r.a);
+        if (a !== r.a) {
+          this.db.prepare('UPDATE runs SET resume_context_json = ? WHERE id = ?').run(a ?? null, r.id);
+          rows += 1;
+          charsSaved += r.a.length - (a?.length ?? 0);
+        }
+      }
+    }
+    this.pruneBlobs();
+    return { rows, charsSaved };
   }
 
   createRun(run: Run & { workflowId?: string; workflowVersion?: number; replayedFromRunId?: string; replayedFromNodeId?: string; parentRunId?: string; parentNodeId?: string; retryOfRunId?: string; attempt?: number }): void {
@@ -461,7 +561,7 @@ export class RunStore {
     if (updates.temporalRunId !== undefined) { fields.push('temporal_run_id = ?'); values.push(updates.temporalRunId); }
     if (updates.behaviors !== undefined) { fields.push('behaviors_json = ?'); values.push(JSON.stringify(updates.behaviors)); }
     if (updates.recalledMemories !== undefined) { fields.push('recalled_memories_json = ?'); values.push(JSON.stringify(updates.recalledMemories)); }
-    if (updates.resumeContext !== undefined) { fields.push('resume_context_json = ?'); values.push(JSON.stringify(updates.resumeContext)); }
+    if (updates.resumeContext !== undefined) { fields.push('resume_context_json = ?'); values.push(this.pack(JSON.stringify(updates.resumeContext)) ?? null); }
 
     if (fields.length === 0) return;
 
@@ -518,6 +618,18 @@ export class RunStore {
    * What a run has cost so far: its finished nodes plus the child runs that
    * have ended. For the per-run spend limit, checked while the run goes.
    */
+  /**
+   * Spent since `sinceIso` on nodes that reached a later provider because an
+   * earlier one failed or was cooling down (fallback-spend.ts).
+   */
+  fallbackSpendSince(sinceIso: string): number {
+    const r = this.db.prepare(
+      `SELECT COALESCE(SUM(cost_usd), 0) AS cost FROM node_executions
+       WHERE startedAt >= ? AND cost_usd > 0 AND provider_failures_json IS NOT NULL AND provider_failures_json NOT IN ('', '[]')`,
+    ).get(sinceIso) as { cost: number };
+    return Number(r.cost);
+  }
+
   runSpendSoFar(runId: string): number {
     const nodes = this.db.prepare('SELECT COALESCE(SUM(cost_usd), 0) AS cost FROM node_executions WHERE runId = ?').get(runId) as { cost: number };
     const children = this.db.prepare('SELECT COALESCE(SUM(cost_usd), 0) AS cost FROM runs WHERE parent_run_id = ?').get(runId) as { cost: number };
@@ -730,7 +842,7 @@ export class RunStore {
       record.errorCategory ?? null,
       record.startedAt, record.completedAt ?? null,
       record.result ?? null, record.exitCode ?? null, record.error ?? null,
-      record.inputsJson ?? null, record.upstreamInputsJson ?? null,
+      this.pack(record.inputsJson) ?? null, this.pack(record.upstreamInputsJson) ?? null,
       record.outputsJson ?? null, record.progressJson ?? null,
       record.stateBytesBefore ?? null, record.stateBytesAfter ?? null,
       record.childPid ?? null, record.childStartedAtMs ?? null,
@@ -766,8 +878,8 @@ export class RunStore {
     if (updates.result !== undefined) { fields.push('result = ?'); values.push(updates.result); }
     if (updates.exitCode !== undefined) { fields.push('exitCode = ?'); values.push(updates.exitCode); }
     if (updates.error !== undefined) { fields.push('error = ?'); values.push(updates.error); }
-    if (updates.inputsJson !== undefined) { fields.push('inputsJson = ?'); values.push(updates.inputsJson); }
-    if (updates.upstreamInputsJson !== undefined) { fields.push('upstreamInputsJson = ?'); values.push(updates.upstreamInputsJson); }
+    if (updates.inputsJson !== undefined) { fields.push('inputsJson = ?'); values.push(this.pack(updates.inputsJson) ?? null); }
+    if (updates.upstreamInputsJson !== undefined) { fields.push('upstreamInputsJson = ?'); values.push(this.pack(updates.upstreamInputsJson) ?? null); }
     if (updates.outputsJson !== undefined) { fields.push('outputsJson = ?'); values.push(updates.outputsJson); }
     if (updates.progressJson !== undefined) { fields.push('progressJson = ?'); values.push(updates.progressJson); }
     if (updates.stateBytesBefore !== undefined) { fields.push('stateBytesBefore = ?'); values.push(updates.stateBytesBefore); }
@@ -874,7 +986,7 @@ export class RunStore {
       behaviors: parseBehaviorsJson(row.behaviors_json as string | null),
       ...(row.recalled_memories_json ? { recalledMemories: JSON.parse(String(row.recalled_memories_json)) as string[] } : {}),
       ...(row.resume_context_json ? (() => {
-        try { return { resumeContext: JSON.parse(String(row.resume_context_json)) as Run['resumeContext'] }; } catch { return {}; }
+        try { return { resumeContext: JSON.parse(this.unpack(String(row.resume_context_json)) ?? '') as Run['resumeContext'] }; } catch { return {}; }
       })() : {}),
       ...(row.cost_usd !== null && row.cost_usd !== undefined ? {
         usage: {
@@ -901,8 +1013,8 @@ export class RunStore {
       result: (row.result as string | null) ?? undefined,
       exitCode: (row.exitCode as number | null) ?? undefined,
       error: (row.error as string | null) ?? undefined,
-      inputsJson: (row.inputsJson as string | null) ?? undefined,
-      upstreamInputsJson: (row.upstreamInputsJson as string | null) ?? undefined,
+      inputsJson: this.unpack(row.inputsJson as string | null),
+      upstreamInputsJson: this.unpack(row.upstreamInputsJson as string | null),
       outputsJson: (row.outputsJson as string | null) ?? undefined,
       progressJson: (row.progressJson as string | null) ?? undefined,
       stateBytesBefore: (row.stateBytesBefore as number | null) ?? undefined,

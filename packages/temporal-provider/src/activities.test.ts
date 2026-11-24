@@ -202,6 +202,37 @@ describe('runDagActivity', () => {
     expect(res.status).toBe('completed');
   });
 
+  it('puts the behavior block ahead of the prompt on the worker', async () => {
+    let prompt = '';
+    const server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => { body += c; });
+      req.on('end', () => {
+        prompt = (JSON.parse(body).messages as Array<{ content: string }>).map((m) => m.content).join('\n');
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }] }));
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    try {
+      const settingsPath = join(TEST_DIR, 'llm-settings.json');
+      new LlmSettingsStore(settingsPath).addCustomProvider({
+        name: 'fake-local', kind: 'openai', apiBase: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`, model: 'm',
+      });
+      const res = await runNodeActivity({
+        node: { id: 'work', type: 'llm-prompt', prompt: 'Summarize otters.' } as AgentNode,
+        env: {}, agentId: 'a', agentSource: 'local', secretsPath: SECRETS_PATH, declaredSecrets: [],
+        llmProviders: ['fake-local'], llmSettingsPath: settingsPath,
+        behaviorPreamble: 'BEHAVIOR: be careful',
+      });
+      expect(res.exitCode).toBe(0);
+      expect(prompt.indexOf('BEHAVIOR: be careful')).toBeGreaterThan(-1);
+      expect(prompt.indexOf('BEHAVIOR: be careful')).toBeLessThan(prompt.indexOf('Summarize otters.'));
+    } finally {
+      server.close();
+    }
+  });
+
   it('gives llm nodes a chat turn\'s conversation block on the worker', async () => {
     let prompt = '';
     const server = createServer((req, res) => {

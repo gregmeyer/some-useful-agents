@@ -12,7 +12,7 @@
  * browser (core htmlToPng). `tldrChart` is its bars alone, for the brief.
  */
 import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
-import { rankBy, rankOptions, subjectHost, TLDR_SIZES, type Notebook, type NotebookEntry, type NotebookField, type NotebookViewOption, type TldrLayout, type TldrPart, type TldrPicture, type TldrSpec } from '@some-useful-agents/core';
+import { rankBy, rankOptions, subjectHost, TLDR_SIZES, type Notebook, type NotebookEntry, type NotebookField, type NotebookViewOption, type TldrLayout, type TldrPart, type TldrPicture, type TldrSpec, type ViewComponent } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { drawnCoverSrc, formatFieldValue } from './notebooks.js';
 import { notebookWidgetData, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
@@ -62,14 +62,51 @@ export interface TldrData {
    * Never a logo, a drawing or a photo from an image search.
    */
   photos?: TldrPhoto[];
+  /**
+   * The top options' own photos (a shortlist), in their order, each with the
+   * site it's from: what a composed card shows when it leads with a photo and
+   * the notebook has no photo of its own (its lead is what it wrote).
+   */
+  optionPhotos?: TldrPhoto[];
   /** The notebook's drawing (its colour and icon, as its card's cover): the picture when it has no photo, or when a redraw asks for it. */
   drawing?: string;
 }
 
 /** One of the notebook's own photos on the card. */
 export interface TldrPhoto { src: string; credit: string; name: string }
+
+/**
+ * The picture chosen for the notebook (notebook-photo) as the card's first
+ * photo, at `src` (its address, or the copy a file carries): credited as it
+ * was given ("Renee Comet"), else by the site it's from. Pure.
+ */
+export function chosenTldrPhoto(nb: Pick<Notebook, 'photo' | 'title'>, src: string | undefined): TldrPhoto | undefined {
+  const c = nb.photo;
+  if (!c || !src) return undefined;
+  const host = (() => { try { return new URL(c.page ?? c.image).hostname.replace(/^www\./, ''); } catch { return undefined; } })();
+  return { src, credit: c.credit?.trim() || host || 'chosen', name: c.alt ?? nb.title };
+}
+
+/** Where the notebook's chosen picture is served (its kept copy), for the page and the PNG. */
+export const chosenPhotoPath = (nb: Pick<Notebook, 'id' | 'photo'>): string | undefined =>
+  nb.photo ? `/notebooks/${encodeURIComponent(nb.id)}/photo?v=${encodeURIComponent(nb.photo.at)}` : undefined;
 /** Photos a card shows in a strip, at most. */
 export const TLDR_PHOTOS_MAX = 4;
+
+/**
+ * Where a picture came from, as one picture: its site, folder and file name
+ * up to the first "." or "_" ("about-family.BPO23Qhu_Zi2rYs.webp" and
+ * "about-family.BPO23Qhu.webp" are one picture at two sizes). Pure.
+ */
+export function pictureKey(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    const u = new URL(url);
+    const parts = u.pathname.split('/');
+    const file = (parts.pop() ?? '').split(/[._]/)[0].toLowerCase();
+    return `${u.hostname.replace(/^www\./, '').toLowerCase()}${parts.join('/').toLowerCase()}/${file}`;
+  } catch { return undefined; }
+}
 
 /**
  * A subject briefing's photos for its picture: each source's own picture
@@ -84,9 +121,13 @@ export function tldrPhotos(nb: Pick<Notebook, 'briefOn'>, options: readonly Note
   const real = options.filter((o) => !o.ruledOut && o.image && (o.imageKind === 'listing' || o.imageKind === undefined));
   const ordered = [...real.filter((o) => own && host(o.link) === own), ...real.filter((o) => !(own && host(o.link) === own))];
   const out: TldrPhoto[] = [];
+  // The same picture filed under two sources (or a resized copy of it) has two addresses here: where it came from says it's the same.
+  const seen = new Set<string>();
   for (const o of ordered) {
     const src = pictures(o);
-    if (!src || out.some((x) => x.src === src)) continue;
+    const same = pictureKey(o.imageSource);
+    if (!src || out.some((x) => x.src === src) || (same && seen.has(same))) continue;
+    if (same) seen.add(same);
     out.push({ src, credit: host(o.link) || 'source', name: clip(o.name, 60) });
     if (out.length >= TLDR_PHOTOS_MAX) break;
   }
@@ -105,6 +146,30 @@ export function tldrData(nb: Notebook, entries: readonly NotebookEntry[], histor
   const t = tldrDataOf(nb, entries, history, pictures, aboutPicture);
   const photos = chosen ? [chosen, ...(t.photos ?? []).filter((x) => x.src !== chosen.src)].slice(0, TLDR_PHOTOS_MAX) : t.photos;
   return { ...t, ...(photos?.length ? { photos } : {}), drawing: drawnCoverSrc(nb) };
+}
+
+/**
+ * Whether the TL;DR card adds something the page doesn't say (ADR-0093): a
+ * chart of how the options compare, its sources' own photos, or who it's
+ * about with their picture. A card that's only the answer and its first
+ * findings again, over a drawing, doesn't. Pure.
+ */
+export function tldrCardAdds(t: Pick<TldrData, 'chart' | 'photos' | 'who' | 'leadPicture'>): boolean {
+  return !!t.chart || !!t.photos?.length || (!!t.who && !!t.leadPicture);
+}
+
+/**
+ * Whether a notebook's page, brief and PDF show its TL;DR card: as you set it
+ * (Always, Never), else when it adds something (tldrCardAdds). Redrawing the
+ * picture isn't asking for it on the page: that's how it looks when shared.
+ * The TL;DR picture itself (tldr.png) is there either way.
+ */
+export function showsTldrCard(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory): boolean {
+  if (nb.tldrCard === 'never') return false;
+  if (nb.tldrCard === 'always') return true;
+  const d = notebookWidgetData(nb, entries, history).notebook;
+  const about = d.person?.image ?? d.company?.image;
+  return tldrCardAdds(tldrData(nb, entries, history, (o) => o.image, about ? { src: about } : undefined));
 }
 
 function tldrDataOf(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory, pictures?: BriefPicture, aboutPicture?: { src: string; logo?: boolean }): TldrData {
@@ -127,6 +192,18 @@ function tldrDataOf(nb: Notebook, entries: readonly NotebookEntry[], history?: N
     ? active.filter((o) => num(field, o) !== undefined)
     : active.filter((o) => num(field, o) !== undefined).sort((a, b) => (better === 'lower' ? num(field, a)! - num(field, b)! : num(field, b)! - num(field, a)!));
   const lead = valued[0] ?? active[0];
+
+  // The top options' photos, credited to their sites, for a composed card (not a logo or a drawing).
+  const host = (u: string | undefined) => { try { return u ? new URL(u).hostname.replace(/^www\./, '') : ''; } catch { return ''; } };
+  const optionPhotos: TldrPhoto[] = [];
+  if (pictures) {
+    for (const o of (valued.length ? valued : active)) {
+      if (optionPhotos.length >= TLDR_PHOTOS_MAX) break;
+      const src = o.image && pictureKind(o) === 'photo' ? pictures(o) : undefined;
+      if (src && !optionPhotos.some((x) => x.src === src)) optionPhotos.push({ src, credit: host(o.link) || host(o.imageSource) || 'its page', name: clip(o.name, 60) });
+    }
+  }
+  const withOptionPhotos = optionPhotos.length ? { optionPhotos } : {};
 
   let chart: TldrData['chart'];
   if (field) {
@@ -157,7 +234,7 @@ function tldrDataOf(nb: Notebook, entries: readonly NotebookEntry[], history?: N
   const written = nb.answer?.text ? d.answer : undefined;
   // It wrote an answer: that leads, in its words, over the bars.
   if (written && chart) {
-    return { title: nb.title, leadLabel: written.label, lead: clip(plain(written.text), 320), leadFacts: [], sentence: true, stats: stats.slice(0, 3), chart, points: [] };
+    return { title: nb.title, leadLabel: written.label, lead: clip(plain(written.text), 320), leadFacts: [], sentence: true, stats: stats.slice(0, 3), chart, points: [], ...withOptionPhotos };
   }
   if (lead && chart) {
     return {
@@ -169,7 +246,7 @@ function tldrDataOf(nb: Notebook, entries: readonly NotebookEntry[], history?: N
         ...facts(nb, lead).filter((f) => f.label !== field!.label).slice(0, 3).map((f) => `${f.label} ${f.value}`),
       ],
       ...(pictures && lead.image && !(decided && chosen.length > 1) && pictures(lead) ? { leadPicture: pictures(lead)!, leadPictureKind: pictureKind(lead) } : {}),
-      stats: stats.slice(0, 3), chart, points: [],
+      stats: stats.slice(0, 3), chart, points: [], ...withOptionPhotos,
     };
   }
   // About someone (a meeting, a company briefing): they lead, with their picture, what they do and where, and your
@@ -357,7 +434,60 @@ export const TLDR_CSS = `
 /* Cover: the lead's picture as a band across the top, the rest under it. Spotlight: the picture down one whole side. */
 .tl--cover, .tl--spotlight { padding: 0; gap: 0; }
 .tl__inner { display: grid; gap: 26px; padding: 40px 56px 36px; align-content: start; min-width: 0; }
-.tl__art { min-width: 0; min-height: 0; }
+.tl__art { min-width: 0; min-height: 0; position: relative; }
+.tl__artcredit { position: absolute; right: 10px; bottom: 10px; max-width: calc(100% - 20px); padding: 3px 8px; border-radius: 4px; background: rgba(0, 0, 0, 0.62); color: #fff; font: 500 12px/1.3 var(--mono); letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+/* A card composed as a view (ADR-0096): a cover runs to the edges, the rest sits in the card's margins. */
+.tl--view { padding: 0 0 32px; gap: 0; align-content: start; overflow: hidden; }
+.tlv__pad { padding: 28px 56px 0; min-width: 0; }
+.tlv__pad .tlv__cover { border-radius: 10px; }
+.tlv__col { display: grid; gap: 22px; align-content: start; min-width: 0; }
+.tlv__row { display: grid; gap: 28px; align-items: start; min-width: 0; }
+.tlv__h2 { margin: 0; font: 700 28px/1.2 var(--display); text-wrap: balance; }
+.tlv__h3 { margin: 0; font: 600 20px/1.3 var(--sans); }
+.tlv__body { margin: 0; font-size: 19px; line-height: 1.5; }
+.tlv__cover { position: relative; overflow: hidden; height: 440px; background: var(--raised); color: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.tlv__cover.is-short { height: 300px; }
+.tlv__cover.is-tall { height: 580px; }
+.tl--landscape .tlv__cover { height: 380px; }
+.tl--landscape .tlv__cover.is-tall { height: 460px; }
+.tlv__cover > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.tlv__over { position: absolute; left: 0; right: 0; display: grid; gap: 10px; padding: 36px 56px; }
+.tlv__cover.at-bottom .tlv__over { bottom: 0; padding-top: 96px; }
+.tlv__cover.at-top .tlv__over { top: 0; padding-bottom: 96px; }
+.tlv__cover.at-center .tlv__over { top: 50%; transform: translateY(-50%); }
+.tlv__cover.scrim-dark.at-bottom .tlv__over { background: linear-gradient(to top, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0)); }
+.tlv__cover.scrim-dark.at-top .tlv__over { background: linear-gradient(to bottom, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0)); }
+.tlv__cover.scrim-dark.at-center .tlv__over { background: rgba(0, 0, 0, 0.5); }
+.tlv__cover.scrim-light { color: #111; }
+.tlv__cover.scrim-light.at-bottom .tlv__over { background: linear-gradient(to top, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0)); }
+.tlv__cover.scrim-light.at-top .tlv__over { background: linear-gradient(to bottom, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0)); }
+.tlv__cover.scrim-light.at-center .tlv__over { background: rgba(255, 255, 255, 0.82); }
+.tlv__cover.scrim-none .tlv__over { text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7); }
+.tlv__kick { margin: 0; font: 600 14px/1.2 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.92; }
+.tlv__hl { margin: 0; font: 700 46px/1.08 var(--display); text-wrap: balance; }
+.tl--landscape .tlv__hl { font-size: 40px; }
+.tlv__tk { margin: 0; font-size: 21px; line-height: 1.4; max-width: 40em; }
+.tlv__credit { position: absolute; right: 10px; bottom: 10px; max-width: calc(100% - 20px); padding: 3px 8px; border-radius: 4px; background: rgba(0, 0, 0, 0.62); color: #fff; font: 500 12px/1.3 var(--mono); letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-shadow: none; }
+.tlv__cover.at-bottom .tlv__credit { top: 10px; bottom: auto; }
+.tlv__grid .tl__shot .tl__frame, .tl--landscape .tlv__grid .tl__shot .tl__frame { aspect-ratio: var(--ratio, 4 / 3); }
+.tlv__main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.tlv__row.is-bleed { gap: 0; align-items: stretch; }
+.tlv__row.is-bleed > .tlv__cover { height: auto; min-height: 440px; }
+.tlv__row.is-bleed > .tlv__cover.is-short { min-height: 300px; }
+.tlv__row.is-bleed > .tlv__cover.is-tall { min-height: 580px; }
+.tlv__row.is-bleed > .tlv__cover .tlv__over { padding-left: 36px; padding-right: 36px; }
+.tlv__row.is-bleed > .tlv__cover .tlv__hl { font-size: 40px; }
+.tlv__cell { padding: 32px 44px 0; min-width: 0; display: grid; gap: 22px; align-content: start; }
+/* A composed card's narrow column (beside a photo, or a third of the card): the numbers wrap two to a row and the bars fit, rather than running off the card. */
+.tlv__cell, .tlv__row > .tlv__col { container-type: inline-size; }
+@container (max-width: 560px) {
+  .tl--view .tl__stats { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 14px 18px; }
+  .tl--view .tl__bar { grid-template-columns: minmax(0, 1.3fr) minmax(40px, 1fr) 84px; gap: 10px; font-size: 14px; }
+}
+.tl--view.tl--landscape .tlv__main, .tl--view.tl--square .tlv__main, .tl--view.tl--portrait .tlv__main { flex: 1 1 auto; }
+.tl--view.tl--landscape .tlv__main > .tlv__cover, .tl--view.tl--square .tlv__main > .tlv__cover, .tl--view.tl--portrait .tlv__main > .tlv__cover { flex: 1 1 auto; height: auto; min-height: 260px; }
+.tl--view.tl--landscape .tlv__main > .tlv__row.is-bleed, .tl--view.tl--square .tlv__main > .tlv__row.is-bleed, .tl--view.tl--portrait .tlv__main > .tlv__row.is-bleed { flex: 1 1 auto; min-height: 0; }
+.tl--view.tl--landscape .tlv__row.is-bleed > .tlv__cover, .tl--view.tl--square .tlv__row.is-bleed > .tlv__cover, .tl--view.tl--portrait .tlv__row.is-bleed > .tlv__cover { min-height: 0; }
 .tl--cover .tl__art { height: 400px; border-bottom: 1px solid var(--line); }
 .tl--cover .tl__lead, .tl--spotlight .tl__lead { grid-template-columns: minmax(0, 1fr); }
 .tl--cover.tl--square, .tl--cover.tl--portrait { display: flex; flex-direction: column; justify-content: flex-start; }
@@ -516,7 +646,9 @@ export function tldrCard(t: TldrData, o: { now?: Date; spec?: TldrSpec } = {}): 
   const date = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const spec = o.spec;
   const size = TLDR_SIZES[spec?.size ?? 'standard'];
-  const layout = tldrLayoutFor(t, spec);
+  // Composed as a view (ADR-0096): its parts are drawn as the stacked card draws them, and placed where the view says.
+  const composed = spec?.view?.length ? spec.view : undefined;
+  const layout = composed ? 'stack' : tldrLayoutFor(t, spec);
   const parts = spec?.parts ?? ['lead', 'photos', 'stats', 'bars', 'points'];
   // A fixed box holds less when more is stacked in it: the hero's big number, a cover's picture, and each line written for it, cost a bar or two.
   const words = (spec?.headline ? 1 : 0) + (spec?.takeaway ? 1 : 0);
@@ -587,10 +719,14 @@ export function tldrCard(t: TldrData, o: { now?: Date; spec?: TldrSpec } = {}): 
   const galleryParts = spec?.size === 'landscape' ? [parts.includes('points') && points.length ? 'points' as const : 'lead' as const] : parts.filter((k) => k !== 'photos');
   const all = layout === 'gallery' ? ['photos' as const, ...galleryParts] : layout === 'lineup' && !parts.includes('bars') ? [...parts, 'bars' as const] : parts;
   const every = (keys: readonly TldrPart[]) => all.filter((k) => keys.includes(k)).map((k) => part[k]) as unknown as SafeHtml[];
+  if (composed) return tldrViewCard(composed, t, spec!, { header, foot, date, part: { ...part, lead, hero } });
   // Cover and spotlight: the lead's picture large (a band across the top, or one whole side), everything else in a column beside or under it.
   if (large) {
+    const big = tldrBigPicture(t, spec?.picture)!;
+    // One of its photos shown large is credited on it, as a strip credits each.
+    const credit = t.photos?.find((x) => x.src === big.src)?.credit;
     return html`<article class="tl${cls}" aria-label="${t.title}, in short">
-  <div class="tl__art">${frame(tldrBigPicture(t, spec?.picture)!.src, tldrBigPicture(t, spec?.picture)!.kind, t.who ? t.lead : '')}</div>
+  <div class="tl__art">${frame(big.src, big.kind, t.who ? t.lead : '')}${credit ? html`<span class="tl__artcredit">Photo: ${credit}</span>` : html``}</div>
   <div class="tl__inner">${header}${every(['lead', 'photos', 'stats', 'bars', 'points'])}${foot}</div>
 </article>`;
   }
@@ -601,6 +737,108 @@ export function tldrCard(t: TldrData, o: { now?: Date; spec?: TldrSpec } = {}): 
   return html`<article class="tl${cls}" aria-label="${t.title}, in short">
   ${body}
   ${foot}
+</article>`;
+}
+
+/** A composed card's data, at /tldr/… (core TLDR_VIEW_PATHS): words and pictures from the notebook, never from the view. Pure. */
+export function tldrViewData(t: TldrData, spec: Pick<TldrSpec, 'headline' | 'takeaway' | 'picture'>, date: string): Record<string, unknown> {
+  const big = tldrBigPicture(t, spec.picture ?? 'photos');
+  // A shortlist that leads with what it wrote has no photo of its own: its top options' photos stand in (credited), before the drawing.
+  const photos = t.photos?.length ? t.photos : t.optionPhotos ?? [];
+  const photo = big && big.kind !== 'art' ? (photos.find((x) => x.src === big.src) ?? { src: big.src, credit: '', name: t.lead })
+    : spec.picture !== 'drawing' && photos.length ? photos[0]
+      : big ? { src: big.src, credit: '', name: t.lead } : undefined;
+  return {
+    title: t.title, headline: spec.headline ?? t.title, ...(spec.takeaway ? { takeaway: spec.takeaway } : {}),
+    leadLabel: t.leadLabel, lead: t.lead, ...(t.note ? { note: t.note } : {}), date,
+    ...(photo ? { photo } : {}), photos,
+    ...(t.drawing ? { drawing: { src: t.drawing, credit: '', name: t.title } } : {}),
+  };
+}
+
+type Blocks = { header: SafeHtml; foot: SafeHtml; date: string; part: Record<TldrPart | 'hero', SafeHtml> };
+const VIEW_PARTS: Record<string, keyof Blocks['part'] | 'header' | 'foot'> = { header: 'header', foot: 'foot', lead: 'lead', hero: 'hero', stats: 'stats', bars: 'bars', points: 'points', photos: 'photos' };
+
+/**
+ * A card composed as an A2UI view (core checkTldrView passed it): its layout
+ * and the card's own components, every word and picture taken from the
+ * card's data, each photo credited, and the card's foot always at the end.
+ */
+function tldrViewCard(view: readonly ViewComponent[], t: TldrData, spec: TldrSpec, blocks: Blocks): SafeHtml {
+  const byId = new Map(view.map((c) => [c.id, c]));
+  const data = tldrViewData(t, spec, blocks.date);
+  const at = (p: string): unknown => p.replace(/^\/tldr\/?/, '').split('/').filter(Boolean).reduce<unknown>((o, k) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[k] : undefined), data);
+  const val = (v: unknown): unknown => {
+    if (v && typeof v === 'object' && !Array.isArray(v)) { const o = v as { path?: unknown; '@path'?: unknown }; const p = typeof o.path === 'string' ? o.path : typeof o['@path'] === 'string' ? o['@path'] : undefined; if (p !== undefined) return at(p); }
+    return v;
+  };
+  const words = (v: unknown): string => { const x = val(v); return typeof x === 'string' || typeof x === 'number' ? String(x) : ''; };
+  const photo = (v: unknown): TldrPhoto | undefined => { const x = val(v) as Partial<TldrPhoto> | undefined; return x && typeof x === 'object' && typeof x.src === 'string' ? { src: x.src, credit: x.credit ?? '', name: x.name ?? '' } : undefined; };
+  const kids = (c: ViewComponent): string[] => (Array.isArray(c.children) ? (c.children as unknown[]).filter((x): x is string => typeof x === 'string') : []);
+  let footUsed = false;
+  const seen = new Set<string>();
+  const node = (id: string): SafeHtml => {
+    const c = byId.get(id);
+    if (!c || seen.has(id)) return html``;
+    seen.add(id);
+    switch (c.component) {
+      case 'Column': return html`<div class="tlv__col">${kids(c).map(node) as unknown as SafeHtml[]}</div>`;
+      case 'Row': case 'Columns': {
+        const ids = kids(c);
+        const w = Array.isArray(c.widths) ? (c.widths as unknown[]).map((x) => (typeof x === 'number' && x > 0 ? x : 1)) : [];
+        return html`<div class="tlv__row" style="grid-template-columns:${ids.map((_, i) => `minmax(0, ${String(w[i] ?? 1)}fr)`).join(' ')}">${ids.map(node) as unknown as SafeHtml[]}</div>`;
+      }
+      case 'Text': {
+        const text = words(c.text);
+        if (!text) return html``;
+        const v = typeof c.variant === 'string' ? c.variant : 'body';
+        return v === 'h1' ? html`<h1 class="tl__title">${text}</h1>` : v === 'h2' ? html`<h2 class="tlv__h2">${text}</h2>` : v === 'h3' ? html`<h3 class="tlv__h3">${text}</h3>` : v === 'caption' ? html`<p class="tl__kicker">${text}</p>` : html`<p class="tlv__body">${text}</p>`;
+      }
+      case 'TldrPart': {
+        const k = VIEW_PARTS[String(c.part)];
+        if (k === 'foot') { footUsed = true; return blocks.foot; }
+        return k === 'header' ? blocks.header : k ? blocks.part[k] : html``;
+      }
+      case 'PhotoCover': {
+        const ph = photo(c.photo);
+        const kicker = words(c.kicker), headline = words(c.headline), takeaway = words(c.takeaway);
+        const cls = `tlv__cover is-${String(c.height ?? 'normal')} at-${String(c.align ?? 'bottom')} scrim-${String(c.scrim ?? 'dark')}`;
+        const focus = c.focus === 'top' ? '20%' : c.focus === 'bottom' ? '80%' : '50%';
+        return html`<section class="${cls}">${ph ? html`<img src="${ph.src}" alt="${ph.name}" style="object-position:center ${focus}">` : html``}<div class="tlv__over">${kicker ? html`<p class="tlv__kick">${kicker}</p>` : html``}${headline ? html`<h1 class="tlv__hl">${headline}</h1>` : html``}${takeaway ? html`<p class="tlv__tk">${takeaway}</p>` : html``}</div>${ph?.credit ? html`<span class="tlv__credit">Photo: ${ph.credit}</span>` : html``}</section>`;
+      }
+      case 'PhotoGrid': {
+        const list = (Array.isArray(val(c.photos)) ? (val(c.photos) as unknown[]) : []).map((x) => photo(x)).filter((x): x is TldrPhoto => !!x).slice(0, typeof c.count === 'number' ? c.count : TLDR_PHOTOS_MAX);
+        if (!list.length) return html``;
+        const ratio = c.ratio === '1:1' ? '1 / 1' : c.ratio === '16:10' ? '16 / 10' : '4 / 3';
+        return html`<section class="tl__photos tlv__grid" style="--ratio:${ratio}"><ol class="tl__shots" style="--shots:${String(list.length)}">${list.map((x) => html`<li class="tl__shot">${frame(x.src, 'photo', x.name)}${x.credit ? html`<span class="tl__credit">${x.credit}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ol></section>`;
+      }
+      default: return html``;
+    }
+  };
+  // The root's own parts: a cover runs to the card's edges, everything else sits inside its margins.
+  // A row with a cover in it runs to the edges too (the photo down one side, full height), its other parts in margins of their own.
+  const root = byId.get('root');
+  const top = root && root.component === 'Column' ? kids(root) : ['root'];
+  if (root?.component === 'Column') seen.add('root');
+  const isRow = (c: ViewComponent | undefined) => c?.component === 'Row' || c?.component === 'Columns';
+  const bleeds = (c: ViewComponent | undefined) => isRow(c) && kids(c!).some((k) => byId.get(k)?.component === 'PhotoCover');
+  const edgeRow = (c: ViewComponent): SafeHtml => {
+    seen.add(c.id);
+    const ids = kids(c);
+    const w = Array.isArray(c.widths) ? (c.widths as unknown[]).map((x) => (typeof x === 'number' && x > 0 ? x : 1)) : [];
+    return html`<div class="tlv__row is-bleed" style="grid-template-columns:${ids.map((_, i) => `minmax(0, ${String(w[i] ?? 1)}fr)`).join(' ')}">${ids.map((k) => (byId.get(k)?.component === 'PhotoCover' ? node(k) : html`<div class="tlv__cell">${node(k)}</div>`)) as unknown as SafeHtml[]}</div>`;
+  };
+  const body = top.map((id, i) => {
+    const c = byId.get(id);
+    if (c?.component === 'PhotoCover') return node(id);
+    // Only a row that opens the card runs its photo to the edges; under a header it sits in the margins like the rest (else it butts the headline and juts out at the side).
+    if (bleeds(c) && i === 0) return edgeRow(c!);
+    return html`<div class="tlv__pad">${node(id)}</div>`;
+  });
+  // In a fixed box (landscape, square, portrait) the view fills it: a cover takes the room the rest leaves, so nothing sits empty above the foot.
+  return html`<article class="tl tl--view tl--${spec.size} tl--${spec.tone}" aria-label="${t.title}, in short">
+  <div class="tlv__main">${body as unknown as SafeHtml[]}</div>
+  ${footUsed ? html`` : html`<div class="tlv__pad">${blocks.foot}</div>`}
 </article>`;
 }
 

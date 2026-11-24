@@ -1,4 +1,5 @@
 import type { IncomingMessage, Server } from 'node:http';
+import { inBackground } from './background.js';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
@@ -103,7 +104,7 @@ export function attachChatSocket(server: Server, ctx: DashboardContext): ChatSoc
       let msg: Record<string, unknown>;
       try { msg = JSON.parse(String(raw)) as Record<string, unknown>; } catch { send({ type: 'error', message: 'Frames must be JSON.' }); return; }
       const ref = typeof msg.ref === 'string' ? msg.ref.slice(0, 64) : undefined;
-      void handle(msg, ref).catch((err) => send({ type: 'error', ref, message: err instanceof Error ? err.message : String(err) }));
+      inBackground(ctx, 'chat-socket frame', handle(msg, ref).catch((err) => send({ type: 'error', ref, message: err instanceof Error ? err.message : String(err) })));
     });
 
     function subscribe(channel: string, since?: number, bus: InboxEventBus = chatBus(ctx), busChannel: string = channel): void {

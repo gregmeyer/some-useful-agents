@@ -11,7 +11,7 @@
 import { MessageProcessor, STRICT_VALIDATION } from '../../vendor/a2ui-web-core-v1.mjs';
 import type { Run } from '../types.js';
 import type { NodeExecutionRecord } from '../agent-v2-types.js';
-import { A2UI_PROTOCOL_VERSION, BOARD_COMPONENT_NAMES, SUA_CATALOG_ID, suaCatalog } from './catalog.js';
+import { A2UI_PROTOCOL_VERSION, BOARD_COMPONENT_NAMES, SUA_CATALOG_ID, TLDR_COMPONENT_NAMES, suaCatalog } from './catalog.js';
 import { componentsForRender, normalizeComponents } from './normalize.js';
 import { sanitizeHtml } from '../html-sanitizer.js';
 
@@ -29,6 +29,8 @@ export interface ViewValidationOptions {
   imgHosts?: readonly string[];
   /** Validating a board (boards.ts): allow the board-only components and a board's larger limits. */
   board?: boolean;
+  /** Validating a notebook's TL;DR card (core checkTldrView): allow its own components. */
+  tldr?: boolean;
 }
 
 /** A board can hold more than one view: every tile is a few components. */
@@ -51,6 +53,9 @@ function staticChecks(components: ViewComponent[], opts: ViewValidationOptions):
   for (const c of components) {
     if (!opts.board && BOARD_COMPONENT_NAMES.includes(c.component)) {
       errors.push(`${c.id}: ${c.component} can only be used on a board, not in an agent's view.`);
+    }
+    if (!opts.tldr && TLDR_COMPONENT_NAMES.includes(c.component)) {
+      errors.push(`${c.id}: ${c.component} can only be used on a notebook's TL;DR card.`);
     }
     if (c.component === 'Image' && typeof c.url === 'string') {
       let url: URL | undefined;

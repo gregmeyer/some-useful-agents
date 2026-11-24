@@ -35,48 +35,10 @@ widgetRunRouter.post('/agents/:name/widget-run', (req: Request, res: Response) =
       inputs[k.slice(6)] = v.trim();
     }
   }
+  // `again=1` with no inputs of its own (an edition part's Run): the last run's inputs, those the agent declares.
+  if (body.again === '1' && !Object.keys(inputs).length) Object.assign(inputs, lastRunInputs(ctx, v2Agent));
 
-  const abortController = new AbortController();
-  const runPromise = executeAgentWithRetry(
-    v2Agent,
-    { triggeredBy: 'dashboard', inputs, signal: abortController.signal },
-    {
-      runStore: ctx.runStore,
-      secretsStore: ctx.secretsStore,
-      variablesStore: ctx.variablesStore,
-      integrationsStore: ctx.integrationsStore,
-      toolStore: ctx.toolStore,
-      agentStore: ctx.agentStore,
-      allowUntrustedShell: ctx.allowUntrustedShell,
-      dashboardBaseUrl: ctx.dashboardBaseUrl,
-      dataRoot: ctx.agentStore.dataRoot,
-      llmSettings: buildLlmSettingsSnapshot(ctx),
-      spawnNode: ctx.workflowSpawnNode,
-      onRunFailure: ctx.onRunFailure,
-      onRunComplete: ctx.onRunComplete,
-    },
-  );
-
-  // Look up the runId once the executor has created the row. Same idiom as
-  // run-now.ts — the executor creates the row synchronously near the top of
-  // executeAgentDag, so a brief setTimeout is enough to find it.
-  setTimeout(() => {
-    const { rows } = ctx.runStore.queryRuns({
-      agentName: v2Agent.id,
-      limit: 1,
-      offset: 0,
-      statuses: [] as RunStatus[],
-    });
-    const latest = rows[0];
-    if (latest && (latest.status === 'pending' || latest.status === 'running')) {
-      ctx.activeRuns.set(latest.id, abortController);
-    }
-  }, 50);
-
-  // Cleanup activeRuns on completion regardless of outcome.
-  runPromise
-    .then((run) => { ctx.activeRuns.delete(run.id); })
-    .catch(() => { /* swallowed — error surfaces via runStore on next poll */ });
+  startAgentRun(ctx, v2Agent, inputs);
 
   // Echo back the runId so the client can start polling. We can't await
   // runPromise here without losing the in-place UX, so we look it up.
@@ -136,3 +98,66 @@ widgetRunRouter.get('/runs/:id/widget-status', (req: Request, res: Response) => 
     ...(widgetHtml ? { widgetHtml } : {}),
   });
 });
+
+/** The inputs of an agent's last finished run, the ones it declares (empty when there's none). */
+export function lastRunInputs(ctx: ReturnType<typeof getContext>, agent: { id: string; inputs?: Record<string, unknown> }): Record<string, string> {
+  try {
+    const run = ctx.runStore.listRuns({ agentName: agent.id, status: 'completed', limit: 1 })[0];
+    const first = run ? ctx.runStore.listNodeExecutions(run.id)[0] : undefined;
+    if (!first?.inputsJson) return {};
+    const all = JSON.parse(first.inputsJson) as Record<string, unknown>;
+    const names = new Set(Object.keys(agent.inputs ?? {}));
+    return Object.fromEntries(Object.entries(all).filter(([k, v]) => names.has(k) && typeof v === 'string' && v !== '')) as Record<string, string>;
+  } catch { return {}; }
+}
+
+/**
+ * Start an agent's run in the background, as the dashboard does (its abort
+ * handle kept while it runs). Doesn't wait; never throws.
+ */
+export function startAgentRun(ctx: ReturnType<typeof getContext>, v2Agent: Parameters<typeof executeAgentWithRetry>[0], inputs: Record<string, string>): void {
+  // A test's stand-in: nothing runs (a real run outliving the test writes to a closed database).
+  if (ctx.agentRunStart) { ctx.agentRunStart(v2Agent.id, inputs); return; }
+  const abortController = new AbortController();
+  const runPromise = executeAgentWithRetry(
+    v2Agent,
+    { triggeredBy: 'dashboard', inputs, signal: abortController.signal },
+    {
+      runStore: ctx.runStore,
+      secretsStore: ctx.secretsStore,
+      variablesStore: ctx.variablesStore,
+      integrationsStore: ctx.integrationsStore,
+      toolStore: ctx.toolStore,
+      agentStore: ctx.agentStore,
+      allowUntrustedShell: ctx.allowUntrustedShell,
+      dashboardBaseUrl: ctx.dashboardBaseUrl,
+      dataRoot: ctx.agentStore.dataRoot,
+      llmSettings: buildLlmSettingsSnapshot(ctx),
+      spawnNode: ctx.workflowSpawnNode,
+      onRunFailure: ctx.onRunFailure,
+      onRunComplete: ctx.onRunComplete,
+    },
+  );
+
+  // Look up the runId once the executor has created the row. Same idiom as
+  // run-now.ts — the executor creates the row synchronously near the top of
+  // executeAgentDag, so a brief setTimeout is enough to find it.
+  setTimeout(() => {
+    const { rows } = ctx.runStore.queryRuns({
+      agentName: v2Agent.id,
+      limit: 1,
+      offset: 0,
+      statuses: [] as RunStatus[],
+    });
+    const latest = rows[0];
+    if (latest && (latest.status === 'pending' || latest.status === 'running')) {
+      ctx.activeRuns.set(latest.id, abortController);
+    }
+  }, 50);
+
+  // Cleanup activeRuns on completion regardless of outcome.
+  runPromise
+    .then((run) => { ctx.activeRuns.delete(run.id); })
+    .catch(() => { /* swallowed — error surfaces via runStore on next poll */ });
+
+}

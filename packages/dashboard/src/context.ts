@@ -1,4 +1,5 @@
 import type { Provider, SpawnNodeFn, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, LlmSettingsStore, PacksStore, DashboardsStore, LayoutHintsStore, BlockedImgHostsStore, InboxStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore, OutcomeStore, OnRunCompleteInfo, LoadBehaviorsResult } from '@some-useful-agents/core';
+import type { BackgroundTasks } from './lib/background.js';
 import type { SecretsSession } from './secrets-session.js';
 import type { InboxEventBus } from './lib/inbox-event-bus.js';
 
@@ -226,6 +227,17 @@ export interface DashboardContext {
    */
   activeRuns: Map<string, AbortController>;
   /**
+   * True only for the real dashboard (startDashboardServer). It starts the
+   * queue watchers and lets system agents (Home's Next up, the edition editor,
+   * the board reviewer) run a model. A context built by hand, as tests do,
+   * leaves it unset, so a page test never starts a real model run.
+   */
+  live?: boolean;
+  /** Stops for the intervals buildDashboardApp starts (queue watchers); close() calls them. */
+  stopOnClose?: Array<() => void>;
+  /** Work started without waiting for it (lib/background.ts). Created on first use. */
+  background?: BackgroundTasks;
+  /**
    * Active inbox-triage runs, keyed by inbox message id. Lets POST
    * /inbox/:id/triage/cancel find the run-in-flight for a thread
    * without scanning the runs table: the route launches triage and
@@ -262,6 +274,8 @@ export interface DashboardContext {
   editionAsk?: import('./lib/edition-ask.js').EditionAsk;
   /** Tests only: answer for the edition-editor agent instead of running it. */
   editionEditorRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Test stand-in for starting an agent's run from Pulse (routes/widget-run.ts startAgentRun): records it instead of running. */
+  agentRunStart?: (agentId: string, inputs: Record<string, string>) => void;
   /** The latest board review or page redraw started from a board's suggestions, so tests can wait for it. */
   boardReviewWork?: Promise<void>;
   /** Tests only: answer for the board-reviewer agent instead of running it (lib/board-review.ts). */

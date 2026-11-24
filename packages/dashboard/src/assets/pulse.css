@@ -31,54 +31,6 @@
   gap: var(--space-3);
 }
 
-.pulse-tile--2x2 { max-height: 600px; }
-.pulse-tile--1x2 { max-height: 600px; }
-
-/* Column spans only — row span is computed by pulse-masonry.js.ts from
- * each tile's rendered height so the grid packs without voids. The
- * `1x2` / `2x2` classes used to declare `grid-row: span 2`; with the
- * masonry packer that's now derived from content height + max-height
- * (above), letting tiles take only the row-units they actually fill. */
-.pulse-tile--2x1 { grid-column: span 2; }
-.pulse-tile--2x2 { grid-column: span 2; }
-
-/* ── Widget tile fit (outputWidget.tileFit) ───────────────────────────────
- * Controls a widget tile's HEIGHT when its content is taller than the slot.
- * Width is always the dashboard-defined grid column. The full run/agent view
- * is unaffected (it never gets these classes). */
-
-/* grow (default): the tile is as tall as its widget — no cap, no scroll. */
-.pulse-tile--fit-grow { max-height: none; }
-.pulse-tile--fit-grow .pulse-tile__body { overflow: visible; }
-
-/* scroll: cap the tile height and scroll the overflow — the base .pulse-tile
- * (max-height + .pulse-tile__body overflow-y:auto) already does this, so no
- * extra rules are needed. */
-
-/* fixed-h: the tile was given an explicit dragged height (snapped to a grid
- * unit) via the resize handle. The inline height/max-height pins it and the
- * body scrolls anything taller. Overrides the grow body's overflow:visible. */
-.pulse-tile--fixed-h .pulse-tile__body { overflow-y: auto; }
-
-.pulse-tile__header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.pulse-tile__icon {
-  font-size: var(--font-size-lg);
-}
-
-.pulse-tile__title {
-  font-family: var(--font-display);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-text-muted);
-}
-
 .pulse-tile__value {
   font-family: var(--font-mono);
   font-size: var(--font-size-2xl);
@@ -87,14 +39,6 @@
   flex: 1;
   display: flex;
   align-items: center;
-}
-
-.pulse-tile__text {
-  font-size: var(--font-size-sm);
-  line-height: 1.5;
-  color: var(--color-text);
-  flex: 1;
-  overflow: hidden;
 }
 
 .pulse-tile__code {
@@ -110,79 +54,6 @@
   word-break: break-all;
   flex: 1;
   margin: 0;
-}
-
-.pulse-tile__footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: var(--font-size-xs);
-  border-top: 1px solid var(--color-border);
-  padding-top: var(--space-2);
-  /* Footer is the last flex child of `.pulse-tile`. The body wrapper
-   * above us scrolls; we sit just below it as static chrome, always
-   * reachable regardless of content height. `flex-shrink: 0` keeps us
-   * from being squeezed when the body's intrinsic content is tall. */
-  flex-shrink: 0;
-}
-
-.pulse-tile__agent {
-  font-family: var(--font-mono);
-  color: var(--color-primary);
-}
-
-.pulse-tile__age {
-  color: var(--color-text-muted);
-}
-
-/* ── Tile run control ──────────────────────────────────────────────
- * Pulse is a run console, so every tile carries a run affordance and it
- * is the primary action of the page. A first attempt styled it as quiet
- * grey chrome to avoid ~28 teal buttons at once; that was wrong — the
- * button disappeared into a footer that already held two muted items,
- * and a run control nobody notices is not a run control.
- *
- * So it keeps the standard `.wc-button--primary` fill from
- * components.css. That is also what the same control looks like on the
- * agent detail page and inside widget tiles, so a tile's Run now matches
- * Run everywhere else instead of being a bespoke variant. Repeating one
- * meaningful accent is not the decorative colour DESIGN.md warns off.
- *
- * The footer was a 2-item space-between row; `margin-right: auto` on the
- * agent link keeps that exact appearance while letting age + run sit
- * together on the right. */
-.pulse-tile__agent { margin-right: auto; }
-
-.pulse-tile__footer { gap: var(--space-2); }
-
-.pulse-tile__footer .wc-group--replay {
-  display: flex;
-  align-items: center;
-  margin: 0;
-}
-
-/* Match the primary button so the two run affordances read as one
-   control, not two. This one is an <a> because the agent needs input
-   before it can run. */
-.pulse-tile__run-link {
-  padding: 4px var(--space-3);
-  font-size: var(--font-size-xs);
-  font-weight: var(--weight-medium);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-primary);
-  color: var(--color-primary);
-  background: transparent;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.pulse-tile__run-link:hover { filter: brightness(1.05); }
-
-/* The in-place handler disables the button and swaps its label to
- * "Running…" while a run is in flight (widget-replay.js.ts). */
-.pulse-tile__footer .wc-button:disabled {
-  opacity: 0.55;
-  cursor: default;
 }
 
 .pulse-table {
@@ -300,109 +171,6 @@
   max-height: 200px;
 }
 
-.pulse-tile--image .pulse-tile__image {
-  max-height: none;
-  flex: 1;
-  width: 100%;
-}
-
-/* -- Collapse/expand -- */
-.pulse-tile__collapse {
-  background: none;
-  border: none;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  font-size: var(--font-size-xs);
-  padding: 0;
-  line-height: 1;
-  transition: transform 150ms ease-out;
-  flex-shrink: 0;
-}
-
-.pulse-tile--collapsed .pulse-tile__collapse {
-  transform: rotate(-90deg);
-}
-
-.pulse-tile.pulse-tile--collapsed {
-  min-height: 0 !important;
-  max-height: fit-content !important;
-  height: fit-content !important;
-  padding: var(--space-2) var(--space-4) !important;
-  gap: 0 !important;
-  overflow: hidden !important;
-  grid-row: span 1 !important;
-}
-
-.pulse-tile.pulse-tile--collapsed > *:not(.pulse-tile__header) {
-  display: none !important;
-  height: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  overflow: hidden !important;
-}
-
-/* -- Hide/show toggle -- */
-.pulse-tile__toggle {
-  background: none;
-  border: none;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  font-size: var(--font-size-sm);
-  padding: 0 var(--space-1);
-  line-height: 1;
-  opacity: 0;
-  transition: opacity 100ms ease;
-}
-
-.pulse-tile:hover .pulse-tile__toggle {
-  opacity: 1;
-}
-
-.pulse-tile__toggle:hover {
-  color: var(--color-text);
-}
-
-/* -- Resize handle -- */
-.pulse-tile__resize-handle {
-  display: none;
-  position: absolute;
-  bottom: 0;
-  right: 0;
-  width: 16px;
-  height: 16px;
-  cursor: nwse-resize;
-  z-index: 2;
-}
-
-.pulse-tile__resize-handle::after {
-  content: '';
-  position: absolute;
-  bottom: 4px;
-  right: 4px;
-  width: 8px;
-  height: 8px;
-  border-right: 2px solid var(--color-text-muted);
-  border-bottom: 2px solid var(--color-text-muted);
-  opacity: 0.6;
-}
-
-/* -- Palette button -- */
-.pulse-tile__palette-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: var(--font-size-xs);
-  padding: 0 var(--space-1);
-  line-height: 1;
-  opacity: 0;
-  transition: opacity 100ms ease;
-  color: var(--color-text-muted);
-}
-
-.pulse-tile:hover .pulse-tile__palette-btn {
-  opacity: 1;
-}
-
 /* -- Palette overrides -- */
 .pulse-tile[data-palette="dark"] {
   --color-surface: var(--palette-dark-surface);
@@ -495,35 +263,11 @@
 }
 
 /* -- Story tile pull-quote style -- */
-.pulse-tile .pulse-tile__body--md blockquote,
-.pulse-tile .story-what-changed {
+.pulse-tile .pulse-tile__body--md blockquote {
   border-left: 3px solid var(--color-primary);
   padding-left: var(--space-3);
   font-style: italic;
 }
-
-/* -- Comparison divider -- */
-.pulse-tile .comparison-divider {
-  width: 1px;
-  background: var(--color-border);
-  align-self: stretch;
-  margin: var(--space-2) 0;
-}
-
-/* -- Configure tile button -- */
-.pulse-tile__configure-btn {
-  background: none;
-  border: none;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  font-size: var(--font-size-sm);
-  padding: 0 var(--space-1);
-  line-height: 1;
-  opacity: 0;
-  transition: opacity 100ms ease;
-}
-.pulse-tile:hover .pulse-tile__configure-btn { opacity: 0.7; }
-.pulse-tile__configure-btn:hover { opacity: 1 !important; color: var(--color-primary); }
 
 /* -- Configure modal -- */
 .pulse-configure-modal {
@@ -576,16 +320,7 @@
 .pulse-configure-modal__section {
   margin-bottom: var(--space-6);
 }
-.pulse-configure-modal__label {
-  display: block;
-  font-size: var(--font-size-xs);
-  font-weight: var(--weight-semibold);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-text-muted);
-  margin-bottom: var(--space-2);
-  font-family: var(--font-display);
-}
+
 .pulse-configure-modal__footer {
   display: flex;
   justify-content: flex-end;
@@ -594,197 +329,6 @@
   margin-top: var(--space-4);
   border-top: 1px solid var(--color-border);
 }
-
-/* -- Template picker grid -- */
-.pulse-configure-modal__templates {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
-  gap: var(--space-2);
-}
-.pulse-configure-modal__tpl-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: var(--space-3) var(--space-2);
-  background: var(--color-surface-raised);
-  border: 2px solid transparent;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: border-color 100ms ease, background 100ms ease;
-  min-height: 56px;
-}
-.pulse-configure-modal__tpl-card:hover {
-  border-color: var(--color-border-strong);
-  background: var(--color-surface);
-}
-.pulse-configure-modal__tpl-card.is-active {
-  border-color: var(--color-primary);
-  background: var(--color-primary-soft);
-}
-.pulse-configure-modal__tpl-icon {
-  font-size: var(--font-size-lg);
-  line-height: 1;
-}
-.pulse-configure-modal__tpl-name {
-  font-size: var(--font-size-xs);
-  font-family: var(--font-mono);
-  color: var(--color-text-muted);
-  text-align: center;
-  letter-spacing: 0.02em;
-}
-
-/* -- Template hint (description + layout preview) -- */
-.cfg-template-hint {
-  margin-top: var(--space-3);
-}
-.cfg-template-hint__inner {
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: var(--space-3) var(--space-4);
-  display: flex;
-  gap: var(--space-4);
-  align-items: flex-start;
-}
-.cfg-template-hint__desc {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  line-height: var(--line-body);
-  flex: 1;
-}
-.cfg-template-hint__layout {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-subtle);
-  margin: 0;
-  line-height: 1.5;
-  white-space: pre;
-  background: var(--color-surface-raised);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
-  flex-shrink: 0;
-}
-
-/* -- Form divider -- */
-.cfg-divider {
-  border: none;
-  border-top: 1px solid var(--color-border);
-  margin: var(--space-6) 0;
-}
-
-/* -- Mapping form rows -- */
-.cfg-mapping-row {
-  margin-bottom: var(--space-4);
-  padding-bottom: var(--space-3);
-  border-bottom: 1px solid rgba(255,255,255,0.04);
-}
-.cfg-mapping-row:last-child {
-  border-bottom: none;
-  margin-bottom: 0;
-  padding-bottom: 0;
-}
-.cfg-mapping-label {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  margin-bottom: var(--space-2);
-  font-weight: var(--weight-medium);
-}
-.cfg-slot-type {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-subtle);
-  background: var(--color-surface-raised);
-  padding: var(--space-1) var(--space-2);
-  border-radius: 3px;
-  border: 1px solid var(--color-border);
-}
-.cfg-mapping-select {
-  width: 100%;
-  margin-bottom: var(--space-2);
-}
-.cfg-literal-input {
-  width: 100%;
-  margin-top: var(--space-1);
-}
-
-/* -- Suggested template badge -- */
-.cfg-suggested-badge {
-  font-size: var(--font-size-xs);
-  font-weight: var(--weight-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--color-primary);
-  position: absolute;
-  bottom: 3px;
-  left: 50%;
-  transform: translateX(-50%);
-  white-space: nowrap;
-}
-.pulse-configure-modal__tpl-card.is-suggested {
-  border-color: rgba(45, 212, 191, 0.4);
-  padding-bottom: var(--space-4);
-}
-
-/* -- Theme picker grid (Settings > Appearance) -- */
-.theme-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: var(--space-3);
-}
-.theme-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  background: var(--color-surface-raised);
-  border: 2px solid transparent;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: border-color 100ms ease;
-}
-.theme-card:hover {
-  border-color: var(--color-border-strong);
-}
-.theme-card.is-active {
-  border-color: var(--color-primary);
-}
-.theme-card__preview {
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  border-radius: var(--radius-sm);
-  padding: var(--space-2);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.theme-card__name {
-  font-size: var(--font-size-xs);
-  font-weight: var(--weight-semibold);
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-/* ── Schedule preset chips on agent → Config → Schedule ─────────────── */
-.schedule-preset {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  letter-spacing: 0.04em;
-}
-.schedule-preset.is-active {
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
-  border-color: var(--color-primary);
-}
-
-/* ── In-place "Add tile" modal for /dashboards/:id ──────────────────── */
 
 /* + Add tile button is always visible — it's non-destructive and adding
    a tile shouldn't require entering edit mode first. Empty sections
@@ -841,15 +385,7 @@
   width: 100%;
   margin-bottom: var(--space-4);
 }
-.add-tile-section-label {
-  font-size: var(--font-size-xs);
-  font-weight: var(--weight-semibold);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-text-muted);
-  font-family: var(--font-display);
-  margin: var(--space-3) 0 var(--space-2);
-}
+
 .add-tile-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -880,10 +416,7 @@
   align-items: center;
   gap: var(--space-2);
 }
-.add-tile-card__icon {
-  font-size: var(--font-size-lg);
-  line-height: 1;
-}
+
 .add-tile-card__name {
   font-weight: var(--weight-semibold);
   font-size: var(--font-size-sm);
@@ -920,34 +453,11 @@
   font-family: var(--font-mono);
 }
 
-/* "Create new" tiles pinned at the top of the modal. Anchor tag for the
-   blank-agent link, button for build-from-goal — both look identical. */
-.add-tile-grid--create {
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  margin-bottom: var(--space-3);
-}
-.add-tile-card--create {
-  border-style: dashed;
-  border-color: var(--color-border-strong);
-  background: var(--color-bg);
-  text-decoration: none;
-  color: inherit;
-}
-.add-tile-card--create:hover {
-  border-style: solid;
-  border-color: var(--color-primary);
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
-}
-.add-tile-card--create .add-tile-card__icon {
-  font-size: var(--font-size-xl);
-}
-
 /* Board toolbar (board pages and the canvas editor). */
 .board-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-4); }
 .board-toolbar__status { font-size: var(--font-size-xs); }
 .board-toolbar__status--error { color: var(--color-err); }
-.board-toolbar__text { min-width: 14rem; padding: var(--space-1) var(--space-2); font: inherit; font-size: var(--font-size-sm); background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm, 4px); }
+
 .board-toolbar [hidden] { display: none !important; }
 
 /* Board pages (/pulse, /dashboards/:id as boards). */
@@ -995,9 +505,7 @@
 /* sua's review of a board (views/board-review.ts): a goal to take, then each suggestion as a plain row with its one button. */
 .board-review { margin: 0 0 var(--space-4); padding: var(--space-4) var(--space-6); border: 1px solid var(--color-border); border-left: 3px solid var(--color-primary); border-radius: var(--radius-lg); background: var(--color-surface); display: grid; gap: var(--space-3); }
 .board-review__head { display: flex; align-items: baseline; gap: var(--space-3); }
-.board-review--handled { padding-top: var(--space-2); padding-bottom: var(--space-2); border-left-color: var(--color-border); }
-.board-review--handled > summary { cursor: pointer; }
-.board-review--handled[open] > summary { margin-bottom: var(--space-2); }
+
 .board-review__title { margin: 0; font-family: var(--font-display); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: 0.08em; }
 .board-review__round { color: var(--color-text-muted); font-size: var(--font-size-xs); font-family: var(--font-mono); }
 .board-review__goal { display: grid; gap: var(--space-2); padding-bottom: var(--space-3); border-bottom: 1px solid var(--color-border); }
@@ -1096,3 +604,22 @@
 .board-looks__body { display: grid; gap: var(--space-3); padding: 0 var(--space-4) var(--space-4); }
 .board-looks__gallery { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 .lk-g--tile .lk-box { width: 100%; height: 14px; }
+
+/* Today's edition: what's off about its freshness (older parts, a stopped scheduler), above the edition, only when something is. */
+.edition-health { display: grid; gap: var(--space-2); margin: 0 0 var(--space-4); }
+.edition-health__line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.edition-health__line--bad { color: var(--color-err); }
+.edition-health__line--bad a { color: inherit; text-decoration: underline; }
+
+/* Today's tab before there's an edition: what would fill it, and the scheduled agents to run now. */
+.edition-empty { display: grid; gap: var(--space-3); max-width: 720px; padding: var(--space-6) 0; }
+.edition-empty__h { margin: 0; font-family: var(--font-display); font-size: var(--font-size-xl); }
+.edition-empty__lede { margin: 0; color: var(--color-text-muted); line-height: 1.5; }
+.edition-empty__list { list-style: none; margin: 0; padding: 0; display: grid; }
+.edition-empty__agent { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border); font-size: var(--font-size-sm); }
+.edition-empty__when { margin-left: auto; color: var(--color-text-muted); white-space: nowrap; }
+.edition-empty__run { margin: 0; }
+
+/* All agents' health in one line, problems first (it replaces the stat boxes at the top). */
+.pulse-health { margin: 0 0 var(--space-3); font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.pulse-health__part.is-bad { color: var(--color-err); text-decoration: underline; }

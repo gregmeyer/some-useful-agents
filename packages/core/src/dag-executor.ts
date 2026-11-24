@@ -361,6 +361,11 @@ function parseWholeJsonOutput(text: string): ToolOutput | undefined {
  * written with status 'skipped' and category 'upstream_failed' so the
  * log tells a coherent top-to-bottom story without silent rows.
  */
+/** Why a run was stopped: the reason the caller gave its abort (a string), else a Stop. */
+function cancelReason(signal: AbortSignal | undefined): string {
+  return typeof signal?.reason === 'string' && signal.reason.trim() ? signal.reason : 'Cancelled by user.';
+}
+
 export async function executeAgentDag(
   agent: Agent,
   options: DagExecuteOptions,
@@ -1103,6 +1108,9 @@ export async function executeAgentDag(
       }
       nodeSpendBudget = spendLimits.perRunUsd - spent;
     }
+    // Daily cap on fallback spend (fallback-spend.ts): what's been spent today, for the spawner to hold paid fallbacks to.
+    const fallbackCapUsd = deps.llmSettings?.fallbackCapUsd;
+    const fallbackCap = fallbackCapUsd ? { capUsd: fallbackCapUsd, spentUsd: deps.runStore.fallbackSpendSince(startOfLocalDay()) } : undefined;
 
     let env: Record<string, string>;
     let upstreamSnapshot: Record<string, string>;
@@ -1478,7 +1486,7 @@ export async function executeAgentDag(
             provider: node.provider ?? agent.provider,
             model: node.model ?? agent.model,
           };
-          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, boards: boardsStore(), notebooks: notebooksStore(), runFiles: runFilesCtx(node), spendBudgetUsd: nodeSpendBudget };
+          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, boards: boardsStore(), notebooks: notebooksStore(), runFiles: runFilesCtx(node), spendBudgetUsd: nodeSpendBudget, fallbackCap };
           const spawnResult = await spawnFn(synthNode, env, spawnOpts, onProgress, effectiveSignal, onSpawn, onChildExit);
           result = spawnResult;
           structuredOutput = buildToolOutput(spawnResult.result);
@@ -1505,7 +1513,7 @@ export async function executeAgentDag(
           result = ask.failure;
         } else {
           const nodePreamble = ask?.preamble ? [behaviorPreamble, ask.preamble].filter(Boolean).join('\n') : behaviorPreamble;
-          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble: nodePreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, boards: boardsStore(), notebooks: notebooksStore(), runFiles: runFilesCtx(node), askHuman: ask?.ctx, askRunId: ask ? runId : undefined, spendBudgetUsd: nodeSpendBudget };
+          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble: nodePreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, boards: boardsStore(), notebooks: notebooksStore(), runFiles: runFilesCtx(node), askHuman: ask?.ctx, askRunId: ask ? runId : undefined, spendBudgetUsd: nodeSpendBudget, fallbackCap };
           const spawnResult = await spawnFn(nodeWithDefaults, env, spawnOpts, onProgress, ask?.signal ?? effectiveSignal, onSpawn, onChildExit);
           ask?.dispose();
           askedQuestion = ask ? ask.pending() : undefined;
@@ -1598,18 +1606,23 @@ export async function executeAgentDag(
         usage: result.usage,
       });
     } else {
-      const category: NodeErrorCategory =
+      // Ended by a stop from outside (Stop, or the dashboard shutting down; not the agent's
+      // own wall-clock limit): its process was killed, which reads as a timeout, but the node
+      // was cancelled. A node that failed on its own while a stop was pending stays failed.
+      const stoppedNode = !!options.signal?.aborted && !agentTimedOut
+        && (result.category === 'timeout' || result.category === 'cancelled' || result.exitCode === 124);
+      const category: NodeErrorCategory = stoppedNode ? 'cancelled' :
         result.category ??
         (result.exitCode === 124 ? 'timeout' :
          result.exitCode === 127 ? 'spawn_failure' :
          'exit_nonzero');
       deps.runStore.updateNodeExecution(runId, node.id, {
-        status: 'failed',
+        status: stoppedNode ? 'cancelled' : 'failed',
         errorCategory: category,
         completedAt,
         result: result.result,
         exitCode: result.exitCode,
-        error: result.error ?? `Process exited with code ${result.exitCode}`,
+        error: stoppedNode ? cancelReason(options.signal) : result.error ?? `Process exited with code ${result.exitCode}`,
         outputsJson,
         usedLLMProvider: result.usedLLMProvider,
         attemptedProviders: result.attemptedProviders ? result.attemptedProviders.join(',') : undefined,
@@ -1676,6 +1689,10 @@ export async function executeAgentDag(
   if (agentTimedOut) {
     finalStatus = 'failed';
     finalError = `Agent wall-clock timeout (${agent.timeoutSec}s) exceeded.`;
+  } else if (firstFailure?.category === 'cancelled' && options.signal?.aborted) {
+    // Stopped from outside: the run was cancelled, not failed (no failure thread in the inbox).
+    finalStatus = 'cancelled';
+    finalError = cancelReason(options.signal);
   }
 
   cleanupAgentTimeout();

@@ -168,8 +168,10 @@ export const AGENT_CHAT_JS = `
     var action = e.detail || {};
     if (!sessionId || runId || (button && button.disabled)) return; // mid-turn: ignore
     var ctx = action.context || {};
-    var display = typeof ctx.message === 'string' && ctx.message ? ctx.message : '▸ ' + (action.name || 'action');
-    startTurn({ type: 'chat.action', agentId: agentId, sessionId: sessionId, action: { name: action.name, context: ctx } }, display);
+    // A choice in a form's message comes as ["rental"]: said as words.
+    var said = typeof action.userMessage === 'string' && action.userMessage ? action.userMessage.replace(/\\[\\s*((?:"[^"\\\\]*"\\s*,?\\s*)*)\\]/g, function (_m, inner) { return (inner.match(/"([^"\\\\]*)"/g) || []).map(function (x) { return x.slice(1, -1); }).join(', '); }) : '';
+    var display = said || (typeof ctx.message === 'string' && ctx.message ? ctx.message : '▸ ' + (action.name || 'action'));
+    startTurn({ type: 'chat.action', agentId: agentId, sessionId: sessionId, action: { name: action.name, context: ctx, userMessage: said || undefined } }, display);
   });
 })();
 `;

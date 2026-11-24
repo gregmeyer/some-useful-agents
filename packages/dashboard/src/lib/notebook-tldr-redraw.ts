@@ -1,15 +1,18 @@
 /**
  * Redraw a notebook's TL;DR picture from an ask ("make it suitable for
- * LinkedIn", "more editorial"): the `notebook-tldr` agent chooses a spec
- * (core TldrSpec: a size, tone, layout, parts, and at most a headline and a
- * takeaway), and the notebook keeps it (NotebookStore.setTldr; Undo puts the
+ * LinkedIn", "more editorial"): the `notebook-tldr` agent composes the card
+ * as an A2UI view (core TldrSpec: a size, a tone, at most a headline and a
+ * takeaway, and the view), shaped as the notebook's page prefers unless the
+ * ask says otherwise (ADR-0098). A redraw never falls back to a fixed
+ * layout: one that can't be composed leaves the picture as it was. The
+ * notebook keeps it (NotebookStore.setTldr; Undo puts the
  * one before back). The agent never draws and never supplies a number: any
  * number in the words it writes has to be in the picture's own data, or the
  * words are asked for once more and then left out. It runs in the
  * background; the Redraw page shows it working and then the new picture.
  */
 import { randomUUID } from 'node:crypto';
-import { NotebookStore, cleanTldrSpec, executeAgentDag, extractTaggedJson, tldrOptionsGuide, TLDR_LAYOUTS, TLDR_SIZES, TLDR_TONES, type Notebook, type TldrSpec } from '@some-useful-agents/core';
+import { NotebookStore, checkTldrView, cleanTldrSpec, executeAgentDag, extractTaggedJson, notebookLayoutOf, tldrPreference, tldrPreferenceGuide, tldrSizesTonesGuide, tldrViewGuide, tldrViewWords, TLDR_SIZES, TLDR_TONES, type Notebook, type TldrPreference, type TldrSpec } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
 import { buildLlmSettingsSnapshot } from './llm-settings-snapshot.js';
@@ -33,18 +36,26 @@ export function cardForAgent(t: TldrData): Record<string, unknown> {
     ...(t.chart ? { bars: { by: t.chart.label, order: t.chart.order, shown: t.chart.bars.map((b) => ({ name: b.name, value: b.text, ...(b.lead ? { lead: true } : {}) })), more: t.chart.more, topOptionsWithPictures: t.chart.bars.slice(0, 4).filter((b) => b.picture).length } } : {}),
     ...(t.points.length ? { points: { label: t.pointsLabel ?? 'What it found', items: t.points } } : {}),
     // The notebook's own photos (a briefing's sources): how many, and where each is from, so "gallery" and the "photos" part are chosen only when they can be drawn.
-    ...(t.photos?.length ? { photos: { count: t.photos.length, from: t.photos.map((x) => x.credit) } } : {}),
+    ...(t.photos?.length ? { photos: { count: t.photos.length, from: t.photos.map((x) => x.credit), each: t.photos.map((x, i) => ({ path: `/tldr/photos/${String(i)}`, credit: x.credit, shows: x.name })) } } : {}),
+    // A shortlist that leads with what it wrote: its top options' own photos are the card's photos (/tldr/photo is the first).
+    ...(!t.photos?.length && t.optionPhotos?.length ? { photos: { count: t.optionPhotos.length, of: 'the top options', from: t.optionPhotos.map((x) => x.credit), each: t.optionPhotos.map((x, i) => ({ path: `/tldr/photos/${String(i)}`, credit: x.credit, shows: x.name })) } } : {}),
   };
 }
 
+/** The TL;DR picture a notebook's page prefers, from its layout and what its card can draw. Pure. */
+export function tldrPreferenceFor(nb: Pick<Notebook, 'layout'>, card: TldrData): TldrPreference {
+  return tldrPreference(notebookLayoutOf(nb).preset, { bars: !!card.chart?.bars.length, photos: card.photos?.length || card.optionPhotos?.length || 0, leadPicture: !!card.leadPicture });
+}
+
 /** The agent's inputs. Pure. */
-export function tldrRedrawInputs(nb: Pick<Notebook, 'title' | 'statement' | 'tldr'>, card: TldrData, ask: string, errors = ''): Record<string, string> {
+export function tldrRedrawInputs(nb: Pick<Notebook, 'title' | 'statement' | 'tldr'>, card: TldrData, ask: string, errors = '', pref?: TldrPreference): Record<string, string> {
   return {
     NOTEBOOK: JSON.stringify({ title: nb.title, for: nb.statement }),
     CARD: JSON.stringify(cardForAgent(card)),
-    OPTIONS: tldrOptionsGuide(),
+    OPTIONS: `${tldrSizesTonesGuide()}\n${tldrViewGuide()}`,
+    PREFER: pref ? tldrPreferenceGuide(pref) : '',
     ASK: ask,
-    CURRENT: nb.tldr ? JSON.stringify({ size: nb.tldr.size, tone: nb.tldr.tone, layout: nb.tldr.layout, parts: nb.tldr.parts, ...(nb.tldr.headline ? { headline: nb.tldr.headline } : {}), ...(nb.tldr.takeaway ? { takeaway: nb.tldr.takeaway } : {}) }) : '',
+    CURRENT: nb.tldr ? JSON.stringify({ size: nb.tldr.size, tone: nb.tldr.tone, layout: nb.tldr.layout, parts: nb.tldr.parts, ...(nb.tldr.headline ? { headline: nb.tldr.headline } : {}), ...(nb.tldr.takeaway ? { takeaway: nb.tldr.takeaway } : {}), ...(nb.tldr.view ? { view: nb.tldr.view } : {}) }) : '',
     ERRORS: errors ? `Your last answer couldn't be used: ${errors} Answer again, fixing that and keeping the rest.` : '',
   };
 }
@@ -61,27 +72,36 @@ export function strayNumbers(words: readonly (string | undefined)[], nb: Pick<No
 
 /**
  * The agent's answer as a spec, or why it can't be used: no `<tldr>` JSON,
- * a size, tone or layout that isn't one of the choices (named, so a retry
- * can fix it), or words with a number the picture's data doesn't have. Pure.
+ * a size or tone that isn't one of the choices, no view or one that can't
+ * be drawn (named, so a retry can fix it), or a view whose own words have a
+ * number the picture's data doesn't. A headline or takeaway with one is
+ * left out and the card kept. A size not given is the page's preferred one. Pure.
  */
-export function parseTldrAnswer(raw: string | undefined, nb: Pick<Notebook, 'title' | 'statement'>, card: TldrData, ask: string, now = new Date().toISOString()): { spec: TldrSpec } | { error: string; spec?: TldrSpec } {
+export function parseTldrAnswer(raw: string | undefined, nb: Pick<Notebook, 'title' | 'statement'>, card: TldrData, ask: string, now = new Date().toISOString(), pref?: TldrPreference): { spec: TldrSpec } | { error: string } {
   let v: Record<string, unknown>;
   try {
     const parsed = JSON.parse(extractTaggedJson(raw ?? '', 'tldr') ?? 'null') as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { error: 'It has no <tldr> JSON object.' };
     v = parsed as Record<string, unknown>;
   } catch { return { error: 'Its <tldr> block is not valid JSON.' }; }
-  const unknown = ([['size', TLDR_SIZES], ['tone', TLDR_TONES], ['layout', TLDR_LAYOUTS]] as const)
+  const unknown = ([['size', TLDR_SIZES], ['tone', TLDR_TONES]] as const)
     .filter(([k, known]) => v[k] !== undefined && !(typeof v[k] === 'string' && (v[k] as string) in known))
     .map(([k, known]) => `"${String(v[k])}" is not a ${k} (use one of: ${Object.keys(known).join(', ')}).`);
   if (unknown.length) return { error: unknown.join(' ') };
-  const spec = cleanTldrSpec({ ...v, ask, at: now });
-  if (!spec) return { error: 'It is not a way to draw the picture.' };
+  if (v.view === undefined) return { error: 'It has no "view": compose the card as a view.' };
+  const viewCheck = checkTldrView(v.view);
+  if (!viewCheck.ok) return { error: `Its "view" can't be drawn: ${viewCheck.errors.slice(0, 4).join(' ')}` };
+  // The fixed layouts don't apply to a composed card: whatever it said about them isn't kept.
+  const { layout: _l, parts: _p, picture: _pic, bars: _b, ...rest } = v;
+  const spec = cleanTldrSpec({ ...rest, ...(v.size === undefined && pref ? { size: pref.size } : {}), ask, at: now });
+  if (!spec?.view) return { error: 'It is not a way to draw the picture.' };
+  const strayView = strayNumbers(tldrViewWords(spec.view), nb, card);
+  if (strayView.length) return { error: `The view's own words have ${strayView.length === 1 ? 'a number' : 'numbers'} that CARD doesn't (${strayView.join(', ')}). Bind numbers from /tldr/… or a TldrPart instead of writing them.` };
   const stray = strayNumbers([spec.headline, spec.takeaway], nb, card);
   if (stray.length) {
-    // Usable without the words, if a second try doesn't fix them.
+    // The card stands; the words with a number of the model's own are left out.
     const { headline: _h, takeaway: _t, ...plain } = spec;
-    return { error: `The headline or takeaway has ${stray.length === 1 ? 'a number' : 'numbers'} that CARD doesn't (${stray.join(', ')}). Use only numbers that are in CARD, written as they are there, or none.`, spec: plain };
+    return { spec: plain };
   }
   return { spec };
 }
@@ -111,17 +131,15 @@ async function runTldrAgent(ctx: Ctx, inputs: Record<string, string>): Promise<s
 }
 
 /**
- * Choose a spec for an ask: one try, and one more with the reason when the
- * first can't be used. Words with a number of the model's own are left out
- * if the second try still has them (the drawing itself stands).
+ * Compose a card for an ask: one try, and one more with the reason when the
+ * first can't be used. Then the error: the picture stays as it was.
  */
 export async function chooseTldrSpec(ctx: Ctx, nb: Notebook, card: TldrData, ask: string): Promise<{ spec: TldrSpec } | { error: string }> {
-  const first = parseTldrAnswer(await runTldrAgent(ctx, tldrRedrawInputs(nb, card, ask)), nb, card, ask);
+  const pref = tldrPreferenceFor(nb, card);
+  const first = parseTldrAnswer(await runTldrAgent(ctx, tldrRedrawInputs(nb, card, ask, '', pref)), nb, card, ask, undefined, pref);
   if (!('error' in first)) return first;
-  const second = parseTldrAnswer(await runTldrAgent(ctx, tldrRedrawInputs(nb, card, ask, first.error)), nb, card, ask);
-  if (!('error' in second)) return second;
-  const usable = second.spec ?? first.spec;
-  return usable ? { spec: usable } : { error: second.error };
+  // Once more with the reason; if that can't be used either, the picture stays as it was (no fixed-layout fallback).
+  return parseTldrAnswer(await runTldrAgent(ctx, tldrRedrawInputs(nb, card, ask, first.error, pref)), nb, card, ask, undefined, pref);
 }
 
 /** How a notebook's redraw stands: working (unless it's gone stale), how the last one ended, or nothing. */

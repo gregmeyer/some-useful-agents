@@ -8,7 +8,7 @@ Each tile shows an agent's latest result, drawn with the agent's view (or its wi
 
 - **Run** in the footer runs the agent in place and refreshes only that tile; **Run…** opens the agent page when it needs input first. An agent whose own view has a form or **Run again** runs from there instead, also in place.
 - A tile can run another tile on the same board: a view's Run button or a table's row action may name an agent placed there (`context.agent`, or a Table's `rowAction.agent`), and that tile runs with the row's values and refreshes. Anywhere else, and for an agent not on the board, the action runs the view's own agent. See [a2ui-views.md](a2ui-views.md#what-a-view-can-bind-to).
-- **⚙** configures the tile (template, title, size, accent).
+- **✎** redesigns the agent's view with sua.
 - **×** on Pulse hides the agent from Pulse (restore it from the hidden section at the bottom). On a dashboard, remove a tile by arranging the board.
 - A tile refreshes itself on the agent's `refresh` interval, and keeps its palette and accent.
 - The few widgets A2UI can't draw yet (capture-image widgets, YouTube/Vimeo media) show a note pointing to the agent's page.
@@ -17,16 +17,32 @@ Each tile shows an agent's latest result, drawn with the agent's view (or its wi
 
 **Pulse opens on Today's edition** whenever a scheduled agent has finished a run in the last 24 hours. It is a front page made fresh each time you open it:
 
-- a masthead with the date, and the day's headline (the first sentence of the agent that leads Home's brief);
-- each scheduled agent's latest result, drawn as that agent's own view, with its **Run** button;
+- a masthead titled with the date (the tab already says Today's edition), and the day's headline (the first sentence of the agent that leads Home's brief);
+- each scheduled agent's latest result, drawn as that agent's own view, with its **Run** button and its age beside its title ("13d ago");
 - **By the numbers**, a band under the headline when an agent has a count that changes from day to day: that count, its last days as columns (today's marked), and up to three other figures each over a line of its last days. The same figures as Home's brief; every number is read from an agent's output. The page's data carries them at `/board/figures` (the lead as a `Lead` stat with `days` for `DayBars`; `others/<n>` with `values` for a `Sparkline`). Every board's data carries its own agents' figures at the same paths, so a board you made can draw the same band (sua does it when you take a numbers suggestion, or ask for one).
 - results with a table in the wide column; the others beside it (one with a number first, the number set large) and three abreast underneath.
+
+**Today's tab is always there** ([ADR-0100](adr/0100-pulses-today-tab-is-always-there.md)). With nothing from the last day, it says "Nothing for today yet" and lists your scheduled agents (up to 8), each with when it last ran and **Run** (its last inputs). An agent that needs inputs it has never had links to its page instead. Opening the page never starts a run. With no scheduled agents it says so and points to All agents. Coming back from an action on All agents still lands there.
+
+All agents has a one-line description. **Hide all** sits at the bottom beside **Show all** and **Manage agents**, not in the header. The boards menu calls Pulse "Pulse".
+
+**It says how fresh it is** ([ADR-0099](adr/0099-the-edition-says-how-fresh-it-is.md)):
+- **The header counts honestly:** "1 of 3 parts from the last day".
+- **A part older than a day** is there only because you always show it, and says so under its title. "N parts are older than a day" sits above the edition, with **Run the N older parts**. Each runs again with its last inputs. Nothing runs just because you opened the page.
+- **A newer run that failed:** a part says "Its last run failed, so this is the result from before. See why", linking to that run.
+- **A stopped scheduler**, while agents are scheduled, is said in red above the edition, with a link to the scheduled agents.
+- **Results to read.** The edition shows results, not tools. An agent whose result is a form (a weather tool that asks for a place) shows its last result without the form. Its **Run** runs it again with the same inputs, and **Change inputs…** goes to the agent's page.
+- **Dates in tables** stay on one line.
 
 **Improving the edition.** It can't be arranged or saved as a page, but it follows what you've said you want:
 
 - It has a **Goal**, like a board.
-- **Improve today's edition** has sua review it against the goal and suggest what to leave out, which of your other agents to bring in, which result should lead, and whether to show a top item. Taking a suggestion saves a preference; the edition is made with it from then on. New agents aren't drafted for the edition.
-- **Ask for a change** in the box beside it, in your own words: "lead with markets", "drop the evening routine", "always show my journal", "put the job digest in the wide column", "no numbers band", "add the line: scores are from 8am". sua works out the changes and shows them, each in plain words; nothing changes until you press **Apply**. If part of what you asked isn't something the edition can do (three columns, colours, a new chart), it does the rest and says so; that part is what a board is for.
+- **Improve today's edition** has sua review it against the goal and suggest what to leave out, which of your other agents to bring in, which result should lead, and whether to show a top item. Taking a suggestion saves a preference; the edition is made with it from then on. It can also offer **a new agent** for something none of yours covers ([ADR-0101](adr/0101-the-edition-offers-an-agent-for-a-gap.md)). Taking that drafts the agent behind one approval in your inbox. Approved, it becomes active, runs once, and is always shown, so it's in the edition once it has a result. The edition's Ask box can offer the same ("Draft it").
+- **Ask for a change** in the box beside it, in your own words: "lead with markets", "drop the evening routine", "always show my journal", "put the job digest in the wide column", "no numbers band", "add the line: scores are from 8am". sua works out the changes and shows them, each in plain words, one row each. Nothing changes until you press **Apply** on a row, or **Apply all N changes**, and **Skip** drops one. **Undo last change** goes back to before the whole ask, however many of its rows you applied.
+
+**From anywhere.** Ask sua (the bar at the top) takes a change to the edition too ("lead the edition with markets", "what's stale on Pulse?"). It works the change out and links to Pulse, where the rows wait. MCP clients use `edition-read` and `edition-apply`.
+
+sua sees how fresh each part is: its age, whether its newest run failed, why it's shown, and whether the scheduler is running. So you can ask "what's stale?". It can offer to **run a part again** (one older than a day, or whose last run failed, that can run with its last inputs). That row has its own **Run** button, because it costs a run, and it's never inside Apply all. It can also offer **Stop always showing** a part you always show, so it's in the edition only on days it ran. Ages and counts on the card come from the page, not from sua's words; a line of sua's with a number in it isn't shown. If part of what you asked isn't something the edition can do (three columns, colours, a new chart), it does the rest and says so; that part is what a board is for.
 - **Your changes** lists them in a line, with **Show** beside each agent you left out. **Undo last change** goes back one step; **Back to automatic** forgets them all (Undo brings them back).
 - A preference that can't be met today is skipped for today: if the agent you chose to lead hasn't reported, the day's figures lead, and it leads again when it's back.
 
@@ -34,7 +50,7 @@ See [ADR-0076](adr/0076-the-edition-follows-preferences.md).
 
 Nobody arranges it and nothing about its page is saved, so there is no Arrange here. `/pulse#agent-<id>` opens it at that agent's result; Home's reads and brief link that way. For a page like it that you can arrange, make a board and choose the front page under **How it looks**. See [ADR-0074](adr/0074-pulse-opens-on-a-generated-edition.md).
 
-**All agents** (`/pulse/agents`), the second tab, is the board you arrange. It shows what you've placed first. Every other agent is under **Everything else**, in tabs by how recently you used it (Health, Recent, Idle, Never run); only the open tab is drawn, so a big Pulse stays quick. A placed agent you hide from Pulse drops off the board.
+**All agents** (`/pulse/agents`), the second tab, is the board you arrange. It shows what you've placed first. Every other agent is under **Everything else**, in tabs: Needs attention (its newest run failed), then by how recently you used it (Recent, Idle, Never run), and Counts (the system tiles) last. A line above the board says its health, problems first; only the open tab is drawn, so a big Pulse stays quick. A placed agent you hide from Pulse drops off the board.
 
 Until Pulse's board is first saved, it offers **Start from my Pulse arrangement** when your browser kept groups or tile sizes for the old Pulse: each of your groups becomes a section with its tiles at the sizes you chose.
 

@@ -15,6 +15,7 @@ import {
   type SessionStore,
   type SpawnProgress,
 } from '@some-useful-agents/core';
+import { inBackground } from './background.js';
 import type { DashboardContext } from '../context.js';
 import { buildLlmSettingsSnapshot } from './llm-settings-snapshot.js';
 import { resolveRunBackend } from './run-backend.js';
@@ -158,7 +159,7 @@ export async function startChatTurn(
   const imgHosts = agent.permissions?.imgSrc ?? [];
   const abortController = new AbortController();
   ctx.activeRuns.set(runId, abortController);
-  void executeAgentDag(
+  inBackground(ctx, 'executeAgentDag', executeAgentDag(
     agent,
     {
       triggeredBy: 'dashboard',
@@ -193,7 +194,7 @@ export async function startChatTurn(
       completeAgentTurn(sessions, session.id, { id: runId, status: 'failed', error: err instanceof Error ? err.message : String(err) });
       publish(ctx, session.id, 'turn-end', { runId, status: 'failed' });
     })
-    .finally(() => { ctx.activeRuns.delete(runId); });
+    .finally(() => { ctx.activeRuns.delete(runId); }));
   return { session, runId };
 }
 
@@ -215,7 +216,7 @@ function watchDurableTurn(ctx: DashboardContext, sessions: SessionStore, session
   const timer = setInterval(() => {
     if (busy) return;
     busy = true;
-    void (async () => {
+    inBackground(ctx, 'chat-turn', (async () => {
       try {
         const report = await ctx.provider.liveRunProgress?.(runId);
         for (const { nodeId, event } of takeNewProgress(report, cursor)) {
@@ -229,7 +230,7 @@ function watchDurableTurn(ctx: DashboardContext, sessions: SessionStore, session
           publish(ctx, sessionId, 'turn-end', { runId, status: run?.status ?? 'running' });
         }
       } catch { /* a missed poll is caught up on the next */ } finally { busy = false; }
-    })();
+    })());
   }, DURABLE_POLL_MS);
   timer.unref?.();
 }
@@ -242,15 +243,24 @@ export interface ChatAction { name: string; context?: Record<string, unknown> }
  * context's `message` (so a choice button can say exactly what it means),
  * else "▸ name (key: value, …)". Returns an error string when it's malformed.
  */
+/** A list a form's message carries as JSON (A2UI's formatString writes a choice as ["rental"]), said as words: "rental", "small, large". */
+export function tidyListsInText(s: string): string {
+  return s.replace(/\[\s*((?:"[^"\\]*"\s*,?\s*)*)\]/g, (_m, inner: string) => (inner.match(/"([^"\\]*)"/g) ?? []).map((x) => x.slice(1, -1)).join(', '));
+}
+
 export function actionToMessage(input: unknown): { message: string } | { error: string } {
   if (!input || typeof input !== 'object') return { error: 'An action needs a name.' };
-  const a = input as { name?: unknown; context?: unknown };
+  const a = input as { name?: unknown; context?: unknown; userMessage?: unknown };
   if (typeof a.name !== 'string' || !a.name.trim() || a.name.length > 64) return { error: 'An action needs a name (at most 64 characters).' };
   const context = a.context && typeof a.context === 'object' && !Array.isArray(a.context) ? a.context as Record<string, unknown> : {};
   if (JSON.stringify(context).length > 4096) return { error: 'That action carries too much data.' };
+  // A2UI 1.0's userMessage (a form's "Budget $400, from May 2…", written from its answers) is what the person said; else the button's message.
+  if (typeof a.userMessage === 'string' && a.userMessage.trim()) return { message: tidyListsInText(a.userMessage.trim()).slice(0, 2000) };
   if (typeof context.message === 'string' && context.message.trim()) return { message: context.message.trim().slice(0, 2000) };
+  // A choice's value is a list: said as "small, large".
+  const say = (v: unknown) => (Array.isArray(v) && v.every((x) => typeof x !== 'object') ? v.join(', ') : typeof v === 'object' ? JSON.stringify(v) : String(v));
   const parts = Object.entries(context)
-    .filter(([, v]) => v !== undefined && v !== null && v !== '')
-    .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`);
+    .filter(([, v]) => v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && !v.length))
+    .map(([k, v]) => `${k}: ${say(v)}`);
   return { message: `▸ ${a.name.trim()}${parts.length ? ` (${parts.join(', ')})` : ''}`.slice(0, 2000) };
 }

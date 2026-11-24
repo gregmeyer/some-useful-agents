@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EditionPrefsStore, EditionOpError, applyEditionOps, describeEditionOp, editionFacts, editionPrefsLines, type EditionOp } from '@some-useful-agents/core';
 import type { McpServer } from '@modelcontextprotocol/server';
 import type {
   Agent as V2Agent,
@@ -37,6 +38,10 @@ import {
   templatesForAsk,
   findNotebook,
   notebookReadoutJson,
+  NOTEBOOK_SURFACE_URI,
+  A2UI_MIME,
+  notebookSurfaceTemplate,
+  notebookSurfaceData,
   cleanTldrSpec,
   strayTldrNumbers,
   tldrOptionsGuide,
@@ -443,10 +448,26 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
         format: z.enum(['text', 'json']).optional().describe('text (default) or json.'),
       },
     },
-    async ({ notebook, part, format }) => notebookStore
-      ? runBuiltinTool('notebook-read', { notebook: notebook ?? '', ...(part ? { part } : {}), ...(format ? { format } : {}) }, { notebooks: notebookStore })
-      : errorResult('Notebooks are not available on this server.'),
+    async ({ notebook, part, format }) => {
+      if (!notebookStore) return errorResult('Notebooks are not available on this server.');
+      const out = await runBuiltinTool('notebook-read', { notebook: notebook ?? '', ...(part ? { part } : {}), ...(format ? { format } : {}) }, { notebooks: notebookStore });
+      if ('isError' in out && out.isError) return out;
+      // One notebook, read whole: its data as an A2UI 1.0 updateDataModel for the a2ui://notebook layout (ADR-0090),
+      // so a host that draws A2UI shows it as a page; the text stays for every other host.
+      const found = notebook && (!part || part === 'all') ? findNotebook(notebookStore, notebook) : undefined;
+      if (!found || !('notebook' in found)) return out;
+      const data = notebookSurfaceData(notebookReadoutJson(found.notebook, notebookStore.entries(found.notebook.id, 1000)));
+      return {
+        ...out,
+        content: [...out.content, { type: 'resource' as const, resource: { uri: `${NOTEBOOK_SURFACE_URI}/data/${encodeURIComponent(found.notebook.id)}`, mimeType: A2UI_MIME, text: JSON.stringify([data]) } }],
+        _meta: { ui: { resourceUri: NOTEBOOK_SURFACE_URI, mimeType: A2UI_MIME } },
+      };
+    },
   );
+
+  // A notebook's page layout for an MCP host that draws A2UI (ADR-0090): basic components only, every value bound to the data notebook-read returns.
+  server.registerResource('notebook-surface', NOTEBOOK_SURFACE_URI, { title: 'A notebook, as an A2UI page', description: 'The A2UI 1.0 layout notebook-read\'s data fills (basic catalog only).', mimeType: A2UI_MIME },
+    async (uri) => ({ contents: [{ uri: uri.href, mimeType: A2UI_MIME, text: JSON.stringify(notebookSurfaceTemplate()) }] }));
 
   // Experiments: what one found (experiment-read). Read only; they are kept beside notebooks.
   server.registerTool(
@@ -702,6 +723,71 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
   // most a headline and a takeaway) and the notebook keeps that (Undo puts the one before back).
   // The dashboard draws it from the notebook's own data, so a name, number or bar never comes
   // from the caller; a number in the headline or takeaway must be one the notebook has.
+  // Today's edition on Pulse (ADR-0074, ADR-0076, ADR-0099): read how it's made and how fresh each part is; change how it's made.
+  const editionData = () => {
+    if (!opts.runStore || !opts.agentStore) return undefined;
+    const store = new EditionPrefsStore(opts.runStore.databaseHandle());
+    const prefs = store.get();
+    const agents = opts.agentStore.listAgents({ status: 'active' });
+    const ok = (id: string) => opts.runStore!.listRuns({ agentName: id, status: 'completed', limit: 1 })[0];
+    const any = (id: string) => opts.runStore!.listRuns({ agentName: id, limit: 1 })[0];
+    const facts = editionFacts(agents, (a) => !!(a.signal || a.view), ok, any, prefs);
+    const title = (id: string) => opts.agentStore!.getAgent(id)?.name ?? id;
+    // What an op may name: an agent with a tile and a finished run (as the dashboard's edition does).
+    const known = new Set(facts.filter((f) => f.ageHours !== undefined).map((f) => f.id));
+    return { store, prefs, facts, title, known };
+  };
+  server.registerTool(
+    'edition-read',
+    {
+      description: "Read Today's edition, the page Pulse opens on (what your scheduled agents found in the last day). Returns how it's made now (your preferences: what leads, what's always shown or left out, columns, the numbers band, your line) and each agent with whether it's in today's edition, how old its result is, whether its newest run failed, and why it's in. Change it with edition-apply; run an agent again with run-agent.",
+      inputSchema: {},
+    },
+    async () => {
+      const d = editionData();
+      if (!d) return errorResult("Today's edition isn't available on this server.");
+      const line = (f: (typeof d.facts)[number]) => `- ${f.title} (${f.id}): ${f.showing ? 'in today\'s edition' : f.leftOut ? 'left out' : 'not in it'}${f.ageHours !== undefined ? `, result ${f.ageHours >= 48 ? `${String(Math.floor(f.ageHours / 24))} days` : `${String(f.ageHours)} hours`} old` : ', no result yet'}${f.failed ? ', newest run failed' : ''}${f.why ? `, ${f.why}` : ''}`;
+      const prefs = editionPrefsLines(d.prefs, d.title);
+      const text = [
+        `How it's made: ${prefs.length ? prefs.join('; ') : 'automatically (no changes of yours)'}.`,
+        '', 'Agents:', ...d.facts.slice(0, 60).map(line),
+        '', 'Change it with edition-apply (ops: lead, hide, show, include, auto, width, numbers, top-story, note, reset).',
+      ].join('\n');
+      return { content: [{ type: 'text' as const, text }], structuredContent: { preferences: d.prefs, agents: d.facts } };
+    },
+  );
+  server.registerTool(
+    'edition-apply',
+    {
+      description: "Change how Today's edition on Pulse is made, as the edition's Ask box on Pulse does once applied. ops (in order): {op:'lead',agentId|null}; {op:'hide',agentId}; {op:'show',agentId}; {op:'include',agentId} (always show it); {op:'auto',agentId} (stop always showing it); {op:'width',agentId,width:'wide'|'narrow'|'auto'}; {op:'numbers',on}; {op:'top-story',agentId|null}; {op:'note',text}; {op:'reset'}. Agent ids must be ones edition-read lists with a result. undo: true puts back how it was before the last change. Running an agent again is run-agent, not this.",
+      inputSchema: {
+        ops: z.array(z.record(z.string(), z.unknown())).max(8).optional().describe('The changes, in order.'),
+        undo: z.boolean().optional().describe('Put back how the edition was before the last change.'),
+      },
+    },
+    async ({ ops, undo }) => {
+      const d = editionData();
+      if (!d) return errorResult("Today's edition isn't available on this server.");
+      if (opts.dataRoot) {
+        const p = evaluatePolicy(resolvePolicyDocument(opts.dataRoot), { toolId: 'edition-apply', resource: 'today', agentSource: 'local', agentId: 'mcp' });
+        if (p.effect === 'deny') return errorResult(p.reason ?? 'Policy denies "edition-apply".');
+      }
+      if (undo) {
+        const back = d.store.undo();
+        return { content: [{ type: 'text' as const, text: back ? 'Put back how the edition was before the last change.' : 'There was nothing to undo.' }] };
+      }
+      if (!ops?.length) return errorResult('Give ops (the changes), or undo: true.');
+      try {
+        const next = applyEditionOps(d.prefs, ops, d.known);
+        d.store.save(next);
+      } catch (err) {
+        return errorResult(err instanceof EditionOpError ? err.message : 'Those changes could not be applied.');
+      }
+      const said = (ops as EditionOp[]).map((op) => describeEditionOp(op, d.title));
+      return { content: [{ type: 'text' as const, text: `${said.join('; ')}. The edition follows ${said.length === 1 ? 'it' : 'them'} from now on (edition-apply with undo: true goes back). It's at /pulse on the dashboard.` }] };
+    },
+  );
+
   const tldrLine = (s: TldrSpec | undefined): string => (s
     ? `${TLDR_SIZES[s.size].name} ${String(TLDR_SIZES[s.size].width)}×${TLDR_SIZES[s.size].height ? String(TLDR_SIZES[s.size].height) : 'auto'}, ${s.tone}, ${s.layout}; parts: ${s.parts.join(', ')}${s.bars ? `; ${String(s.bars)} bars` : ''}${s.headline ? `; headline: "${s.headline}"` : ''}${s.takeaway ? `; takeaway: "${s.takeaway}"` : ''}`
     : 'the standard picture (standard size, plain, stacked, every part)');
@@ -751,13 +837,16 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
         return { content: [{ type: 'text' as const, text: `Back to the standard picture. Undo brings the redrawn one back. Picture: ${where}` }] };
       }
       // draw: what's given over how it's drawn now.
-      const was: Partial<TldrSpec> = nb.tldr ?? {};
+      // A layout or parts given replace a composed card (its view would otherwise keep drawing it).
+      const { view: _view, ...unviewed } = nb.tldr ?? {};
+      const was: Partial<TldrSpec> = layout || parts ? unviewed : nb.tldr ?? {};
       const merged: Record<string, unknown> = { ...was, ...(size ? { size } : {}), ...(tone ? { tone } : {}), ...(layout ? { layout } : {}), ...(parts ? { parts } : {}), ...(bars !== undefined ? { bars } : {}), ask: ask ?? 'Redrawn from an MCP client', at: new Date().toISOString() };
       if (headline !== undefined) merged.headline = headline || undefined;
       if (takeaway !== undefined) merged.takeaway = takeaway || undefined;
       const spec = cleanTldrSpec(merged);
       if (!spec) return errorResult('That isn\'t a way to draw the picture.');
-      const known = `${nb.title} ${nb.statement} ${JSON.stringify(notebookReadoutJson(nb, notebookStore.entries(nb.id, 1000)))}`;
+      // What the notebook says, without its timestamps: a note filed at 19:45 doesn't make "45%" one of its numbers.
+      const known = `${nb.title} ${nb.statement} ${JSON.stringify(notebookReadoutJson(nb, notebookStore.entries(nb.id, 1000))).replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?/g, '')}`;
       const stray = strayTldrNumbers([spec.headline, spec.takeaway], known);
       if (stray.length) return errorResult(`Not redrawn: the headline or takeaway has ${stray.length === 1 ? 'a number' : 'numbers'} the notebook doesn't (${stray.join(', ')}). Use only numbers the notebook has, written as they are there (read it with notebook-read), or none.`);
       notebookStore.setTldr(nb.id, spec);

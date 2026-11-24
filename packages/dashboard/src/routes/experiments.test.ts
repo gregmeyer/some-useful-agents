@@ -1,13 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import request from 'supertest';
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { InboxStore, AgentStore, DashboardsStore, ExperimentStore, LocalProvider, MemorySecretsStore, NotebookStore, PacksStore, RunStore, buildLoopbackAllowlist, loadAgents } from '@some-useful-agents/core';
+import { InboxStore, AgentStore, DashboardsStore, ExperimentStore, NotebookStore, PacksStore, RunStore } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
 import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
-import { MemorySecretsSession } from '../secrets-session.js';
+import { createTestContext, closeTestContext, type TestContext } from '../test-harness.js';
 import { cellInputs, parseJudgement, reconcileExperimentsOnBoot, testableAgents } from '../lib/experiment-runner.js';
 import { askFromForm, factorsFromForm, nameFromQuestion, scorersFromForm } from './experiments.js';
 
@@ -15,45 +12,25 @@ const TOKEN = 'a'.repeat(64);
 const PORT = 3996;
 const COOKIE = `${SESSION_COOKIE}=${TOKEN}`;
 
-let dir: string;
 let ctx: DashboardContext;
-let provider: LocalProvider;
 let runStore: RunStore;
 let agentStore: AgentStore;
-let packsStore: PacksStore;
-let dashboardsStore: DashboardsStore;
+let t: TestContext | undefined;
 
 async function makeApp() {
-  dir = mkdtempSync(join(tmpdir(), 'sua-experiments-route-'));
-  const dbPath = join(dir, 'runs.db');
-  const agentsDir = join(dir, 'agents', 'local');
-  mkdirSync(agentsDir, { recursive: true });
-  const secretsStore = new MemorySecretsStore();
-  runStore = new RunStore(dbPath);
-  agentStore = new AgentStore(dbPath);
-  packsStore = new PacksStore(dbPath);
-  dashboardsStore = new DashboardsStore(dbPath);
-  provider = new LocalProvider(dbPath, secretsStore);
-  await provider.initialize();
-  ctx = {
-    token: TOKEN, allowlist: buildLoopbackAllowlist(PORT), port: PORT, provider, runStore, agentStore,
-    loadAgents: () => loadAgents({ directories: [agentsDir] }),
-    secretsStore, secretsSession: new MemorySecretsSession({ backing: secretsStore }), tokenPath: join(dir, 'mcp-token'), retentionDays: 30, dbPath,
-    secretsPath: join(dir, 'secrets.enc'), rotateToken: () => 'r'.repeat(64), packsStore, dashboardsStore, allowUntrustedShell: new Set(), activeRuns: new Map(),
-    inboxTriageAbortControllers: new Map(), inboxTriagePendingRefires: new Set(), dataDir: dir, dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
-    inboxStore: InboxStore.fromHandle(runStore.databaseHandle()),
-  };
+  t = await createTestContext({ port: PORT, prefix: 'sua-experiments-route-', extra: ({ dbPath }) => ({
+    packsStore: new PacksStore(dbPath), dashboardsStore: new DashboardsStore(dbPath),
+  }) });
+  ({ ctx } = t);
+  ({ runStore, agentStore } = ctx);
+  ctx.inboxStore = InboxStore.fromHandle(runStore.databaseHandle());
   return buildDashboardApp(ctx);
 }
 
 afterEach(async () => {
   for (const s of ctx?.experimentPasses?.values() ?? []) await s.done;
-  if (provider) await provider.shutdown();
-  try { runStore?.close(); } catch { /* ignore */ }
-  try { agentStore?.close(); } catch { /* ignore */ }
-  try { packsStore?.close(); } catch { /* ignore */ }
-  try { dashboardsStore?.close(); } catch { /* ignore */ }
-  if (dir) rmSync(dir, { recursive: true, force: true });
+  await closeTestContext(t);
+  t = undefined;
 });
 
 type App = Awaited<ReturnType<typeof makeApp>>;

@@ -1,32 +1,22 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import request from 'supertest';
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
-  AgentStore,
   InboxStore,
-  LocalProvider,
-  MemorySecretsStore,
-  RunStore,
-  buildLoopbackAllowlist,
   executeAgentDag,
-  loadAgents,
   type Agent,
   type SpawnNodeFn,
 } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
 import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../session.js';
-import { MemorySecretsSession } from '../secrets-session.js';
+import { createTestContext, closeTestContext, type TestContext } from '../test-harness.js';
 import { buildInlineActionWidgets } from './inbox-widgets.js';
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3991;
 const COOKIE = `${SESSION_COOKIE}=${TOKEN}`;
-let dir = '';
 let ctx: DashboardContext;
-let provider: LocalProvider;
+let t: TestContext | undefined;
 
 const VIEW = {
   components: [
@@ -39,22 +29,10 @@ const model: SpawnNodeFn = async (node) => ({
 });
 
 async function setup() {
-  dir = mkdtempSync(join(tmpdir(), 'sua-a2ui-views-'));
-  const dbPath = join(dir, 'runs.db');
-  const agentsDir = join(dir, 'agents', 'local');
-  mkdirSync(agentsDir, { recursive: true });
-  const secretsStore = new MemorySecretsStore();
-  provider = new LocalProvider(dbPath, secretsStore);
-  await provider.initialize();
-  ctx = {
-    token: TOKEN, allowlist: buildLoopbackAllowlist(PORT), port: PORT, provider,
-    runStore: new RunStore(dbPath), agentStore: new AgentStore(dbPath), inboxStore: new InboxStore(dbPath),
-    loadAgents: () => loadAgents({ directories: [agentsDir] }), secretsStore,
-    secretsSession: new MemorySecretsSession({ backing: secretsStore }), tokenPath: join(dir, 'mcp-token'),
-    retentionDays: 30, dbPath, secretsPath: join(dir, 'secrets.enc'), rotateToken: () => 'r'.repeat(64),
-    allowUntrustedShell: new Set(), activeRuns: new Map(), inboxTriageAbortControllers: new Map(),
-    inboxTriagePendingRefires: new Set(), dataDir: dir, dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
-  } as DashboardContext;
+  t = await createTestContext({ port: PORT, prefix: 'sua-a2ui-views-', extra: ({ dbPath }) => ({
+    inboxStore: new InboxStore(dbPath),
+  }) });
+  ({ ctx } = t);
   const add = (a: Record<string, unknown>) => ctx.agentStore.createAgent({ status: 'active', source: 'local', mcp: false, ...a } as never, 'cli');
   add({ id: 'gauge', name: 'Price gauge', nodes: [{ id: 'answer', type: 'llm-prompt', prompt: 'x' }], view: VIEW });
   add({ id: 'gen', name: 'Generated', nodes: [{ id: 'design', type: 'llm-prompt', prompt: 'x' }], view: { from: 'design' },
@@ -64,10 +42,8 @@ async function setup() {
 }
 
 afterEach(async () => {
-  await provider?.shutdown();
-  try { ctx.runStore.close(); ctx.agentStore.close(); ctx.inboxStore?.close(); } catch { /* ignore */ }
-  if (dir) rmSync(dir, { recursive: true, force: true });
-  dir = '';
+  await closeTestContext(t);
+  t = undefined;
 });
 const get = (app: Parameters<typeof request>[0], p: string) => request(app).get(p).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
 
@@ -98,7 +74,7 @@ describe('A2UI views across the dashboard', () => {
 
   it('an agent with only a view gets a Pulse tile drawn from it, and its tile refresh returns it too', async () => {
     const { app } = await setup();
-    const pulse = await get(app, '/pulse');
+    const pulse = await get(app, '/pulse/agents');
     expect(pulse.text).toContain('"surfaceId":"tile-gauge"'); // the canvas tile registry carries the view
     const tile = await get(app, '/boards/tile/gauge.json?board=pulse');
     expect(tile.status).toBe(200);
@@ -111,6 +87,17 @@ describe('A2UI views across the dashboard', () => {
     const r = ctx.inboxStore!.addResponse(m.id, 'action', 'ran gauge', JSON.stringify({ kind: 'action', status: 'completed', agentId: 'gauge', runId: gauge.id, inputs: {} }));
     const widgets = buildInlineActionWidgets(ctx, m.id, ctx.inboxStore!.listResponses(m.id));
     expect(String(widgets[r.id])).toContain(`data-surface-id="inbox-${m.id}-${gauge.id}"`);
+  });
+});
+
+describe('the sua catalog document (ADR-0085)', () => {
+  it('is served where its catalogId points, as A2UI v1.0 catalog JSON', async () => {
+    const { app } = await setup();
+    const res = await get(app, '/a2ui/catalogs/sua/v1.json');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+    expect(res.body).toMatchObject({ catalogId: 'https://some-useful-agents.dev/a2ui/catalogs/sua/v1.json', protocolVersion: '1.0', title: 'sua' });
+    expect(Object.keys(res.body.components)).toContain('Callout');
   });
 });
 

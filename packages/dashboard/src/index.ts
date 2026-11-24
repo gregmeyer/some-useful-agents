@@ -1,4 +1,6 @@
-import { NotebookStore } from '@some-useful-agents/core';
+import { NotebookStore, providerHealthProblems, summarizeProviderHealth } from '@some-useful-agents/core';
+import { inBackground } from './lib/background.js';
+import { settleInFlight } from './lib/shutdown.js';
 import { setCurrentFileTypes } from './lib/file-types.js';
 import { recordBootReap, recordWatchdogReap } from './lib/reaper-stats.js';
 import express, { type Application } from 'express';
@@ -115,6 +117,8 @@ export interface StartDashboardOptions {
   port: number;
   /** Bind host. Defaults to '127.0.0.1'. Non-loopback emits a warning. */
   host?: string;
+  /** How long close() lets in-flight work finish before stopping it (lib/shutdown.ts). Default 10s. */
+  shutdownGraceMs?: number;
   /** Agent source directories. Typically `getAgentDirs(config).all`. */
   agentDirs: string[];
   /** Path to the run store SQLite DB. */
@@ -302,10 +306,10 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   reportInterruptedBoardBuilds(ctx);
   // Builds queued by the MCP server (or while the dashboard was down) start here.
   startQueuedBoardBuilds(ctx);
-  if (!process.env.VITEST) watchQueuedBoardBuilds(ctx);
+  if (ctx.live) (ctx.stopOnClose ??= []).push(watchQueuedBoardBuilds(ctx));
   // Notebooks the MCP server's notebook-create queued: made here.
   failInterruptedNotebookRequests(ctx);
-  if (!process.env.VITEST) { void startQueuedNotebookRequests(ctx); watchQueuedNotebookRequests(ctx); }
+  if (ctx.live) { inBackground(ctx, 'startQueuedNotebookRequests', Promise.allSettled(startQueuedNotebookRequests(ctx))); (ctx.stopOnClose ??= []).push(watchQueuedNotebookRequests(ctx)); }
   app.use(buildTryRouter);
   app.use(metricsPlannerRouter);
   app.use(runMutationsRouter);
@@ -451,6 +455,17 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   if (opts.llmSettingsPath) {
     llmSettingsStore = new LlmSettingsStore(opts.llmSettingsPath);
   }
+
+  // A provider in the chain that never answers (not started, not installed) or mostly
+  // fails hides behind the next one: say so at start (provider-health.ts).
+  try {
+    const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    const s = llmSettingsStore?.get();
+    const disabled = new Set(s?.disabledProviders ?? []);
+    for (const p of providerHealthProblems(summarizeProviderHealth(runStore.providerHealthRows(since), since), (s?.providers ?? []).filter((x) => !disabled.has(x)))) {
+      console.warn(`[providers] ${p.message}`);
+    }
+  } catch { /* a nicety */ }
 
   // Widget packs + dashboards stores. Same DB file as agents/runs/tools.
   let packsStore: PacksStore | undefined;
@@ -744,6 +759,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     plannerMemoryStore,
     agentMemoryStore,
     allowUntrustedShell: opts.allowUntrustedShell ?? new Set(),
+    live: true,
     activeRuns: new Map(),
     inboxTriageAbortControllers: new Map(),
     inboxTriagePendingRefires: new Set(),
@@ -875,6 +891,11 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
         server.close(() => resolve());
         server.closeAllConnections?.();
       });
+      for (const stop of ctx.stopOnClose ?? []) stop();
+      // Work in flight finishes, or is stopped and records that, before the stores close (lib/shutdown.ts).
+      const { stopped, unfinished } = await settleInFlight(ctx, opts.shutdownGraceMs);
+      if (stopped.length) console.warn(`[shutdown] Stopped ${stopped.length} still running after the grace period: ${stopped.slice(0, 10).join(', ')}`);
+      if (unfinished.length) console.warn(`[shutdown] Closing with work unfinished: ${unfinished.slice(0, 10).join(', ')}`);
       await provider.shutdown();
       runStore.close();
       agentStore.close();

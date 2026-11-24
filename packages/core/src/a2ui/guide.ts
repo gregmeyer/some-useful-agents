@@ -8,7 +8,7 @@ import { suaComponentDocs } from './catalog.js';
 import type { ViewComponent } from './view.js';
 
 // Not listed for agent views (they still validate there): the notebook's own parts, and the briefing ones a notebook feeds.
-const NOTEBOOK_ONLY = new Set(['OptionGrid', 'Coverage', 'Checklist', 'Steps', 'Timeline', 'QuoteList', 'Agenda', 'AnswerSections', 'Figure', 'Lead', 'Picture', 'Bars', 'DayBars', 'Compare', 'NotebookHeader']);
+const NOTEBOOK_ONLY = new Set(['OptionGrid', 'Coverage', 'Checklist', 'Steps', 'Timeline', 'QuoteList', 'Agenda', 'AnswerSections', 'Figure', 'Lead', 'Picture', 'Bars', 'DayBars', 'Compare', 'NotebookHeader', 'RunbookLesson']);
 
 function firstSentence(text: string): string {
   const m = /^(.*?[.!?])(\s|$)/.exec(text);
@@ -47,6 +47,7 @@ Rules:
 - Headlines, articles or posts with links: Stories, not a Table.
 - Tables: the 3–5 columns worth reading; links as format: link (linkText: the row field to show as the link's text); maxRows about 10; rowAction { name: run-agent, agent, inputs: { INPUT: row field } } runs that agent (a tile on the same board, else this one) from a clicked row.
 - Inputs and a Run button (instead of outputWidget.interactive): a TextField per input with value: { path: /inputs/NAME }, then { id: run, component: Button, child: run_label, action: { event: { name: run-agent, context: { in_NAME: { path: /inputs/NAME } } } } } and { id: run_label, component: Text, text: Run }. It always runs this agent.
+- Functions as { call, args }: formatString, formatNumber, formatCurrency, formatDate, pluralize, join (a list as words), relativeTime, formatRange, count.
 - Style through tones (neutral, ok, warn, err), never colours. Ids: short, unique, word characters. At most about 40 components.
 - signal: still names the tile (title, icon, size, accent); with a view, the view draws it, so set signal.template: widget and no mapping.`;
 }

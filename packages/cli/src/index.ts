@@ -5,8 +5,10 @@
 import './suppress-warnings.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { useProviderCooldownFile } from '@some-useful-agents/core';
 import { Command } from 'commander';
+import { loadConfig } from './config.js';
 import { listCommand } from './commands/list.js';
 import { runCommand } from './commands/run.js';
 import { statusCommand } from './commands/status.js';
@@ -40,6 +42,8 @@ import { skillCommand } from './commands/skill.js';
 import { policyCommand } from './commands/policy.js';
 import { chatCommand } from './commands/chat.js';
 import { webhookCommand } from './commands/webhook.js';
+import { backupsCommand } from './commands/backups.js';
+import { dbCommand } from './commands/db.js';
 import { usageCommand } from './commands/usage.js';
 import { memoryCommand } from './commands/memory.js';
 
@@ -50,6 +54,13 @@ const pkgPath = join(here, '..', 'package.json');
 const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { version: string };
 
 const program = new Command();
+
+// Every command shares provider cooldowns through the data dir, so the
+// dashboard, worker and scheduler learn once between them that a provider is
+// out of quota or unreachable (core/provider-cooldown.ts).
+program.hook('preAction', () => {
+  try { useProviderCooldownFile(join(resolve(loadConfig().dataDir), 'provider-cooldowns.json')); } catch { /* no project here: in memory */ }
+});
 
 program
   .name('sua')
@@ -129,5 +140,7 @@ program.addCommand(skillCommand);
 program.addCommand(policyCommand);
 program.addCommand(memoryCommand);
 program.addCommand(usageCommand);
+program.addCommand(backupsCommand);
+program.addCommand(dbCommand);
 
 program.parse();

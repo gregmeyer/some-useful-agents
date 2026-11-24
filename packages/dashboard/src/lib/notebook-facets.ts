@@ -8,6 +8,7 @@
  * page opens and some value has no label yet; a failed try waits a day.
  */
 import { randomUUID } from 'node:crypto';
+import { inBackground } from './background.js';
 import { NotebookStore, executeAgentDag, extractTaggedJson, type Notebook, type NotebookEntry } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
@@ -83,7 +84,7 @@ export function startNotebookFacets(ctx: Ctx, notebookId: string, entries?: read
   const runId = randomUUID();
   const ac = new AbortController();
   ctx.activeRuns.set(runId, ac);
-  void (async () => {
+  inBackground(ctx, 'notebook-facets', (async () => {
     let result: string | undefined;
     try {
       if (fake) result = await fake(inputs);
@@ -100,6 +101,6 @@ export function startNotebookFacets(ctx: Ctx, notebookId: string, entries?: read
     try { applyFacets(store, notebookId, work, result); } catch { /* the notebook is gone */ }
     ctx.activeRuns.delete(runId);
     ctx.notebookFacets?.delete(notebookId);
-  })();
+  })());
   return true;
 }

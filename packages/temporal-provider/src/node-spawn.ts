@@ -153,6 +153,7 @@ export function createTemporalSpawnNode(opts: CreateTemporalSpawnNodeOptions): S
       memoryRunId: spawnOpts.memoryRunId,
       runFiles: spawnOpts.runFiles,
       spendBudgetUsd: spawnOpts.spendBudgetUsd,
+      fallbackCap: spawnOpts.fallbackCap,
       askRunId: spawnOpts.askRunId,
     };
 

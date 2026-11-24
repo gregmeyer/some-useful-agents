@@ -10,12 +10,14 @@
  */
 import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
 import { meetingWhenWords } from '../lib/notebook-edit.js';
-import { looksLikeRubric, notebookGivenLinks, resolveNotebookLayout, resolvePointer, splitNotebookHeader, notebookLayoutOf, isRange, type Notebook, type NotebookEntry, type NotebookField, type ViewComponent, type NotebookViewOption } from '@some-useful-agents/core';
+import { printValue } from '../lib/a2ui-print-values.js';
+import { agentFunctionValue } from '../lib/a2ui-agent-functions.js';
+import { looksLikeRubric, notebookGivenLinks, resolveNotebookLayout, runbookPhases, resolvePointer, splitNotebookHeader, isRange, type Notebook, type NotebookEntry, type NotebookField, type ViewComponent, type NotebookViewOption } from '@some-useful-agents/core';
 import { formatFieldValue } from '../lib/field-format.js';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
-import { notebookLayoutFlags, notebookLayoutValues, notebookWidgetData, emptyPartsGo, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
+import { notebookLayoutFlags, notebookLayoutValues, notebookWidgetData, emptyPartsGo, drawnNotebookLayout, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
 import { optionInFull, type BriefPicture } from './notebook-brief.js';
-import { tldrCard, tldrData, TLDR_CSS } from './notebook-tldr.js';
+import { chosenPhotoPath, chosenTldrPhoto, showsTldrCard, tldrCard, tldrData, TLDR_CSS } from './notebook-tldr.js';
 import type { NotebookOptionHistory } from '../lib/notebook-option.js';
 import { whatsNew, whatsNewLines } from '../lib/notebook-whats-new.js';
 import { saidLike } from '../lib/notebook-clean.js';
@@ -92,6 +94,10 @@ interface Printing {
   pic: (o: NotebookViewOption) => string | undefined;
   /** The brief's numbered sources: what a part cites is listed once at the end. */
   notes: SourceNotes;
+  /** An agent function's answer, from this notebook (findOptions, optionFacts; ADR-0088). */
+  agent?: (name: string, args: Record<string, unknown>) => unknown;
+  /** Its charts drawn as pictures (an SVG image's data: URI), by component id (lib/brief-charts.ts). */
+  charts?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -108,15 +114,15 @@ function calloutArt(p: Printing, image: string): SafeHtml {
 
 /** A prop's value: a literal, or bound to the notebook's data. */
 function val(p: Printing, v: unknown): unknown {
-  if (v && typeof v === 'object' && !Array.isArray(v) && typeof (v as { path?: unknown }).path === 'string') return resolvePointer(p.data, (v as { path: string }).path);
-  return v;
+  // A binding ({ path } or { "@path" }) or a function call (formatString, join, count, findOptions…), worked out as the page does (ADR-0091).
+  return printValue(v, { data: p.data, ...(p.agent ? { agent: p.agent } : {}) });
 }
 
 function kids(c: ViewComponent): string[] {
   return [...(Array.isArray(c.children) ? c.children as string[] : []), ...(typeof c.child === 'string' ? [c.child] : [])];
 }
 
-export type BriefSection = { key?: unknown; title?: unknown; kind?: unknown; items?: unknown; columns?: unknown; rows?: unknown; note?: unknown; body?: unknown; diagram?: unknown; caption?: unknown; refs?: unknown };
+export type BriefSection = { key?: unknown; title?: unknown; kind?: unknown; role?: unknown; inStep?: unknown; items?: unknown; columns?: unknown; rows?: unknown; note?: unknown; body?: unknown; label?: unknown; lang?: unknown; diagram?: unknown; caption?: unknown; refs?: unknown };
 
 /** A field's number: a number, a numeric string, or a range's midpoint. */
 function briefNumber(v: unknown): number | undefined {
@@ -131,14 +137,42 @@ type Cited = { label: string; url?: string };
 const citedRef = (r: unknown): Cited => { const x = (r ?? {}) as { label?: unknown; href?: unknown }; return { label: text(x.label), ...(isUrl(x.href) ? { url: x.href } : {}) }; };
 
 /** One written part: steps numbered, a table (as a grid, or as ruled decision rows when `rubric`), a diagram, a paragraph; each with where it comes from. The shortlist brief prints a write-up's parts with it too. */
-export function briefPart(x: BriefSection, rubricOpt: boolean | 'auto', notes?: SourceNotes): SafeHtml {
+export function briefPart(x: BriefSection, rubricOpt: boolean | 'auto', notes?: SourceNotes, style?: unknown): SafeHtml {
   const rubric = rubricOpt === true || (rubricOpt === 'auto' && looksLikeRubric(list(x.columns).map(text)));
   // What a line rests on: each by name, and by its address when it's a page outside (an option is named; its page is found by its name).
   const from = (y: unknown): Cited[] => list((y as { refs?: unknown })?.refs).map((r) => citedRef(r)).filter((r) => r.label);
   // Where a line comes from: numbered notes in a document, the names in brackets without one.
   const cited = (refs: Cited[]): SafeHtml => (!refs.length ? html`` : notes ? noteMarks(notes, refs) : html` <span class="fine">(${refs.map((r) => r.label).join(', ')})</span>`);
+  if (style === 'runbook' && x.kind === 'steps') {
+    // A runbook's steps as cards on paper, grouped by phase (ADR-0097): the number large, a box to tick, how, the part to copy where it's used, ✓ what you'll see, and if you're stuck, small; a card never splits across pages.
+    const all = items(x.items);
+    const card = (it: (typeof all)[number], n: number) => {
+      const y = it as Record<string, unknown>;
+      const copy = y.copyPart && typeof y.copyPart === 'object' ? briefPart(y.copyPart as BriefSection, false, notes) : html``;
+      return html`<li><span class="rb__n">${String(n)}</span><div><p class="rb__t"><span class="rb__box" aria-hidden="true"></span><b>${boldOnly(it.text)}</b>${text(y.time) ? html` <span class="fine">· ${text(y.time)}</span>` : html``}${y.advice ? html` <span class="mark">advice</span>` : html``}${cited(from(it))}</p>${text(it.detail) ? html`<p class="muted">${boldOnly(text(it.detail))}</p>` : html``}${text(y.how) ? html`<p>${boldOnly(text(y.how))}</p>` : html``}${copy}${text(y.see) ? html`<p class="rb__see"><b>\u2713</b> ${boldOnly(text(y.see))}</p>` : html``}${text(y.ifNot) ? html`<p class="rb__stuck"><b>Stuck?</b> ${boldOnly(text(y.ifNot))}</p>` : html``}</div></li>`;
+    };
+    const groups = runbookPhases(all.map((it) => ({ ...it, phase: text((it as Record<string, unknown>).phase) || undefined })));
+    const span = (g: (typeof groups)[number]) => (g.steps.length === 1 ? `step ${String(g.steps[0].n)}` : `steps ${String(g.steps[0].n)}–${String(g.steps[g.steps.length - 1].n)}`);
+    return html`<p class="rb__progress"><span class="rb__blank"></span> of ${String(all.length)} done</p>${groups.map((g) => html`${g.phase ? html`<h4 class="rb__phase">${g.phase} <span>· ${span(g)}</span></h4>` : html``}<ol class="rb">${g.steps.map(({ item, n }) => card(item, n)) as unknown as SafeHtml[]}</ol>`) as unknown as SafeHtml[]}`;
+  }
+  if (style === 'runbook' && x.kind === 'table' && x.role === 'trouble' && list(x.columns).length >= 2) {
+    // What goes wrong: what you see, then the fix, the likely cause beneath.
+    const cols = list(x.columns).map(text);
+    const fi = ((i) => (i > 0 ? i : cols.length - 1))(cols.findIndex((k) => /\b(fix|fixes|what to do|do this|solution|try|remedy)\b/i.test(k)));
+    const other = cols.findIndex((_, i) => i !== 0 && i !== fi);
+    return html`<div class="rubric">${(list(x.rows) as Array<{ cells?: unknown }>).map((r) => { const cells = list(r.cells).map(text); const cause = cells.filter((c, i) => i !== 0 && i !== fi && c); return html`<div class="rubric__row"><b>${boldOnly(cells[0] ?? '')}</b><div><span class="rubric__then">\u2192 ${boldOnly(cells[fi] ?? '')}</span>${cause.length ? html`<span class="muted"> · ${other >= 0 ? `${cols[other]}: ` : ''}${boldOnly(cause.join(' · '))}</span>` : html``}${cited(from(r))}</div></div>`; }) as unknown as SafeHtml[]}</div>${text(x.note) ? html`<p class="fine">${text(x.note)}</p>` : html``}`;
+  }
   if (x.kind === 'steps') {
-    return html`<ol class="steps">${items(x.items).map((it) => html`<li><span><b>${boldOnly(it.text)}</b>${cited(from(it))}</span>${text(it.detail) ? html` <span class="muted">${boldOnly(text(it.detail))}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ol>`;
+    // A runbook's step prints in full: how long, advice marked, then how, what you'll see and if not.
+    return html`<ol class="steps">${items(x.items).map((it) => {
+      const y = it as Record<string, unknown>;
+      const run = ([['How', y.how], ['You\u2019ll see', y.see], ['If not', y.ifNot]] as Array<[string, unknown]>).filter(([, v]) => text(v));
+      return html`<li><span><b>${boldOnly(it.text)}</b>${text(y.time) ? html` <span class="fine">· ${text(y.time)}</span>` : html``}${y.advice ? html` <span class="mark">advice</span>` : html``}${cited(from(it))}</span>${text(it.detail) ? html` <span class="muted">${boldOnly(text(it.detail))}</span>` : html``}${run.length ? html`<dl class="run">${run.map(([k, v]) => html`<dt>${k}</dt><dd>${boldOnly(text(v))}</dd>`) as unknown as SafeHtml[]}</dl>` : html``}</li>`;
+    }) as unknown as SafeHtml[]}</ol>`;
+  }
+  if (x.kind === 'copy') {
+    // Something to copy, printed as written in monospace (a PDF can't copy for you; the text is selectable).
+    return html`<figure class="copy">${text(x.label) ? html`<figcaption class="fine">${text(x.label)}</figcaption>` : html``}<pre>${text(x.body)}</pre></figure>`;
   }
   if (x.kind === 'table') {
     const cols = list(x.columns).map(text);
@@ -196,6 +230,26 @@ function node(p: Printing, id: string | undefined): SafeHtml {
     case 'Badge': return html`<span class="chip">${text(v('text'))}</span>`;
     case 'Link': return isUrl(v('url')) ? html`<a href="${v('url') as string}">${text(v('text')) || site(v('url') as string)}</a>` : html``;
     case 'ChipList': return html`<p class="chips">${items(v('items')).map((x) => html`<span class="chip">${x.text}</span>`) as unknown as SafeHtml[]}</p>`;
+    case 'RunbookLesson': {
+      // A runbook as a lesson (ADR-0097): on paper the boxes are empty and the self-check's answers are printed.
+      const l = (v('lesson') ?? {}) as { goals?: unknown; needs?: unknown; done?: unknown; keyPoints?: unknown; next?: unknown; selfCheck?: unknown; written?: unknown };
+      const strs = (x: unknown) => list(x).filter((y): y is string => typeof y === 'string' && !!y);
+      if (c.part === 'opening') {
+        const all = text(v('outcome'));
+        const out = l.written ? (/^.*?[.!?](?:\*\*)?(?=\s|$)/.exec(all)?.[0] ?? all) : all;
+        const goals = strs(l.goals);
+        return html`<div class="rl">${out ? html`<p class="rl__out">${boldOnly(out)}</p>` : html``}${goals.length ? html`<div class="eyebrow">You’ll be able to</div><ul class="rl__goals">${goals.map((g) => html`<li>${boldOnly(g)}</li>`) as unknown as SafeHtml[]}</ul>` : html``}</div>`;
+      }
+      if (c.part === 'needs') {
+        const needs = strs(l.needs);
+        return needs.length ? html`<ul class="rl__needs">${needs.map((n) => html`<li><span class="rb__box" aria-hidden="true"></span>${boldOnly(n)}</li>`) as unknown as SafeHtml[]}</ul>` : html``;
+      }
+      const keys = strs(l.keyPoints);
+      const checks = list(l.selfCheck).map((x) => x as { q?: unknown; a?: unknown }).filter((x) => text(x.q) && text(x.a));
+      const done = text(l.done).replace(/^you(’|')re done when\s*/i, '').replace(/^([A-Z])(?=[a-z])/, (m) => m.toLowerCase());
+      if (!done && !keys.length && !text(l.next) && !checks.length) return html``;
+      return html`<div class="rl">${done ? html`<p class="rl__done"><b>✓</b> You’re done when ${boldOnly(done)}</p>` : html``}${keys.length ? html`<div class="eyebrow">Key points</div><ol class="rl__kp">${keys.map((k) => html`<li>${boldOnly(k)}</li>`) as unknown as SafeHtml[]}</ol>` : html``}${text(l.next) ? html`<div class="eyebrow">What’s next</div><p>${boldOnly(text(l.next))}</p>` : html``}${checks.length ? html`<div class="eyebrow">Check yourself</div><dl class="rl__check">${checks.map((x) => html`<dt>${text(x.q)}</dt><dd>${text(x.a)}</dd>`) as unknown as SafeHtml[]}</dl>` : html``}</div>`;
+    }
     case 'KeyValue': return html`<dl class="kv">${list(v('items')).map((x) => { const o = x as { label?: unknown; value?: unknown }; return html`<dt>${text(o.label)}</dt><dd>${text(o.value)}</dd>`; }) as unknown as SafeHtml[]}</dl>`;
     case 'StatStrip': return html`<p class="stats">${list(v('items')).map((x) => { const o = x as { label?: unknown; value?: unknown }; return html`<span><b>${text(o.value)}</b> ${text(o.label)}</span>`; }) as unknown as SafeHtml[]}</p>`;
     case 'ProfileCard': {
@@ -343,15 +397,19 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       // Placed by key ("only", in that order), or the parts no other part of the page placed ("skip"); one part on its own takes its panel's title.
       const only = Array.isArray(c.only) ? (c.only as unknown[]).filter((k): k is string => typeof k === 'string') : undefined;
       const skip = Array.isArray(c.skip) ? c.skip as unknown[] : [];
-      const secs = only ? only.map((k) => given.find((x) => x.key === k)).filter((x): x is NonNullable<typeof x> => !!x) : given.filter((x) => !skip.includes(x.key));
-      const untitled = !!only && only.length === 1;
-      return html`${secs.filter((x) => text(x.title)).map((x) => html`<section class="sec">${untitled ? html`` : html`<div class="eyebrow">${text(x.title)}</div>`}${briefPart(x, c.rubric === 'auto' ? 'auto' : c.rubric === true, p.notes)}</section>`) as unknown as SafeHtml[]}`;
+      // …or by what each is for in a runbook (`roles`); a part to copy printed inside its step isn't printed again.
+      const roles = Array.isArray(c.roles) ? c.roles as unknown[] : undefined;
+      const skipRoles = Array.isArray(c.skipRoles) ? c.skipRoles as unknown[] : [];
+      const secs = (only ? only.map((k) => given.find((x) => x.key === k)).filter((x): x is NonNullable<typeof x> => !!x) : given.filter((x) => !skip.includes(x.key)))
+        .filter((x) => (!roles || roles.includes(x.role)) && !skipRoles.includes(x.role) && !(c.style === 'runbook' && x.inStep === true));
+      const untitled = (!!only && only.length === 1) || (!!roles && secs.length === 1);
+      return html`${secs.filter((x) => text(x.title)).map((x) => html`<section class="sec">${untitled ? html`` : html`<div class="eyebrow">${text(x.title)}</div>`}${briefPart(x, c.rubric === 'auto' ? 'auto' : c.rubric === true, p.notes, c.style)}</section>`) as unknown as SafeHtml[]}`;
     }
     case 'Figure': {
       const x = v('section') as BriefSection | undefined;
       if (!x || typeof x !== 'object' || !text(x.kind)) return html``;
       const cap = text(v('caption'));
-      return html`<figure class="fig${c.size === 'hero' ? ' fig--hero' : ''}">${briefPart(cap && x.kind === 'diagram' ? { ...x, caption: undefined } : x, c.rubric === 'auto' ? 'auto' : c.rubric === true, p.notes)}${cap ? html`<figcaption class="fine">${cap}</figcaption>` : html``}</figure>`;
+      return html`<figure class="fig${c.size === 'hero' ? ' fig--hero' : ''}">${briefPart(cap && x.kind === 'diagram' ? { ...x, caption: undefined } : x, c.rubric === 'auto' ? 'auto' : c.rubric === true, p.notes, c.style)}${cap ? html`<figcaption class="fine">${cap}</figcaption>` : html``}</figure>`;
     }
     case 'Lead': {
       const st = (v('stat') ?? {}) as { value?: unknown; label?: unknown; note?: unknown; href?: unknown };
@@ -403,6 +461,21 @@ function node(p: Printing, id: string | undefined): SafeHtml {
     case 'Funnel': return html`<ul class="plain">${(list(v('stages')) as Array<{ label?: unknown; stage?: unknown; value?: unknown; reached?: unknown }>).map((s) => html`<li>${text(s.label ?? s.stage)} <span class="fine">· ${text(s.value ?? s.reached)}</span></li>`) as unknown as SafeHtml[]}</ul>`;
     case 'Checklist': return html`<div>${(list(v('groups')) as Array<{ title?: unknown; items?: unknown }>).map((g) => html`<div class="eyebrow">${text(g.title)}</div><ul class="plain checks">${(list(g.items) as Array<{ text?: unknown; done?: unknown }>).map((x) => html`<li>${x.done ? '✓' : '○'} ${text(x.text)}</li>`) as unknown as SafeHtml[]}</ul>`) as unknown as SafeHtml[]}</div>`;
     // The TL;DR picture: its card, drawn in place.
+    case 'VegaChart': {
+      // A chart on paper: its picture, drawn on the server before the brief (lib/brief-charts.ts; ADR-0091).
+      const drawn = p.charts?.get(c.id);
+      if (drawn) return html`<figure class="chart-pic"><img src="${drawn}" alt="${text((v('spec') as { title?: unknown } | undefined)?.title) || 'Chart'}"></figure>`;
+      // Not drawn (it couldn't be): its data as a table under its title. Bindings inside its spec are read first.
+      const deep = (x: unknown): unknown => (Array.isArray(x) ? x.map(deep) : x && typeof x === 'object' ? (Object.keys(x).length === 1 && (typeof (x as Record<string, unknown>)['@path'] === 'string' || typeof (x as Record<string, unknown>).path === 'string') ? val(p, x) : Object.fromEntries(Object.entries(x).map(([k, y]) => [k, deep(y)]))) : x);
+      const spec = deep(v('spec')) as { title?: unknown; data?: { values?: unknown }; encoding?: Record<string, { field?: unknown; title?: unknown }> } | undefined;
+      const rows = Array.isArray(spec?.data?.values) ? (spec!.data!.values as Array<Record<string, unknown>>) : [];
+      if (!rows.length) return html``;
+      const enc = Object.values(spec?.encoding ?? {}).filter((e) => e && typeof e.field === 'string');
+      const keys = enc.length ? [...new Set(enc.map((e) => String(e.field)))] : Object.keys(rows[0]).slice(0, 4);
+      const label = (k: string) => text(enc.find((e) => e.field === k)?.title) || k;
+      const title = typeof spec?.title === 'string' ? spec.title : (spec?.title as { text?: unknown } | undefined)?.text;
+      return html`<figure class="chart-data">${text(title) ? html`<figcaption class="eyebrow">${text(title)}</figcaption>` : html``}<div class="tbl"><table><thead><tr>${keys.map((k) => html`<th>${label(k)}</th>`) as unknown as SafeHtml[]}</tr></thead><tbody>${rows.slice(0, p.full ? 200 : 20).map((r) => html`<tr>${keys.map((k) => html`<td>${text(r[k])}</td>`) as unknown as SafeHtml[]}</tr>`) as unknown as SafeHtml[]}</tbody></table></div></figure>`;
+    }
     case 'Picture': {
       // A photo of what it's about: the source's photo, as the file can carry it, credited.
       if ((c.picture as { path?: unknown } | undefined)?.path === '/notebook/photo') {
@@ -473,7 +546,7 @@ function behindThePage(nb: Notebook, entries: readonly NotebookEntry[], d: Data[
     ${active.length ? html`<section class="fullset appendix"><h2>Each one in full<span class="part__note">${String(active.length)}</span></h2>${active.map((o, i) => optionInFull(nb, o, i + 1, entries, history, pic)) as unknown as SafeHtml[]}</section>` : html``}`;
 }
 
-export function renderPageBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; now?: Date; print?: boolean; full?: boolean; pictures?: BriefPicture; aboutPicture?: (src: string) => string | undefined; theme?: BriefTheme }): string {
+export function renderPageBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; charts?: ReadonlyMap<string, string>; whatsNew?: boolean; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; now?: Date; print?: boolean; full?: boolean; pictures?: BriefPicture; aboutPicture?: (src: string) => string | undefined; theme?: BriefTheme }): string {
   const { nb } = args;
   // The dashboard's look (its tokens and brand theme), in your mode.
   const theme = args.theme ?? briefTheme();
@@ -481,7 +554,8 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
   const data = notebookWidgetData(nb, args.entries, args.history);
   // A notebook that shows an experiment: its brief ends with how the experiment was run.
   const experiment = (data.notebook as { experiment?: import('@some-useful-agents/core').ExperimentPageData }).experiment;
-  const layout = notebookLayoutOf(nb);
+  // As the page draws it: with a place for the TL;DR card when you set it to Always.
+  const layout = drawnNotebookLayout(nb);
   const resolved = resolveNotebookLayout(layout.components, notebookLayoutFlags(nb, args.entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb, data), emptyPartsGo(layout, data));
   const { header, side, rest } = splitNotebookHeader(resolved);
   // The side part comes as a small page with its own root: only its parts join the page's (its root would be taken for the page's).
@@ -492,17 +566,33 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
   const top = byId.get('root') ? kids(byId.get('root')!) : [];
   const logs = args.full ? [] : top.filter((id) => isLog(byId, id));
   if (logs.length) byId.set('root', { ...byId.get('root')!, children: top.filter((id) => !logs.includes(id)) });
-  const logged = logs.length > 0;
+  // A log folded further down (a runbook's "How sua knows this") is the colophon's sentence too.
+  let nestedLogs = 0;
+  if (!args.full) for (const [cid, comp] of byId) {
+    if (cid === 'root' || comp.component !== 'Column') continue;
+    const ks = kids(comp);
+    const keep = ks.filter((k) => !isLog(byId, k));
+    if (keep.length < ks.length) { nestedLogs += ks.length - keep.length; byId.set(cid, { ...comp, children: keep }); }
+  }
+  const logged = logs.length > 0 || nestedLogs > 0;
   const aboutSrc = args.aboutPicture ?? ((src: string) => src);
+  // The TL;DR card only when it adds something, or you said so (showsTldrCard).
+  const cardShows = showsTldrCard(nb, args.entries, args.history);
   const tldr = () => {
+    if (!cardShows) return html``;
     const who = data.notebook.person?.image ? { src: data.notebook.person.image, logo: false } : data.notebook.company?.image ? { src: data.notebook.company.image, logo: true } : undefined;
     const pictured = who ? aboutSrc(who.src) : undefined;
-    return tldrCard(tldrData(nb, args.entries, args.history, args.pictures ?? ((o) => o.image), who && pictured ? { src: pictured, ...(who.logo ? { logo: true } : {}) } : undefined), { ...(nb.tldr ? { spec: nb.tldr } : {}) });
+    // The picture chosen for the notebook leads its photos, as on the PNG (the copy the file carries).
+    const chosenPath = chosenPhotoPath(nb);
+    const chosen = chosenTldrPhoto(nb, chosenPath ? aboutSrc(chosenPath) : undefined);
+    return tldrCard(tldrData(nb, args.entries, args.history, args.pictures ?? ((o) => o.image), who && pictured ? { src: pictured, ...(who.logo ? { logo: true } : {}) } : undefined, chosen), { ...(nb.tldr ? { spec: nb.tldr } : {}) });
   };
   // A finding cited by its title is the page it was read on.
   const pageOf = new Map((data.notebook.options as unknown as NotebookViewOption[]).filter((o) => isUrl(o.link)).flatMap((o) => [[o.name, o.link as string], [o.title, o.link as string]] as Array<[string, string]>));
   const notes = new SourceNotes((label) => pageOf.get(label));
-  const p: Printing = { byId, data, full: !!args.full, about: aboutSrc, tldr, pic: args.pictures ?? ((o) => o.image), notes };
+  const p: Printing = { byId, data, full: !!args.full, about: aboutSrc, tldr, pic: args.pictures ?? ((o) => o.image), notes,
+    agent: (name, fnArgs) => { const r = agentFunctionValue(nb, args.entries, name, fnArgs); return 'value' in r ? r.value : undefined; },
+    ...(args.charts ? { charts: args.charts } : {}) };
   // A page that opens on who or what it's about (a cover among its first two parts): the cover is the document's head, not a part under it.
   const opening = (byId.get('root') ? kids(byId.get('root')!) : []).filter((id) => byId.has(id)).slice(0, 2);
   const coverPanel = opening.find((id) => { const c = byId.get(id); const k = c?.component === 'Panel' ? byId.get(c.child as string) : undefined; return k?.component === 'ProfileCard' && k.variant === 'cover'; });
@@ -512,8 +602,8 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
   const subtitle = header && typeof header.subtitle === 'string' ? header.subtitle : nb.layout?.about?.split(':')[0];
   const sideId = side?.[0]?.children ? (side[0].children as string[])[0] : undefined;
   const pic = args.pictures ?? ((o) => o.image);
-  // What the latest run found that the one before didn't (a briefing).
-  const fresh = args.history?.passes ? whatsNew(nb, args.entries, args.history.passes(nb.id, 60).filter((x): x is typeof x & { startedAt: string } => typeof x.startedAt === 'string')) : undefined;
+  // What the latest run found that the one before didn't (a briefing): only when asked for (?new=1); a brief is the notebook as it stands.
+  const fresh = args.whatsNew && args.history?.passes ? whatsNew(nb, args.entries, args.history.passes(nb.id, 60).filter((x): x is typeof x & { startedAt: string } => typeof x.startedAt === 'string')) : undefined;
   const css = `/* A drawn page, printed: its parts in their treatments (DESIGN.md "Notebook pages"). */
 ${theme.css}
 * { box-sizing: border-box; }
@@ -617,6 +707,46 @@ h2 { margin: 0; font: 700 1rem/1.3 var(--display); }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0; }
 .kv dt { color: var(--muted); } .kv dd { margin: 0; }
 .tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+dl.run { margin: 0.3rem 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 0.15rem 0.6rem; font-size: 0.92em; }
+dl.run dt { font-family: var(--mono, ui-monospace, monospace); font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding-top: 0.15em; }
+dl.run dd { margin: 0; }
+ol.rb { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
+ol.rb > li { display: grid; grid-template-columns: 2.1rem 1fr; gap: 0 0.7rem; padding: 0.6rem 0.75rem; border: 1px solid var(--line); border-radius: 8px; break-inside: avoid; }
+ol.rb .rb__n { font: 700 1.6em/1 var(--mono, ui-monospace, monospace); color: var(--accent, #0f766e); }
+ol.rb p { margin: 0.25rem 0 0; }
+ol.rb .rb__t { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.35rem; }
+ol.rb .rb__box { display: inline-block; width: 0.8em; height: 0.8em; border: 1.5px solid var(--muted); border-radius: 2px; margin-right: 0.2rem; transform: translateY(0.08em); }
+ol.rb .rb__see b { color: var(--accent, #0f766e); }
+ol.rb .rb__stuck { font-size: 0.9em; color: var(--muted); }
+ol.rb .rb__stuck b { font-family: var(--mono, ui-monospace, monospace); font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.06em; color: #b45309; margin-right: 0.3rem; }
+.rb__progress { margin: 0 0 0.5rem; font: 600 0.8em/1.2 var(--mono, ui-monospace, monospace); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.rb__progress .rb__blank { display: inline-block; width: 1.6rem; border-bottom: 1px solid var(--muted); }
+.rb__phase { margin: 0.9rem 0 0.4rem; font: 600 0.8em/1.2 var(--mono, ui-monospace, monospace); text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent, #0f766e); break-after: avoid; }
+.rb__phase span { color: var(--muted); }
+.rb__progress + .rb__phase { margin-top: 0.3rem; }
+ol.rb + .rb__phase { margin-top: 1rem; }
+ol.rb figure.copy { margin-top: 0.45rem; }
+/* A runbook as a lesson (ADR-0097). */
+.rl > .eyebrow { margin-top: 0.7rem; }
+.rl__out { margin: 0; font-size: 1.1em; line-height: 1.5; }
+.rl__goals, .rl__needs, .rl__kp { list-style: none; margin: 0.25rem 0 0; padding: 0; }
+.rl__goals li { padding-left: 1.2rem; text-indent: -1.2rem; margin: 0.15rem 0; }
+.rl__goals li::before { content: "→"; color: var(--accent, #0f766e); display: inline-block; width: 1.2rem; text-indent: 0; }
+.rl__needs { columns: 2; column-gap: 1.5rem; }
+.rl__needs li { break-inside: avoid; margin: 0.15rem 0; }
+.rl__needs .rb__box { display: inline-block; width: 0.8em; height: 0.8em; border: 1.5px solid var(--muted); border-radius: 2px; margin-right: 0.45rem; transform: translateY(0.08em); }
+.rl__done { margin: 0; padding: 0.4rem 0.6rem; border-left: 3px solid var(--accent, #0f766e); }
+.rl__done b { color: var(--accent, #0f766e); margin-right: 0.25rem; }
+.rl__kp { counter-reset: kp; }
+.rl__kp li { counter-increment: kp; padding-left: 1.6rem; position: relative; margin: 0.2rem 0; }
+.rl__kp li::before { content: counter(kp); position: absolute; left: 0; font: 700 1.05em/1.35 var(--mono, ui-monospace, monospace); color: var(--accent, #0f766e); }
+.rl__check { margin: 0.25rem 0 0; }
+.rl__check dt { font-weight: 600; margin-top: 0.35rem; }
+.rl__check dd { margin: 0.1rem 0 0; color: var(--muted); }
+figure.copy { margin: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; break-inside: avoid; }
+figure.copy figcaption { padding: 0.35rem 0.7rem; border-bottom: 1px solid var(--line); }
+figure.copy pre { margin: 0; padding: 0.6rem 0.75rem; font: 0.8em/1.5 var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); white-space: pre-wrap; overflow-wrap: anywhere; }
+.chart-pic { margin: 0; } .chart-pic img { display: block; max-width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
 table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
 th, td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { font: 600 0.6875rem var(--display); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }

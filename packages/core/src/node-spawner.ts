@@ -7,6 +7,8 @@
  * LlmSpawner interface added in PR 2 (this PR).
  */
 
+import { USE_PROCESS_GROUPS, stopGroup, trackGroup, untrackGroup } from './process-groups.js';
+import { fallbackCapMessage, isPaidProvider, type FallbackCap } from './fallback-spend.js';
 import { codexConfigModel, refusedModelId } from './codex-models.js';
 import { claudeConfigModel } from './claude-models.js';
 import { claudeUsage, codexUsage, codexDefaultModel, priceUsage, totalUsage, localProviderNames, formatUsd, type LlmUsage, type NodeUsage, type PriceTable } from './usage.js';
@@ -146,6 +148,8 @@ export interface LlmSettingsSnapshot {
   pricing?: PriceTable;
   /** Default spend limits for agents without their own (spend-limits.ts). */
   spendLimits?: SpendLimits;
+  /** Daily cap on spend that only happened because an earlier provider failed (fallback-spend.ts). */
+  fallbackCapUsd?: number;
   /**
    * Providers the operator toggled OFF globally. Already excluded from
    * `providers` (the runtime chain), but passed through so a node that PINS a
@@ -275,6 +279,8 @@ export type SpawnNodeFn = (
     askRunId?: string;
     /** What's left of the run's spend limit, USD (spend-limits.ts). Unset ⇒ no limit. */
     spendBudgetUsd?: number;
+    /** The daily cap on fallback spend and what's been spent today (fallback-spend.ts). Unset ⇒ no cap. */
+    fallbackCap?: FallbackCap;
   },
   onProgress?: (event: SpawnProgress) => void,
   signal?: AbortSignal,
@@ -1148,6 +1154,7 @@ export async function spawnNodeReal(
     askHuman?: BuiltinToolContext['askHuman'];
     askRunId?: string;
     spendBudgetUsd?: number;
+    fallbackCap?: FallbackCap;
   },
   onProgress?: (event: SpawnProgress) => void,
   signal?: AbortSignal,
@@ -1209,7 +1216,8 @@ export async function spawnNodeReal(
   // post-substitution means a `{{inputs.API_KEY}}` or `{{state}}` written into
   // a behavior body stays literal instead of interpolating a secret. Moving
   // this line above `substituteInputs` would silently turn behavior files into
-  // a template-injection primitive. behavior-conditioning.test.ts pins it.
+  // a template-injection primitive. behavior-conditioning/e2e.test.ts pins it
+  // with a real request.
   //
   // Resolved once per run in dag-executor (where the Agent is in scope), not
   // here — re-reading disk per node would be wasteful and could see a spec
@@ -1225,7 +1233,10 @@ export async function spawnNodeReal(
 
   // A provider that just failed in a lasting way (out of quota until a stated time, not running, signed out)
   // is skipped until its cooldown ends, not tried and failed again on every node.
-  const { chain, skipped } = withoutCoolingProviders(buildProviderChain(node.provider, _opts.llmSettings?.providers, _opts.llmSettings?.disabledProviders));
+  const fullChain = buildProviderChain(node.provider, _opts.llmSettings?.providers, _opts.llmSettings?.disabledProviders);
+  const { chain, skipped } = withoutCoolingProviders(fullChain);
+  // The provider this node would use if nothing failed: any other one it reaches is a fallback.
+  const firstChoice = fullChain[0];
 
   const attemptedProviders: string[] = [];
   // Per-attempt failure trail: why each non-winning provider was skipped.
@@ -1255,6 +1266,9 @@ export async function spawnNodeReal(
   const costOf = (u: LlmUsage): number | undefined => priceUsage(u, { pricing: _opts.llmSettings?.pricing, localProviders }).costUsd;
   // A provider whose model was busy, once more on its fallback model (each provider once).
   const busyRetry = new Map<string, string>();
+  // An answer in the wrong shape, once more on the same provider with what was missing, before the next provider.
+  const repairRetried = new Set<string>();
+  let repairNote: { provider: string; text: string } | undefined;
   for (let i = 0; i < chain.length; i++) {
     const provider = chain[i];
     // Per-run spend limit: what's left after this node's earlier attempts.
@@ -1272,11 +1286,25 @@ export async function spawnNodeReal(
         break;
       }
     }
+    // Daily cap on fallback spend: a paid provider reached only because an earlier one
+    // failed (or is cooling down) is held to what's left of today's cap, or not tried.
+    const cap = _opts.fallbackCap;
+    if (cap && provider !== firstChoice && isPaidProvider(provider, _opts.llmSettings?.pricing)) {
+      const left = cap.capUsd - cap.spentUsd - usageAttempts.reduce((sum, a) => sum + (a.provider !== firstChoice ? (a.costUsd ?? 0) : 0), 0);
+      if (left <= 0) {
+        lastResult = { result: '', exitCode: 1, category: 'budget_exhausted', error: fallbackCapMessage(provider, cap, firstChoice) };
+        lastCategory = 'budget_exhausted';
+        break;
+      }
+      attemptBudgetUsd = Math.min(attemptBudgetUsd ?? Infinity, left);
+    }
     if (attemptedProviders.at(-1) !== provider) attemptedProviders.push(provider);
     // The operator's model for this provider applies only when the node pins none; a busy one's fallback over either.
     const providerModel = busyRetry.get(provider) ?? (node.model ? undefined : _opts.llmSettings?.models?.[provider]);
     const attemptNode: AgentNode = { ...node, ...(providerModel ? { model: providerModel } : {}), systemPrompt: resolvedSystem };
-    let result = await runLlmAttempt(provider, attemptNode, resolvedPrompt, childEnv, onProgress, signal, onSpawn, onChildExit, _opts.llmSettings?.customProviders, {
+    const attemptPrompt = repairNote?.provider === provider ? `${resolvedPrompt}\n\n${repairNote.text}` : resolvedPrompt;
+    repairNote = undefined;
+    let result = await runLlmAttempt(provider, attemptNode, attemptPrompt, childEnv, onProgress, signal, onSpawn, onChildExit, _opts.llmSettings?.customProviders, {
       onToolCall: (r) => { toolCalls.push(r); },
       agentId: _opts.agentId,
       agentSource: _opts.agentSource,
@@ -1335,6 +1363,8 @@ export async function spawnNodeReal(
         category: 'invalid_output',
         error: `Output failed contract: ${check.reason}`,
       };
+      // It answered, just not in the shape the node needs: ask it once more, saying what was missing.
+      if (!repairRetried.has(provider) && (result.result ?? '').trim()) repairNote = { provider, text: contractRepairNote(check.reason) };
     }
 
     lastResult = result;
@@ -1367,6 +1397,14 @@ export async function spawnNodeReal(
       `${errSnippet ? `: ${errSnippet}` : ''}\n`,
     );
 
+    // Wrong shape: the same provider once more, told what was missing, before the next one.
+    if (repairNote?.provider === provider && !repairRetried.has(provider)) {
+      repairRetried.add(provider);
+      process.stderr.write(`[llm-fallback] ${_opts.agentId ?? '?'}/${node.id}: ${provider} answered in the wrong shape, asking it once more\n`);
+      i--;
+      continue;
+    }
+    repairNote = undefined;
     // Busy, not out of usage: the same provider on its fallback model, once, before the next one.
     if (lastCategory === 'model_busy' && !busyRetry.has(provider)) {
       const alt = busyFallbackModel(provider, ranModel, _opts.llmSettings?.fallbackModels);
@@ -2281,6 +2319,11 @@ function approximateExecSize(args: string[], env: Record<string, string>, stdinI
  * `elapsedMs` is undefined for a cancellation (operator Stop), which reaches
  * the same `killed` branch but isn't a real timeout — keep the bare message.
  */
+/** What a provider is told when it answers again after missing the node's output contract. */
+export function contractRepairNote(reason: string): string {
+  return `Your previous answer to this was not in the required format: ${reason}. Answer again in full, in exactly the format the instructions above require.`;
+}
+
 export function timeoutError(timeoutSec: number, elapsedMs?: number): string {
   const bare = `Timed out after ${timeoutSec}s`;
   if (elapsedMs === undefined) return bare;
@@ -2336,12 +2379,21 @@ export async function spawnProcess(
         cwd: opts.cwd,
         env: opts.env,
         stdio: [stdinMode, 'pipe', 'pipe'],
+        // Its own process group, so a stop or timeout reaches everything it starts (process-groups.ts).
+        detached: USE_PROCESS_GROUPS,
       });
     } catch (err) {
       resolve({ result: '', exitCode: 127, error: (err as Error).message, category: 'spawn_failure' });
       return;
     }
     const spawnedAt = Date.now();
+    const groupPid = child.pid;
+    if (typeof groupPid === 'number') trackGroup(groupPid);
+    // SIGTERM the node's whole process group, then SIGKILL whatever is left after 5s.
+    const stopChild = (): void => {
+      if (typeof groupPid === 'number') stopGroup(groupPid);
+      else child.kill('SIGTERM');
+    };
     // Report the freshly-spawned pid + start time so the executor can persist
     // them on the node_executions row. Fires before stdin write so a crash
     // between spawn() and the first stdout chunk still leaves a kill handle.
@@ -2389,8 +2441,7 @@ export async function spawnProcess(
     const timer = setTimeout(() => {
       killed = true;
       timedOut = true;
-      child.kill('SIGTERM');
-      setTimeout(() => { if (!child.killed) child.kill('SIGKILL'); }, 5000);
+      stopChild();
     }, opts.timeoutSec * 1000);
 
     // Cancellation signal: SIGTERM the child when the signal fires, then
@@ -2402,8 +2453,7 @@ export async function spawnProcess(
     if (opts.signal) {
       const onAbort = () => {
         killed = true;
-        child.kill('SIGTERM');
-        setTimeout(() => { if (!child.killed) child.kill('SIGKILL'); }, 5000);
+        stopChild();
       };
       if (opts.signal.aborted) {
         onAbort();
@@ -2415,6 +2465,7 @@ export async function spawnProcess(
 
     child.on('close', (code: number | null) => {
       clearTimeout(timer);
+      if (typeof groupPid === 'number') untrackGroup(groupPid);
       reportChildGone();
 
       // Flush any remaining buffered stdout line.
@@ -2440,6 +2491,7 @@ export async function spawnProcess(
 
     child.on('error', (err: Error) => {
       clearTimeout(timer);
+      if (typeof groupPid === 'number') untrackGroup(groupPid);
       reportChildGone();
       resolve({ result: '', exitCode: 127, error: err.message, category: 'spawn_failure' });
     });

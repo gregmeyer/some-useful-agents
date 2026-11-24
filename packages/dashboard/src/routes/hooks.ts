@@ -8,6 +8,7 @@
  * doesn't hold it.
  */
 import express, { Router, type Request, type Response } from 'express';
+import { inBackground } from '../lib/background.js';
 import { randomUUID } from 'node:crypto';
 import {
   WebhookStore,
@@ -66,7 +67,7 @@ async function startWebhookRun(ctx: Ctx, agent: Agent, inputs: Record<string, st
   const runId = randomUUID();
   const abortController = new AbortController();
   ctx.activeRuns.set(runId, abortController);
-  void executeAgentDag(
+  inBackground(ctx, 'executeAgentDag', executeAgentDag(
     agent,
     { triggeredBy: 'webhook', inputs, runId, signal: abortController.signal },
     {
@@ -87,7 +88,7 @@ async function startWebhookRun(ctx: Ctx, agent: Agent, inputs: Record<string, st
     },
   )
     .catch((err) => console.warn(`[webhook] run ${runId} of ${agent.id} failed to start: ${err instanceof Error ? err.message : String(err)}`))
-    .finally(() => { ctx.activeRuns.delete(runId); });
+    .finally(() => { ctx.activeRuns.delete(runId); }));
   return runId;
 }
 

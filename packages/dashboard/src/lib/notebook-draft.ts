@@ -8,6 +8,7 @@
  * after two weeks untouched.
  */
 import { randomUUID } from 'node:crypto';
+import { inBackground } from './background.js';
 import { cleanSubject, type NotebookSubject,
   NotebookStore, SYSTEM_AGENT_IDS, cleanFields, cleanSteps, executeAgentDag, extractTaggedJson, validateScheduleInterval,
   type NotebookField, type NotebookStep, type NotebookMeeting, cleanMeeting,
@@ -294,10 +295,10 @@ export function startNotebookDraft(ctx: Ctx, text: string, from?: { id: string; 
     if (s.status === 'failed' && from) { store.saveDraft(id, { status: 'ready', text: said, draft: from.draft, error: `sua couldn't change it: ${s.error}` }); return; }
     store.saveDraft(id, s.status === 'ready' ? { status: 'ready', text: said, draft: { ...s.draft, suggested: s.draft.pipeline } } : { status: s.status, text: said, ...(s.status === 'failed' ? { error: s.error } : {}) });
   };
-  void runDrafter(ctx, agent, inputs).then(({ result, error }) => {
+  inBackground(ctx, 'runDrafter', runDrafter(ctx, agent, inputs).then(({ result, error }) => {
     const parsed = result ? parseNotebookDraft(result, ids) : { error: error ?? "sua didn't come back with a draft." };
     done('error' in parsed ? { status: 'failed', text: said, at: Date.now(), error: parsed.error } : { status: 'ready', text: said, at: Date.now(), draft: parsed });
-  });
+  }));
   return id;
 }
 

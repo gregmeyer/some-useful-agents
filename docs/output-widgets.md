@@ -173,7 +173,7 @@ At run time, `renderAiTemplate()`:
 ## Security
 
 - **Templates are trusted at save time.** Whoever can save an agent can save an HTML template. The sanitizer is the safety net, not access control.
-- **Values from run output are always HTML-escaped** before substitution, then the whole substituted string is re-sanitized. Two-layer defense.
+- **Values from run output are always HTML-escaped** before substitution, then the whole substituted string is re-sanitized. Two-layer defense. A `{{…}}` placeholder in text then draws the value's inline Markdown: `[label](url)` becomes a link that opens in a new tab, `**bold**`, `*em*` and `` `code` `` are drawn. In an attribute (`href="{{item.url}}"`), or inside `<a>`, `<code>`, `<pre>` or `<textarea>`, it's the plain escaped value.
 - **Allowlist lives in core** — [packages/core/src/html-sanitizer.ts](../packages/core/src/html-sanitizer.ts). Full list of allowed tags + attrs is documented there.
 - **SVG preserved** — the allowlist includes SVG shapes and presentation attrs (`viewBox`, `fill`, `stroke`, etc.) so generators can emit inline charts.
 - **`on*` handlers, `<script>`, `<iframe>`, `<form>`, `javascript:` URLs are always dropped.** `data:image/*` is allowed; other `data:` URLs are not.

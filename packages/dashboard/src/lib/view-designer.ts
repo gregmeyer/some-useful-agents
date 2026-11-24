@@ -7,6 +7,7 @@
  * and shown beside the current view; nothing changes until you use it.
  */
 import { randomUUID } from 'node:crypto';
+import { inBackground } from './background.js';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
@@ -146,7 +147,7 @@ export function startViewProposal(ctx: Ctx, agent: Agent, request: string): bool
     }
   };
 
-  void (async () => {
+  inBackground(ctx, 'view-designer', (async () => {
     const at = () => new Date().toISOString();
     try {
       let reply = await ask(inputs);
@@ -164,6 +165,6 @@ export function startViewProposal(ctx: Ctx, agent: Agent, request: string): bool
     } finally {
       running.delete(agent.id);
     }
-  })();
+  })());
   return true;
 }

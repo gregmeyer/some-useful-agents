@@ -96,7 +96,11 @@ nodes:
 
       Use a ready-made page whenever it fits ({"preset": "dossier"} for
       getting ready to meet someone, {"preset": "subject"} for a briefing
-      on one named thing, {"preset": "answer"} for a question,
+      on one named thing, {"preset": "runbook"} for teaching or walking
+      someone through doing something ("teach me how to…", "walk me
+      through…", "how do I make / set up / fix…", a runbook, a primer, a
+      lesson; kept as it is once written, never composed around a hero),
+      {"preset": "answer"} for a question,
       {"preset": "plan"} for a plan, {"preset": "watch"} for keeping
       watch, above all when a write step writes
       the answer or the plan); start from its page and change it

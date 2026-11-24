@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Notebook } from '@some-useful-agents/core';
-import { cardForAgent, parseTldrAnswer, strayNumbers, tldrRedrawInputs } from './notebook-tldr-redraw.js';
+import { cardForAgent, parseTldrAnswer, strayNumbers, tldrPreferenceFor, tldrRedrawInputs } from './notebook-tldr-redraw.js';
 import type { TldrData } from '../views/notebook-tldr.js';
 
 const nb = { title: 'Choose batteries for a 2000 EZGO TXT', statement: 'Good battery options' } as Notebook;
@@ -33,9 +33,28 @@ describe('redrawing a TL;DR picture from an ask', () => {
     expect(again.ERRORS).toBe('Your last answer couldn\'t be used: "neon" is not a tone. Answer again, fixing that and keeping the rest.');
   });
 
-  it('keeps an answer chosen from the choices, with the ask and when', () => {
-    const out = parseTldrAnswer(answer({ size: 'landscape', tone: 'editorial', layout: 'split', parts: ['lead', 'bars'], headline: 'Lead-acid sets start at $139.99', takeaway: 'Lithium bundles run past $2,130.99.', about: 'Wide for LinkedIn.' }), nb, card, 'for LinkedIn', at);
-    expect(out).toEqual({ spec: { size: 'landscape', tone: 'editorial', layout: 'split', parts: ['lead', 'bars'], headline: 'Lead-acid sets start at $139.99', takeaway: 'Lithium bundles run past $2,130.99.', about: 'Wide for LinkedIn.', ask: 'for LinkedIn', at } });
+  const barsView = [{ id: 'root', component: 'Columns', children: ['lead', 'bars'], widths: [5, 7] }, { id: 'lead', component: 'TldrPart', part: 'lead' }, { id: 'bars', component: 'TldrPart', part: 'bars' }];
+
+  it('keeps a composed answer, with the ask and when; what it said about fixed layouts isn\'t kept', () => {
+    const out = parseTldrAnswer(answer({ size: 'landscape', tone: 'editorial', layout: 'split', parts: ['lead', 'bars'], headline: 'Lead-acid sets start at $139.99', takeaway: 'Lithium bundles run past $2,130.99.', about: 'Wide for LinkedIn.', view: barsView }), nb, card, 'for LinkedIn', at);
+    expect(out).toEqual({ spec: { size: 'landscape', tone: 'editorial', layout: 'stack', parts: ['lead', 'photos', 'stats', 'bars', 'points'], headline: 'Lead-acid sets start at $139.99', takeaway: 'Lithium bundles run past $2,130.99.', about: 'Wide for LinkedIn.', ask: 'for LinkedIn', at, view: barsView } });
+  });
+
+  it('always composes: an answer with no view is asked for again; a size not given is the page\'s preferred one', () => {
+    expect(parseTldrAnswer(answer({ size: 'landscape', tone: 'editorial', layout: 'split' }), nb, card, 'x')).toEqual({ error: 'It has no "view": compose the card as a view.' });
+    const pref = tldrPreferenceFor({ layout: { preset: 'shortlist', components: [] } } as Pick<Notebook, 'layout'>, card);
+    expect(pref).toEqual({ size: 'landscape', lead: 'bars', why: 'a shortlist: the options as ranked bars' });
+    const out = parseTldrAnswer(answer({ tone: 'plain', view: barsView }), nb, card, 'x', at, pref) as { spec: { size: string } };
+    expect(out.spec.size).toBe('landscape');
+  });
+
+  it('tells the agent what the page prefers, and offers sizes and tones but no fixed layouts', () => {
+    const pref = tldrPreferenceFor({ layout: { preset: 'shortlist', components: [] } } as Pick<Notebook, 'layout'>, card);
+    const inputs = tldrRedrawInputs(nb, card, 'x', '', pref);
+    expect(inputs.PREFER).toContain('a shortlist\'s page, which prefers size "landscape" leading with the options as ranked bars');
+    expect(inputs.OPTIONS).toContain('tone (one):');
+    expect(inputs.OPTIONS).not.toContain('layout (one):');
+    expect(inputs.OPTIONS).toContain('view (required');
   });
 
   it("can't be used: no JSON, or a size, tone or layout that isn't one of the choices (named, so a second try can fix it)", () => {
@@ -50,9 +69,55 @@ describe('redrawing a TL;DR picture from an ask', () => {
   it('a number in the written words has to be in the picture\'s data, as it is there; else the words can be left out', () => {
     expect(strayNumbers(['Eight ways, from $139.99', 'Past $2,130.99 for 2000 EZGO carts'], nb, card)).toEqual([]);
     expect(strayNumbers(['From $140', 'Save 40% in 2026'], nb, card)).toEqual(['140', '40', '2026']);
-    const out = parseTldrAnswer(answer({ size: 'square', tone: 'bold', layout: 'hero', headline: 'Batteries from $140', takeaway: 'Eight options.' }), nb, card, 'bolder', at);
-    expect(out).toMatchObject({ error: "The headline or takeaway has a number that CARD doesn't (140). Use only numbers that are in CARD, written as they are there, or none." });
-    // What would be kept if a second try doesn't fix it: the drawing, without the words.
-    expect((out as { spec: unknown }).spec).toEqual({ size: 'square', tone: 'bold', layout: 'hero', parts: ['lead', 'photos', 'stats', 'bars', 'points'], ask: 'bolder', at });
+    // The card stands; the headline and takeaway with a number of the model's own are left out.
+    const out = parseTldrAnswer(answer({ size: 'square', tone: 'bold', headline: 'Batteries from $140', takeaway: 'Eight options.', view: barsView }), nb, card, 'bolder', at) as unknown as { spec: Record<string, unknown> };
+    expect(out.spec.view).toEqual(barsView);
+    expect(out.spec.headline).toBeUndefined();
+    expect(out.spec.takeaway).toBeUndefined();
+  });
+});
+
+describe('a TL;DR card composed as an A2UI view (ADR-0096)', () => {
+  const cover = [
+    { id: 'root', component: 'Column', children: ['cover', 'nums'] },
+    { id: 'cover', component: 'PhotoCover', photo: { path: '/tldr/photo' }, kicker: { path: '/tldr/title' }, headline: { path: '/tldr/headline' }, scrim: 'dark', align: 'bottom', height: 'tall' },
+    { id: 'nums', component: 'TldrPart', part: 'stats' },
+  ];
+  const answer = (o: object) => `<tldr>${JSON.stringify({ size: 'square', tone: 'bold', about: 'A cover.', ...o })}</tldr>`;
+
+  it('a photo with the headline over it parses, and is kept on the spec', () => {
+    const out = parseTldrAnswer(answer({ headline: 'The Werker 220Ah leads', view: cover }), nb, card, 'headline over the photo');
+    expect('spec' in out && !('error' in out)).toBe(true);
+    expect((out as { spec: { view?: unknown[] } }).spec.view).toHaveLength(3);
+  });
+
+  it("a view that can't be drawn says why, and nothing of it is kept", () => {
+    const bad = (view: unknown[]) => parseTldrAnswer(answer({ view }), nb, card, 'x') as { error?: string; spec?: { view?: unknown } };
+    const img = bad([{ id: 'root', component: 'Column', children: ['i'] }, { id: 'i', component: 'Image', url: 'https://evil.example/a.jpg' }]);
+    expect(img.error).toContain("Image isn't for a TL;DR card");
+    expect(img.spec).toBeUndefined();
+    expect(bad([{ id: 'root', component: 'PhotoCover', photo: { path: '/notebook/options' } }]).error).toContain("Bind only the card's own data (/tldr/…), not /notebook/options");
+    expect(bad([{ id: 'top', component: 'TldrPart', part: 'stats' }]).error).toContain('One component must have id "root".');
+  });
+
+  it("a view's own words may not carry a number CARD doesn't have", () => {
+    const out = parseTldrAnswer(answer({ view: [{ id: 'root', component: 'Column', children: ['t'] }, { id: 't', component: 'Text', text: 'Save $500 today', variant: 'h2' }] }), nb, card, 'x') as { error?: string; spec?: { view?: unknown } };
+    expect(out.error).toContain("(500)");
+    expect(out.spec?.view).toBeUndefined();
+  });
+
+  it('the agent is told how to compose one, and sees the view it has now', () => {
+    const inputs = tldrRedrawInputs({ ...nb, tldr: { size: 'square', tone: 'bold', layout: 'stack', parts: ['lead'], view: cover as never } }, card, 'x');
+    expect(inputs.OPTIONS).toContain('PhotoCover');
+    expect(inputs.OPTIONS).toContain('/tldr/photos');
+    expect(JSON.parse(inputs.CURRENT).view).toHaveLength(3);
+  });
+});
+
+describe('the Redraw page says a card is composed', () => {
+  it('names what it opens with', async () => {
+    const { tldrSpecWords } = await import('../views/notebook-tldr-redraw.js');
+    const view = [{ id: 'root', component: 'PhotoCover', photo: { path: '/tldr/photo' } }];
+    expect(tldrSpecWords({ size: 'square', tone: 'bold', layout: 'stack', parts: ['lead'], view: view as never })).toBe('Square 1080×1080 · bold · composed: the headline over the photo');
   });
 });

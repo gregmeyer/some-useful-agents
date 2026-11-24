@@ -17,7 +17,7 @@ import {
 import { getContext } from '../context.js';
 import { formatToolCatalog } from './run-now-build.js';
 import { TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
-import { SYSTEM_AGENT_IDS, TRIAGE_AGENT_ID } from './inbox-shared.js';
+import { SYSTEM_AGENT_IDS, TRIAGE_AGENT_ID, howLongAgo } from './inbox-shared.js';
 import { canRenderInlineInboxWidget } from './inbox-widgets.js';
 
 const TRIAGE_SUB_AGENT_ALLOWLIST: readonly string[] = [
@@ -597,11 +597,20 @@ export function extractAgentBuilderProviderPin(inputs: Record<string, string>): 
  * point the operator at the full run).
  */
 const RUN_RESULT_CAP = 12000;
+
+/** ", 7h ago, before your latest ask" for a run that failed at `at` (ISO). Pure. */
+function failedWhen(at: string, opts: { now?: number; latestAsk?: number }): string {
+  const t = Date.parse(at);
+  if (!Number.isFinite(t)) return '';
+  return `, ${howLongAgo(t, opts.now ?? Date.now())}${opts.latestAsk !== undefined && t < opts.latestAsk ? ', before your latest ask' : ''}`;
+}
 const RUN_SUMMARY_TOTAL_CAP = 14000;
 
 export function collectRunSummary(
   ctx: ReturnType<typeof getContext>,
   agentName: string,
+  /** Said with the failure: how long ago, and whether it came before what they last asked (`latestAsk`, ms). */
+  opts: { now?: number; latestAsk?: number } = {},
 ): string {
   let out = '';
   try {
@@ -617,7 +626,7 @@ export function collectRunSummary(
       const completedAt = completed[0]?.completedAt ?? '';
       if (!completedAt || failedAt > completedAt) {
         const parts = [
-          `\n\nMOST RECENT RUN FAILED (${f.id.slice(0, 8)}):`,
+          `\n\nMOST RECENT RUN FAILED (${f.id.slice(0, 8)}${failedWhen(failedAt, opts)}):`,
           f.error ? `Error: ${f.error}` : '',
           f.result ? `Output: ${f.result.slice(0, 2000)}` : '',
         ].filter(Boolean);

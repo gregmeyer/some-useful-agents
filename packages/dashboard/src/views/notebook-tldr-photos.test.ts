@@ -28,6 +28,13 @@ describe("a TL;DR picture uses a briefing's own photos", () => {
     ]);
     // Not a subject briefing, or no pictures to embed: none.
     expect(tldrPhotos({}, options, pic)).toEqual([]);
+    // One picture filed under two sources, one a resized copy: shown once.
+    const twice = [
+      opt('a', 'https://acmetrails.example/about', 'listing', { imageSource: 'https://acmetrails.example/_astro/about-family.BPO23Qhu.webp' }),
+      opt('b', 'https://acmetrails.example/team', 'listing', { imageSource: 'https://acmetrails.example/_astro/about-family.BPO23Qhu_Zi2rYs.webp' }),
+      opt('c', 'https://acmetrails.example/learn', 'listing', { imageSource: 'https://acmetrails.example/_astro/learn-hero.Bgfi8A8g.webp' }),
+    ];
+    expect(tldrPhotos({ briefOn }, twice, pic).map((x) => x.src)).toEqual(['data:a', 'data:c']);
     expect(tldrPhotos({ briefOn }, options, undefined)).toEqual([]);
     // At most four, and one picture shown once.
     const many = Array.from({ length: 6 }, (_, i) => opt(`p${String(i)}`, `https://s${String(i)}.example/x`, 'listing'));
@@ -70,7 +77,9 @@ describe("a TL;DR picture uses a briefing's own photos", () => {
   });
 
   it('tells the redraw agent how many photos there are and where from', () => {
-    expect(cardForAgent({ ...base, photos }).photos).toEqual({ count: 3, from: ['acmetrails.example', 'gazette.example', 'casts.example'] });
+    expect(cardForAgent({ ...base, photos }).photos).toMatchObject({ count: 3, from: ['acmetrails.example', 'gazette.example', 'casts.example'] });
+    // Each with the path a composed card binds it by (ADR-0096), never its address.
+    expect((cardForAgent({ ...base, photos }).photos as { each: unknown[] }).each[1]).toEqual({ path: '/tldr/photos/1', credit: 'gazette.example', shows: photos[1].name });
     expect(cardForAgent(base).photos).toBeUndefined();
   });
 });

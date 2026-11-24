@@ -30,6 +30,14 @@ export interface PulseTile {
   viewHtml?: import('./html.js').SafeHtml;
   /** The same view as A2UI messages (canvas boards), or the reason it couldn't be shown. */
   viewMessages?: { messages: unknown[] } | { error: string };
+  /**
+   * Drawn to be read (Today's edition): an interactive widget shows its last
+   * result without its input form; the footer's Run reuses the last run's
+   * inputs, and "Change inputs…" goes to the agent.
+   */
+  readOnly?: boolean;
+  /** The agent's newest run failed after its last result: that run, so the tile can say so. */
+  failedRun?: { id: string; at: string };
 }
 
 export interface PulsePageInput {

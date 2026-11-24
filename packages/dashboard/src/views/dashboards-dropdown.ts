@@ -21,7 +21,7 @@ export interface DashboardOption {
  */
 export function buildDashboardOptions(installed: Dashboard[]): DashboardOption[] {
   const opts: DashboardOption[] = [
-    { href: '/pulse', label: 'Default Dashboard', hint: 'pulseVisible' },
+    { href: '/pulse', label: 'Pulse' },
   ];
   const sorted = [...installed].sort((a, b) => {
     const ap = a.packId ?? 'user';

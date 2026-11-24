@@ -177,3 +177,35 @@ describe('renderSettingsLlm — CLI provider models', () => {
     expect(out).not.toContain('Claude no longer offers');
   });
 });
+
+describe('renderSettingsLlm — how each provider did lately', () => {
+  it("shows each provider's last 7 days under its row, flags one that never answered, and says how many nodes went to a later provider", async () => {
+    const { summarizeProviderHealth, providerHealthProblems } = await import('@some-useful-agents/core');
+    const failed = JSON.stringify([{ provider: 'codex', category: 'quota_exceeded' }, { provider: 'local', category: 'binary_missing' }]);
+    const rows = [
+      ...Array.from({ length: 6 }, () => ({ usedProvider: 'claude', costUsd: 0.5, startedAt: '2026-11-20T10:00:00.000Z', providerFailures: failed })),
+      { usedProvider: 'codex', costUsd: 0, startedAt: '2026-11-21T10:00:00.000Z' },
+    ];
+    const summary = summarizeProviderHealth(rows, '2026-11-14T00:00:00.000Z');
+    const settings: LlmSettings = { providers: ['codex', 'local', 'claude', 'apple-foundation-models'] };
+    const out = render(renderSettingsLlm({ ...base, settings, health: { summary, problems: providerHealthProblems(summary, settings.providers) } }));
+    expect(out).toContain('Last 7 days: answered 1 · failed 6 (mostly out of quota) · last answered 2026-11-21T10:00:00.000Z.');
+    expect(out).toMatch(/settings-llm__health settings-llm__health--warn">Last 7 days: answered 0 · failed 6 \(mostly couldn&#39;t be reached or isn&#39;t installed\)\.\s*<strong>It hasn't answered once/);
+    expect(out).toContain('Last 7 days: not used.'); // apple
+    expect(out).toContain('6 nodes went to a later provider because an earlier one failed ($3.00 recorded).');
+    for (const line of out.match(/<p class="settings-llm__health[^>]*>[^<]*/g) ?? []) expect(line).not.toMatch(/waterfall|fallback chain/i);
+  });
+});
+
+describe('renderSettingsLlm — a provider skipped for now', () => {
+  it('says why and until when, with a way to try it again at once', () => {
+    const settings: LlmSettings = { providers: ['codex', 'claude'] };
+    const until = new Date(2026, 10, 23, 15, 20).getTime();
+    const out = render(renderSettingsLlm({ ...base, settings, cooldowns: [{ provider: 'codex', category: 'quota_exceeded', at: until - 1_800_000, until }] }));
+    expect(out).toContain('action="/settings/llm/cooldown/clear"');
+    expect(out).toContain('<input type="hidden" name="provider" value="codex">');
+    expect(out).toMatch(/Skipped until [^:]+:20[^<]*: out of quota\./);
+    expect(out).toContain('Try it now');
+    expect(out.match(/cooldown\/clear/g)).toHaveLength(1); // claude isn't cooling down
+  });
+});

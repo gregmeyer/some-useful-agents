@@ -155,6 +155,28 @@ therefore `tsc --build`, the same command, because composite references have to 
 for downstream projects to check against. If a change type-checks locally but you skipped the
 build, you have not type-checked it.
 
+### Updating an install that runs from a checkout
+
+If your daily install is a checkout of `main`, update it with `scripts/live-update.sh` (`--force` rebuilds even when it's already current). The script:
+1. stops if any run or notebook step is in progress, or if the checkout has local changes;
+2. backs up the databases as `*.db.bak-YYYYMMDD-HHMMSS`;
+3. fast-forwards to `origin/main` and does a clean build;
+4. prunes old backups and update logs;
+5. restarts the daemon.
+
+Pruning is `sua backups prune`: it keeps the newest 5 backup sets, plus the newest set from each of the last 7 days. A backup with any other name, such as `runs.db.bak-before-migration`, is never deleted. Use `--dry-run` to see what it would remove.
+
+Large strings in a run's stored inputs, such as an agent's kernel or the agent catalog, are stored once in `run_blobs` and referenced from each row. Rows written before that are rewritten by `sua db compact`, which then runs `VACUUM` to shrink the file. Run it when nothing is running; it is safe to run again.
+
+### Dashboard tests
+
+Build a test dashboard with `createTestContext()` from `packages/dashboard/src/test-harness.ts`, and tear it down with `closeTestContext()` in `afterEach`.
+
+- **Teardown order:** the harness waits for the work the test's routes started (Run now, triage, anything launched through `inBackground`), then closes the stores. Work still running at teardown fails that test, with its label.
+- **When teardown fails:** stub the work with the context's `*Run` stand-ins, or wait for it in the test. Don't raise the timeout.
+- **No real model runs in tests:** the harness leaves `ctx.live` unset, so the queue watchers don't start and system agents don't run a model.
+- **Don't check for the test runner in shipped code:** use `ctx.live`, or a `ctx.*Run` stand-in that tests can set, instead of `process.env.VITEST`.
+
 ### Code style
 
 - TypeScript strict mode

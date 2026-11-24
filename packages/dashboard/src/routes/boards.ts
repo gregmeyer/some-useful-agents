@@ -21,6 +21,7 @@ import {
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { html, render, unsafeHtml, type SafeHtml } from '../views/html.js';
+import { formatAge } from '../views/components.js';
 import { layout } from '../views/layout.js';
 import { pageHeader, renderCrumbs } from '../views/page-header.js';
 import { assembleCanvas, canvasTileEntry } from '../lib/board-canvas.js';
@@ -31,17 +32,17 @@ import { boardCatalog, decideBoardDrafts, latestBoardBuild, retryFailedTiles, st
 import { boardApprovalButtons } from '../views/board-approval.js';
 import { buildDashboardOptions, renderDashboardsDropdown } from '../views/dashboards-dropdown.js';
 import { renderInstallPacksModal } from '../views/install-packs-modal.js';
-import { buildPulseBoardData, pulseAgentIds } from './pulse.js';
+import { buildPulseBoardData, pulseAgentIds, pulseHealthLine, schedulerProblem } from './pulse.js';
 import { buildPulseTile, attachLayoutHints, withTileSignal } from '../views/pulse-tile-builder.js';
 import { TEMPLATE_REGISTRY, normalizeSignal } from '../views/pulse-templates.js';
 import type { PulseTile } from '../views/pulse-types.js';
-import { todayEdition, TODAY_BOARD_ID, TODAY_BOARD_NAME, editionPrefsOf, editionPrefsStoreOf } from '../lib/today-edition.js';
+import { todayEdition, TODAY_BOARD_ID, TODAY_BOARD_NAME, editionFreshness, editionPrefsOf, editionPrefsStoreOf } from '../lib/today-edition.js';
 import { boardFigures } from '../lib/board-figures.js';
 import { applyBoardSuggestions, reviewsOf, skipBoardSuggestion, startBoardReview } from '../lib/board-review.js';
 import { boardGoalCard, boardRunningStrip } from '../views/board-review.js';
 import { boardActivity } from '../lib/board-activity.js';
 import { working } from '../views/working.js';
-import type { EditionAsk } from '../lib/edition-ask.js';
+import { askRows, type EditionAsk, type EditionAskRow } from '../lib/edition-ask.js';
 
 /**
  * Boards (docs/boards.md): Pulse and every named dashboard, each drawn as ONE
@@ -280,14 +281,23 @@ function editionAskCard(a: EditionAsk | undefined): SafeHtml {
       ${unsafeHtml(`<script>(function(){function tick(){fetch('/pulse/edition/ask.json',{headers:{Accept:'application/json'},credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){if(j&&j.status!=='running'){location.reload();return;}setTimeout(tick,2500);}).catch(function(){setTimeout(tick,5000);});}setTimeout(tick,2500);})();</script>`)}
     </section>`;
   }
-  const discard = html`<form method="POST" action="${base}/discard" style="margin: 0;"><button type="submit" class="board-review__skip">${a.status === 'ready' && a.ops.length ? 'Discard' : 'OK'}</button></form>`;
+  const rows = a.status === 'ready' ? askRows(a) : [];
+  const openOps = rows.filter((r) => r.kind === 'op' && r.state === 'open').length;
+  const anyOpen = rows.some((r) => r.state === 'open');
+  const discard = html`<form method="POST" action="${base}/discard" style="margin: 0;"><button type="submit" class="board-review__skip">${anyOpen ? 'Discard' : 'OK'}</button></form>`;
+  // One row per change: each applied or skipped on its own. A run sua offers has its own Run (it costs a run), never inside Apply all.
+  const rowForm = (n: number, what: 'apply' | 'skip' | 'run' | 'draft', label: string, cls: string) => html`<form method="POST" action="${base}/row/${String(n)}" style="margin: 0;"><input type="hidden" name="do" value="${what}"><button type="submit" class="${cls}">${label}</button></form>`;
+  const state = (r: EditionAskRow) => (r.state === 'applied' ? 'Applied' : r.state === 'ran' ? (r.kind === 'action' && r.action.do === 'draft' ? 'Drafting' : 'Running') : r.state === 'skipped' ? 'Skipped' : '');
   return html`<section class="board-review" aria-labelledby="edition-ask-title">
     <div class="board-review__head"><h2 class="board-review__title" id="edition-ask-title">You asked</h2><span class="board-review__round">“${a.ask}”</span></div>
     ${a.status === 'failed' ? html`<p class="board-review__note"><strong>That couldn't be worked out.</strong> ${a.error ?? ''}</p>` : html``}
     ${a.say ? html`<p class="board-review__note">${a.say}</p>` : html``}
-    ${a.changes.length ? html`<ul class="board-review__list">${a.changes.map((c) => html`<li class="board-review__item"><span class="board-review__sign" aria-hidden="true">→</span><div class="board-review__text"><span class="board-review__what">${c}</span></div></li>`) as unknown as SafeHtml[]}</ul>` : html``}
+    ${rows.length ? html`<ul class="board-review__list">${rows.map((r, n) => html`<li class="board-review__item${r.state !== 'open' ? ' is-done' : ''}"><span class="board-review__sign" aria-hidden="true">${r.kind === 'action' ? (r.action.do === 'draft' ? '+' : '↻') : '→'}</span><div class="board-review__text"><span class="board-review__what">${r.text}</span></div>
+      <div class="board-review__acts">${r.state === 'open'
+        ? html`${r.kind === 'op' ? rowForm(n, 'apply', 'Apply', 'btn btn--sm') : r.action.do === 'draft' ? rowForm(n, 'draft', 'Draft it', 'btn btn--sm') : rowForm(n, 'run', 'Run', 'btn btn--sm')}${rowForm(n, 'skip', 'Skip', 'board-review__skip')}`
+        : html`<span class="board-review__state">${state(r)}</span>`}</div></li>`) as unknown as SafeHtml[]}</ul>` : html``}
     <div class="board-review__foot">
-      ${a.status === 'ready' && a.ops.length ? html`<form method="POST" action="${base}/apply" style="margin: 0;"><button type="submit" class="btn btn--sm btn--primary">Apply ${a.changes.length === 1 ? 'it' : `all ${String(a.changes.length)}`}</button></form>` : html``}
+      ${openOps > 1 ? html`<form method="POST" action="${base}/apply" style="margin: 0;"><button type="submit" class="btn btn--sm btn--primary">Apply all ${String(openOps)} changes</button></form>` : html``}
       ${discard}
     </div>
   </section>`;
@@ -314,8 +324,7 @@ function editionChanges(ctx: ReturnType<typeof getContext>): SafeHtml {
 export const PULSE_AGENTS_URL = '/pulse/agents';
 
 /** Pulse's two views, as tabs under its header. */
-export function pulseTabs(active: 'today' | 'agents', hasEdition: boolean): SafeHtml {
-  if (!hasEdition) return html``;
+export function pulseTabs(active: 'today' | 'agents'): SafeHtml {
   return html`<nav class="pulse-tabs" aria-label="Pulse views">
     <a class="pulse-tabs__tab${active === 'today' ? ' is-active' : ''}" href="/pulse"${active === 'today' ? unsafeHtml(' aria-current="page"') : html``}>Today's edition</a>
     <a class="pulse-tabs__tab${active === 'agents' ? ' is-active' : ''}" href="${PULSE_AGENTS_URL}"${active === 'agents' ? unsafeHtml(' aria-current="page"') : html``}>All agents</a>
@@ -363,20 +372,20 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
         <div class="page-header__cta board-page__actions">
           ${dropdown}
           <a class="btn btn--sm" href="/boards/new" title="Describe a board; sua picks your agents, lays it out and runs it">+ New board</a>
-          ${p.tiles.length > 0 ? html`
-            <form method="POST" action="/pulse/hide-all" style="margin: 0; display: inline;" data-confirm-modal="Hide all ${String(p.tiles.length)} agents from Pulse? They move to the hidden section and can be restored individually." data-confirm-label="Hide all" data-confirm-title="Hide all?">
+        </div>
+        ${pulseTabs('agents')}
+        <p class="page-header__description">Every agent's latest result, run in place. Press Arrange to lay them out.</p>
+      </div>
+      ${(() => { const h = pulseHealthLine(ctx); return html`<p class="pulse-health${h.quiet ? '' : ' pulse-health--bad'}" role="status">${h.parts.map((x, i) => html`${i ? html`<span class="pulse-health__sep" aria-hidden="true"> · </span>` : html``}${x.href ? html`<a class="pulse-health__part${x.bad ? ' is-bad' : ''}" href="${x.href}">${x.text}</a>` : html`<span class="pulse-health__part">${x.text}</span>`}`) as unknown as SafeHtml[]}</p>`; })()}`;
+    after = html`
+      ${hidden > 0 || p.tiles.length > 0 ? html`
+        <div class="pulse-hidden-section board-page__hidden">
+          <span>${hidden > 0 ? `${String(hidden)} agent${hidden !== 1 ? 's' : ''} hidden from Pulse.` : 'Every agent shows on Pulse.'}</span>
+          ${hidden > 0 ? html`<form method="POST" action="/pulse/show-all" style="margin: 0; display: inline;"><button type="submit" class="btn btn--ghost btn--sm">Show all</button></form>` : html``}
+          ${p.tiles.length > 0 ? html`<form method="POST" action="/pulse/hide-all" style="margin: 0; display: inline;" data-confirm-modal="Hide all ${String(p.tiles.length)} agents from Pulse? They move to the hidden section and can be restored individually." data-confirm-label="Hide all" data-confirm-title="Hide all?">
               <button type="submit" class="btn btn--ghost btn--sm" title="Hide every agent from Pulse. Useful before installing packs.">Hide all</button>
             </form>` : html``}
-        </div>
-        ${pulseTabs('agents', !!todayEdition(ctx))}
-        <p class="page-header__description">Your board of agents. Each tile shows an agent's latest result and runs it in place. Press Arrange to lay it out; agents you haven't placed are under Everything else.</p>
-      </div>`;
-    after = html`
-      ${hidden > 0 ? html`
-        <div class="pulse-hidden-section board-page__hidden">
-          <span>${String(hidden)} agent${hidden !== 1 ? 's' : ''} hidden from Pulse.</span>
-          <form method="POST" action="/pulse/show-all" style="margin: 0; display: inline;"><button type="submit" class="btn btn--ghost btn--sm">Show all</button></form>
-          <a class="btn btn--ghost btn--sm" href="/agents">Manage in /agents</a>
+          <a class="btn btn--ghost btn--sm" href="/agents">Manage agents</a>
         </div>` : html``}
       ${options.length > 1 ? renderInstallPacksModal(p.availablePacks ?? []) : html``}`;
   } else {
@@ -438,8 +447,8 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
   // Arranging and undoing: inside the board's card on a board you made (so the whole area folds), on their own for Pulse and an archived board.
   const boardTools = html`
     <div class="board-toolbar" data-canvas-toolbar>
-      <button type="button" class="btn btn--ghost btn--sm" data-canvas-edit>Arrange</button>
-      <button type="button" class="btn btn--ghost btn--sm" data-canvas-suggest title="sua suggests an arrangement; you review it before saving">Suggest a layout</button>
+      <button type="button" class="btn btn--sm" data-canvas-edit>Arrange</button>
+      <button type="button" class="btn btn--sm" data-canvas-suggest title="sua suggests an arrangement; you review it before saving">Suggest a layout</button>
       ${r.board.hasPrevious ? html`<button type="button" class="btn btn--ghost btn--sm" data-canvas-undo title="Go back to the layout before the last save">Undo last save</button>` : html``}
       <span class="board-toolbar__status dim" data-canvas-status role="status" aria-live="polite"></span>
       ${!isPulse && archivedAt === undefined ? html`<form method="POST" action="/dashboards/${encodeURIComponent(id)}/archive" class="board-toolbar__archive" style="margin: 0 0 0 auto;">
@@ -488,19 +497,27 @@ export function renderTodayEdition(ctx: ReturnType<typeof getContext>, opts: { f
   const options = buildDashboardOptions(installed);
   const dropdown = options.length > 1 || archived.length > 0 ? renderDashboardsDropdown({ options, archived, activeHref: '/pulse' }) : html``;
   const n = r.tiles.size;
+  // How fresh it is, said plainly: how many parts are from the last day, and what's wrong when something is.
+  const fresh = editionFreshness(r.tiles);
+  const older = [...fresh.values()].filter((f) => f.old).length;
+  const scheduler = schedulerProblem(ctx);
   const json = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
   return render(layout({ title: 'Pulse', activeNav: 'pulse', flash: opts.flash }, html`
     <div class="page-header board-page__head">
       ${renderCrumbs([{ label: 'Home', href: '/' }, { label: 'Pulse' }])}
       <h1>Pulse</h1>
-      <span class="page-header__meta board-page__meta">${String(n)} scheduled agent${n === 1 ? '' : 's'} reported in the last day</span>
+      <span class="page-header__meta board-page__meta">${String(n - older)} of ${String(n)} part${n === 1 ? '' : 's'} from the last day</span>
       <div class="page-header__cta board-page__actions">
         ${dropdown}
         <a class="btn btn--sm" href="/boards/new" title="Describe a board; sua picks your agents, lays it out and runs it">+ New board</a>
       </div>
-      ${pulseTabs('today', true)}
-      <p class="page-header__description">Today's edition: what your scheduled agents found, each drawn as its own result. It's made fresh each time you open it, following what you've said you want. Every agent, and the board you arrange yourself, is under All agents.</p>
+      ${pulseTabs('today')}
+      <p class="page-header__description">What your scheduled agents found in the last day, each as its own result. Every agent is under All agents.</p>
     </div>
+    ${scheduler || older ? html`<div class="edition-health" role="status">
+      ${scheduler ? html`<p class="edition-health__line edition-health__line--bad">${scheduler} <a href="/scheduled">See scheduled agents</a></p>` : html``}
+      ${older ? html`<form method="POST" action="/pulse/edition/run-older" class="edition-health__line"><span>${String(older)} part${older === 1 ? ' is' : 's are'} older than a day.</span> <button type="submit" class="btn btn--sm" title="Run each again with its last inputs">Run the ${older === 1 ? 'older part' : `${String(older)} older parts`}</button></form>` : html``}
+    </div>` : html``}
     ${boardRunningStrip(TODAY_BOARD_ID, boardActivity(ctx, TODAY_BOARD_ID))}
     ${editionAskCard(ctx.editionAsk)}
     ${boardGoalCard(TODAY_BOARD_ID, { label: "Improve today's edition", what: 'the edition', ...(reviewsOf(ctx).latest(TODAY_BOARD_ID) ? { review: reviewsOf(ctx).latest(TODAY_BOARD_ID)! } : {}), ...(boardsOf(ctx).goal(TODAY_BOARD_ID) ? { goal: boardsOf(ctx).goal(TODAY_BOARD_ID)! } : {}), title: (agentId) => boardsOf(ctx).tileTitle(agentId) ?? ctx.agentStore.getAgent(agentId)?.name ?? agentId, extra: html`
@@ -520,6 +537,53 @@ export function renderTodayEdition(ctx: ReturnType<typeof getContext>, opts: { f
     </div>
     ${unsafeHtml(`<script type="application/json" id="pulse-template-registry">${JSON.stringify(TEMPLATE_REGISTRY).replace(/</g, '\\u003c')}</script>`)}
     ${unsafeHtml(`<script>${EDITION_ANCHOR_JS}</script>`)}`));
+}
+
+/**
+ * Today's tab with no edition yet (nothing scheduled has a result from the
+ * last day, and nothing is always shown): what would fill it, and the
+ * scheduled agents, each with Run (its last inputs) or a link to its page
+ * when it needs inputs it has never had. Never starts a run on its own.
+ */
+export function renderTodayEmpty(ctx: ReturnType<typeof getContext>, opts: { flash?: Flash } = {}): string {
+  const installed = ctx.dashboardsStore?.listDashboards() ?? [];
+  const archived = ctx.dashboardsStore?.listArchived() ?? [];
+  const options = buildDashboardOptions(installed);
+  const dropdown = options.length > 1 || archived.length > 0 ? renderDashboardsDropdown({ options, archived, activeHref: '/pulse' }) : html``;
+  const scheduled = ctx.agentStore.listAgents({ status: 'active' }).filter((a) => a.schedule && !a.id.startsWith('_')).slice(0, 8);
+  const scheduler = schedulerProblem(ctx);
+  const row = (a: (typeof scheduled)[number]) => {
+    const last = ctx.runStore.listRuns({ agentName: a.id, limit: 1 })[0];
+    const needs = Object.values(a.inputs ?? {}).some((spec) => spec.required === true && spec.default === undefined);
+    const canRun = !needs || ctx.runStore.listRuns({ agentName: a.id, status: 'completed', limit: 1 }).length > 0;
+    return html`<li class="edition-empty__agent">
+      <a href="/agents/${encodeURIComponent(a.id)}">${a.name || a.id}</a>
+      <span class="edition-empty__when">${last ? `${last.status === 'failed' ? 'failed' : 'ran'} ${formatAge(last.completedAt ?? last.startedAt)}` : 'never run'}</span>
+      ${canRun
+        ? html`<form method="POST" action="/pulse/edition/run" class="edition-empty__run"><input type="hidden" name="agentId" value="${a.id}"><button type="submit" class="btn btn--sm">Run</button></form>`
+        : html`<a class="btn btn--sm" href="/agents/${encodeURIComponent(a.id)}" title="It needs inputs before it can run">Run…</a>`}
+    </li>`;
+  };
+  return render(layout({ title: 'Pulse', activeNav: 'pulse', flash: opts.flash }, html`
+    <div class="page-header board-page__head">
+      ${renderCrumbs([{ label: 'Home', href: '/' }, { label: 'Pulse' }])}
+      <h1>Pulse</h1>
+      <span class="page-header__meta board-page__meta">nothing from the last day</span>
+      <div class="page-header__cta board-page__actions">
+        ${dropdown}
+        <a class="btn btn--sm" href="/boards/new" title="Describe a board; sua picks your agents, lays it out and runs it">+ New board</a>
+      </div>
+      ${pulseTabs('today')}
+      <p class="page-header__description">What your scheduled agents found in the last day, each as its own result. Every agent is under All agents.</p>
+    </div>
+    ${scheduler ? html`<div class="edition-health" role="status"><p class="edition-health__line edition-health__line--bad">${scheduler} <a href="/scheduled">See scheduled agents</a></p></div>` : html``}
+    <section class="edition-empty" aria-labelledby="edition-empty-h">
+      <h2 class="edition-empty__h" id="edition-empty-h">Nothing for today yet</h2>
+      ${scheduled.length ? html`
+        <p class="edition-empty__lede">Today's edition fills in as your scheduled agents run. None has a result from the last day. Run one now, or wait for its next run.</p>
+        <ul class="edition-empty__list">${scheduled.map(row) as unknown as SafeHtml[]}</ul>`
+      : html`<p class="edition-empty__lede">Today's edition shows what your scheduled agents found in the last day, and none of your agents runs on a schedule yet. Give one a schedule on its page, or see every agent under <a href="${PULSE_AGENTS_URL}">All agents</a>.</p>`}
+    </section>`));
 }
 
 /**
@@ -766,7 +830,8 @@ boardsRouter.get('/boards/tile/:tileId.json', (req: Request, res: Response) => {
     if (agent?.signal) {
       // Refreshed on its board: its run actions may still target the tiles beside it.
       const board = typeof req.query.board === 'string' ? req.query.board : '';
-      tile = buildPulseTile(agent as Agent & { signal: AgentSignal }, { runStore: ctx.runStore, ...(board ? { runTargets: boardRunTargets(ctx, board) } : {}) });
+      // On Today's edition it stays drawn to be read after a run (no form comes back on refresh).
+      tile = buildPulseTile(agent as Agent & { signal: AgentSignal }, { runStore: ctx.runStore, ...(board ? { runTargets: boardRunTargets(ctx, board) } : {}), ...(board === TODAY_BOARD_ID ? { readOnly: true } : {}) });
       attachLayoutHints([tile], ctx.layoutHintsStore);
     }
   }
@@ -815,6 +880,8 @@ for (const decision of ['approve', 'decline'] as const) {
   boardsRouter.post(`/boards/builds/:buildId/${decision}`, (req: Request, res: Response) => {
     const ctx = getContext(req.app.locals);
     const out = decideBoardDrafts(ctx, String(req.params.buildId), decision);
+    // On Today's edition the message stays on the edition (a plain flash would land on All agents).
+    if (out.boardId === TODAY_BOARD_ID) { res.redirect(303, `/pulse?edition=${encodeURIComponent(out.message)}`); return; }
     const back = out.boardId ? boardPageUrl(out.boardId) : '/inbox';
     res.redirect(303, `${back}?${out.ok ? 'ok' : 'error'}=${encodeURIComponent(out.message)}`);
   });

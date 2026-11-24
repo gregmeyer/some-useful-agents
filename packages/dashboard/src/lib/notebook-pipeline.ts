@@ -6,6 +6,7 @@
  * from. One pipeline run per notebook at a time.
  */
 import { randomUUID } from 'node:crypto';
+import { inBackground } from './background.js';
 import { keeperParts } from './keeper-parts.js';
 import { subjectHost,
   NotebookStore, SYSTEM_AGENT_IDS, notebookViewData, rankOptions, checksLeft, splitFacts, groundFacts, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS, type NotebookSearchSource,
@@ -583,7 +584,7 @@ export function startNotebookPipeline(ctx: Ctx, notebookId: string, opts: { sche
   ctx.notebookPipelines ??= new Map();
   if (ctx.notebookPipelines.has(notebookId)) return { started: false, reason: 'Its pipeline is already running.' };
   ctx.notebookPipelines.set(notebookId, { agentId: nb.pipeline[0], step: 1, of: nb.pipeline.length, startedAt: Date.now() });
-  void runPipeline(ctx, store, nb, opts).finally(() => ctx.notebookPipelines?.delete(notebookId));
+  inBackground(ctx, 'runPipeline', runPipeline(ctx, store, nb, opts).finally(() => ctx.notebookPipelines?.delete(notebookId)));
   return { started: true };
 }
 
@@ -626,12 +627,12 @@ export function startNotebookSetup(ctx: Ctx, notebookId: string, opts: { onDone?
   if (ctx.notebookSetups.has(notebookId)) return false;
   ctx.notebookSetups.add(notebookId);
   store.markSetup(notebookId);
-  void keep(ctx, store, nb, NOTEBOOK_SETUP, randomUUID(), '(Nothing was searched: set this notebook up from its goal and the entries it already has.)')
+  inBackground(ctx, 'keep', keep(ctx, store, nb, NOTEBOOK_SETUP, randomUUID(), '(Nothing was searched: set this notebook up from its goal and the entries it already has.)')
     .catch(() => { /* the page still works without fields */ })
     .finally(() => {
       ctx.notebookSetups?.delete(notebookId);
       try { opts.onDone?.(); } catch { /* a greeting is a nicety */ }
-    });
+    }));
   return true;
 }
 
@@ -696,8 +697,8 @@ export function addRunToNotebook(ctx: Ctx, notebookId: string, runId: string): {
   if (addingRun(ctx, runId)) return { started: false, reason: 'That run is being added already.' };
   const result = ctx.runStore.getRun(runId)?.result ?? '';
   (ctx.notebookAddingRuns ??= new Set()).add(runId);
-  void keepIntoNotebook(ctx, nb, run.agentId, runId, result, 'added')
+  inBackground(ctx, 'keepIntoNotebook', keepIntoNotebook(ctx, nb, run.agentId, runId, result, 'added')
     .catch(() => undefined)
-    .finally(() => { ctx.notebookAddingRuns?.delete(runId); });
+    .finally(() => { ctx.notebookAddingRuns?.delete(runId); }));
   return { started: true };
 }

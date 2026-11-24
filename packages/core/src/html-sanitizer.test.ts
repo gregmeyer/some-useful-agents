@@ -437,3 +437,42 @@ describe('substitutePlaceholders', () => {
     });
   });
 });
+
+describe('substitutePlaceholders: a value in text draws its inline Markdown', () => {
+  const sub = (template: string, outputs: Record<string, unknown>) => sanitizeHtml(substitutePlaceholders(template, { outputs }));
+
+  it('links and bold in an answer are drawn, links opening in a new tab', () => {
+    const answer = 'Use the [sandwich photo](https://upload.wikimedia.org/x/Peanut_Butter.jpg). Its rights status is **public domain**.';
+    const out = sub('<h2>{{outputs.answer}}</h2>', { answer });
+    expect(out).toContain('<a href="https://upload.wikimedia.org/x/Peanut_Butter.jpg" target="_blank" rel="noopener">sandwich photo</a>');
+    expect(out).toContain('<strong>public domain</strong>');
+    expect(out).not.toContain('**');
+  });
+
+  it('in an attribute, or inside a link or code, the value stays plain', () => {
+    expect(sub('<a href="{{outputs.u}}">x</a>', { u: 'https://x.test/_a_/*b*' })).toBe('<a href="https://x.test/_a_/*b*">x</a>');
+    expect(sub('<img alt="{{outputs.t}}" src="https://x.test/a.png">', { t: '**bold**' })).toContain('alt="**bold**"');
+    expect(sub('<a href="https://x.test">{{outputs.t}}</a>', { t: 'see [here](https://y.test)' })).toBe('<a href="https://x.test">see [here](https://y.test)</a>');
+    expect(sub('<code>{{outputs.t}}</code>', { t: '**x**' })).toBe('<code>**x**</code>');
+  });
+
+  it('inside an #each, text and attributes are told apart too', () => {
+    const out = sub('{{#each outputs.rows as r}}<div>{{r.point}} <a href="{{r.url}}">{{r.title}}</a></div>{{/each}}', { rows: [{ point: 'It is **free**', url: 'https://x.test/a_b_c', title: 'A *source*' }] });
+    expect(out).toBe('<div>It is <strong>free</strong> <a href="https://x.test/a_b_c">A *source*</a></div>');
+  });
+
+  it('is still escaped first, and an unsafe link loses its address', () => {
+    expect(sub('<p>{{outputs.t}}</p>', { t: '<script>alert(1)</script>' })).toBe('<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>');
+    expect(sub('<p>{{outputs.t}}</p>', { t: '[x](javascript:alert(1))' })).not.toContain('javascript:');
+    expect(sub('<p>{{outputs.t}}</p>', { t: 'snake_case_name and a_b' })).toBe('<p>snake_case_name and a_b</p>');
+  });
+
+  it("the starter-goal card's answer shows its links", async () => {
+    const { readFileSync } = await import('node:fs');
+    const yaml = readFileSync(new URL('../../../agents/examples/starter-goal.yaml', import.meta.url), 'utf-8');
+    const template = yaml.split('template: |\n')[1].split('\n').filter((l) => l.startsWith('    ') || !l.trim()).map((l) => l.slice(4)).join('\n');
+    const out = sub(template, { answer: 'Its [source page](https://commons.wikimedia.org/wiki/File:PBJ.jpg) says **public domain**.', findings: [], gaps: '' });
+    expect(out).toContain('<a href="https://commons.wikimedia.org/wiki/File:PBJ.jpg" target="_blank" rel="noopener">source page</a>');
+    expect(out).toContain('<strong>public domain</strong>');
+  });
+});

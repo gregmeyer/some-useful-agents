@@ -53,6 +53,7 @@ export function workerLlmSettings(
     disabledProviders: local?.disabledProviders,
     pricing: local?.pricing,
     spendLimits: local?.spendLimits,
+    fallbackCapUsd: local?.fallbackCapUsd,
     models: local?.models,
     fallbackModels: local?.fallbackModels,
     ...(store ? { onModelUnavailable: modelUnavailableRecorder(store) } : {}),
@@ -211,6 +212,8 @@ export interface RunNodeActivityInput {
   askRunId?: string;
   /** What's left of the run's spend limit, USD (core spend-limits.ts). */
   spendBudgetUsd?: number;
+  /** The daily cap on fallback spend and today's spend so far (core fallback-spend.ts). */
+  fallbackCap?: { capUsd: number; spentUsd: number };
   /**
    * Agent Behavior conditioning block, already resolved and scope-checked by
    * the executor. MUST be forwarded: the worker rebuilds the spawn opts from
@@ -361,6 +364,7 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
         policyDocument: input.dbPath ? resolvePolicyDocument(dirname(input.dbPath)) : undefined,
         agentCalls: workerAgentCalls(input),
         spendBudgetUsd: input.spendBudgetUsd,
+        fallbackCap: input.fallbackCap,
         askHuman: questionStore && input.askRunId
           ? { runId: input.askRunId, nodeId: input.node.id, agentId: input.agentId, store: questionStore, onAsked: () => askAbort.abort() }
           : undefined,

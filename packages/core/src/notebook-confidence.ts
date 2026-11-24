@@ -42,12 +42,22 @@ export function answerCitedIds(a: Pick<NotebookAnswer, 'findings' | 'sections' |
 }
 
 /** How a finding stands: an interpretation as the writer marked it, else how what it cites traced (undefined before any trace). */
-export function findingStatus(nb: Pick<Notebook, 'title' | 'statement' | 'briefOn'>, f: NotebookAnswer['findings'][number], byId: ReadonlyMap<string, NotebookEntry>): 'interpretation' | 'verified' | 'supported' | 'unverified' | undefined {
+export function findingStatus(nb: Pick<Notebook, 'title' | 'statement' | 'briefOn'> & Partial<Pick<Notebook, 'checks'>>, f: NotebookAnswer['findings'][number], byId: ReadonlyMap<string, NotebookEntry>): 'interpretation' | 'verified' | 'supported' | 'unverified' | undefined {
   if (f.kind === 'interpretation') return 'interpretation';
   const subjects = answerSubjects(nb);
   const cited = f.from.map((id) => byId.get(id)).filter((e): e is NotebookEntry => !!e && e.kind === 'evidence')
     .map((e) => { const o = evidenceOrigin(e, subjects); return { ...(e.trace ? { trace: e.trace } : {}), ...(o ? { origin: o } : {}) }; });
-  return findingTrace(cited);
+  const fromPages = findingTrace(cited);
+  if (fromPages) return fromPages;
+  // A finding about options (a write-up's "these three lead"): how they did on the notebook's checks, each
+  // confirmed by sua's checker with a quote from the option's own page. Verified: every one passed every check;
+  // supported: some checks passed; unverified: none was confirmed.
+  const checks = nb.checks ?? [];
+  const options = f.from.map((id) => byId.get(id)).filter((e): e is NotebookEntry => !!e && e.kind === 'option');
+  if (!checks.length || !options.length) return undefined;
+  const passed = (e: NotebookEntry) => checks.filter((c) => (e.checked ?? []).some((d) => d.toLowerCase() === c.toLowerCase())).length;
+  if (options.every((e) => passed(e) === checks.length)) return 'verified';
+  return options.some((e) => passed(e) > 0) ? 'supported' : 'unverified';
 }
 
 /**

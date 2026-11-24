@@ -46,7 +46,8 @@ export function resolveAutoPalette(tile: PulseTile): string | null {
  * yet." and no control — which is precisely a tile that needs ours.
  */
 export function tileRendersOwnRunControl(tile: PulseTile): boolean {
-  if (tile.agent.outputWidget?.interactive) return true;
+  // Read mode drops an interactive widget's form, so the footer carries Run.
+  if (tile.agent.outputWidget?.interactive) return !(tile.readOnly && tile.lastRun?.status === 'completed');
   const { template } = normalizeSignal(tile.signal);
   return template === 'widget' && Boolean(tile.agent.outputWidget) && Boolean(tile.lastRun?.result);
 }

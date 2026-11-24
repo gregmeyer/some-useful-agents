@@ -13,6 +13,8 @@ import {
   setMarkdownRenderer, html, css, nothing, z,
 } from '/assets/vendor/a2ui-v1_0.js';
 import { niceTicks, nearestPoint, pointNote, pointHref } from '/assets/chart-math.js';
+import { surfaceIdOf, componentsOf, dataOf, surfaceDelta } from '/assets/surface-diff.js';
+import { suaFunctions, suaAgentFunctions } from '/assets/sua-functions.js';
 import { recomputeDiagram, layoutDiagram, diagramParamWords } from '/assets/diagram-math.js';
 import { filterChoices, applyFilters, liveSelection, ADDED_CHOICES } from '/assets/option-filters.js';
 import { collapseRepeats, matchEvent, whenRange } from '/assets/timeline-events.js';
@@ -111,6 +113,12 @@ const KeyValue = define('KeyValue', 'sua-a2ui-keyvalue',
     return html`<dl>${items.map((it) => html`<dt>${it?.label ?? ''}</dt><dd>${value(it)}${it?.note ? html`<span class="note">${it.note}</span>` : nothing}</dd>`)}</dl>`;
   });
 
+/** A table cell that's a date ("2026-11-09", or with a time): kept on one line, so it doesn't break at its dashes. */
+const isDateCell = (row, col) => {
+  const v = row?.[col?.key];
+  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.test(v.trim());
+};
+
 // A {label, url} link cell sorts and filters by its label.
 const cellText = (v) => (v == null ? '' : typeof v === 'object' ? (typeof v.label === 'string' ? v.label : typeof v.text === 'string' ? v.text : JSON.stringify(v)) : String(v));
 const compare = (a, b) => {
@@ -144,6 +152,7 @@ const Table = define('Table', 'sua-a2ui-table',
     th { text-align: left; font-weight: 500; color: var(--color-text-muted); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: .04em; }
     th button { all: unset; cursor: pointer; } th button:focus-visible { outline: 2px solid var(--color-primary); }
     th, td { padding: 6px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top; overflow-wrap: break-word; }
+    td.date { white-space: nowrap; }
     th { white-space: nowrap; }
     /* Link text is a name or a short address (≤48 characters), so it wraps like words. */
     td a { overflow-wrap: break-word; }
@@ -204,8 +213,8 @@ const Table = define('Table', 'sua-a2ui-table',
       this.dispatchEvent(new CustomEvent('a2ui-action', { bubbles: true, composed: true, detail: { name: act.name, context } }));
     };
     const tr = (r) => (act
-      ? html`<tr class="act" tabindex="0" role="button" @click=${(e) => fire(r, e)} @keydown=${(e) => fire(r, e)}>${p.columns.map((c) => html`<td>${cell(r, c)}</td>`)}</tr>`
-      : html`<tr>${p.columns.map((c) => html`<td>${cell(r, c)}</td>`)}</tr>`);
+      ? html`<tr class="act" tabindex="0" role="button" @click=${(e) => fire(r, e)} @keydown=${(e) => fire(r, e)}>${p.columns.map((c) => html`<td class=${isDateCell(r, c) ? 'date' : ''}>${cell(r, c)}</td>`)}</tr>`
+      : html`<tr>${p.columns.map((c) => html`<td class=${isDateCell(r, c) ? 'date' : ''}>${cell(r, c)}</td>`)}</tr>`);
     return html`
       ${filterCols.length ? html`<div class="tools"><input type="search" aria-label="${p.filterPlaceholder ?? 'Filter'}" placeholder="${p.filterPlaceholder ?? 'Filter…'}" .value=${this._filter ?? ''} @input=${(e) => { this._page = 0; set('_filter', e.target.value); }}></div>` : nothing}
       <table><thead><tr>${p.columns.map(header)}</tr></thead>
@@ -1181,8 +1190,8 @@ const QuoteList = define('QuoteList', 'sua-a2ui-quote-list',
 const agendaKey = (el) => `sua-agenda:${location.pathname}:${el.context?.componentModel?.id ?? ''}`;
 // How a point's sources traced (an answer's findings, ADR-0082): its tag and what it means.
 const TRACED = {
-  verified: ['Verified', 'Its quote is on a primary page: the thing itself (its spec, docs or repo)'],
-  supported: ['Supported', 'Its quote is on the page it cites, but not a primary one'],
+  verified: ['Verified', 'Confirmed where it comes from: its quote is on a primary page (the thing itself), or every option it cites passed every check, quoted from its own page'],
+  supported: ['Supported', 'Partly confirmed: its quote is on a page that isn\u2019t primary, or the options it cites passed some checks'],
   interpretation: ['Interpretation', 'What the answer draws from its sources, not something a source says'],
   unverified: ['Unverified', 'The quotes it cites weren\u2019t found on their pages, or the pages couldn\u2019t be read'],
 };
@@ -1433,7 +1442,98 @@ const sectionStyles = css`${sectionHead}
     .sec + .sec { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--color-border); }
     ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 12px; }
     ol.steps > li { counter-increment: step; display: grid; grid-template-columns: 1.75rem minmax(0, 1fr); gap: 2px 10px; }
-    ol.steps > li::before { content: counter(step); grid-row: span 3; font: 700 var(--font-size-sm)/1.45 var(--font-mono); color: var(--color-primary); }
+    ol.steps > li::before { content: counter(step); grid-row: span 8; font: 700 var(--font-size-sm)/1.45 var(--font-mono); color: var(--color-primary); }
+    /* A runbook's step: how long it takes, whether it's advice, then how, what you'll see and if not. */
+    .t .time, .t .advice { margin-left: 8px; font: 600 var(--font-size-xs)/1.4 var(--font-mono); letter-spacing: 0.04em; color: var(--color-text-muted); white-space: nowrap; }
+    .t .advice { padding: 1px 6px; border: 1px solid var(--color-border); border-radius: var(--radius-sm, 4px); text-transform: uppercase; }
+    dl.run { margin: 4px 0 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 10px; font-size: var(--font-size-sm); line-height: 1.5; }
+    dl.run dt { font: 600 var(--font-size-xs)/1.7 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted); }
+    dl.run dd { margin: 0; color: var(--color-text); }
+    dl.run dd.ifnot { color: var(--color-text-muted); }
+    /* A runbook's steps as cards (style "runbook"): a big number, the action, how, a ✓ what you'll see, an if-not aside, the part to copy inside its step, a box to tick. */
+    ol.rb { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 14px; }
+    ol.rb > li { counter-increment: step; display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); gap: 4px 14px; padding: 14px 16px; border: 1px solid var(--color-border); border-radius: var(--radius-md, 8px); background: var(--color-surface); }
+    ol.rb > li::before { content: counter(step); grid-row: span 9; font: 700 var(--font-size-2xl, 28px)/1 var(--font-mono); color: var(--color-primary); }
+    ol.rb > li.done { background: var(--color-surface-raised, var(--color-surface)); }
+    ol.rb > li.done::before { content: "✓"; }
+    ol.rb .head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+    ol.rb .head .t { font-size: var(--font-size-md, 1rem); }
+    ol.rb .tick { display: inline-flex; align-items: center; gap: 6px; flex: none; font-size: var(--font-size-xs); color: var(--color-text-muted); cursor: pointer; }
+    ol.rb .tick input { width: 16px; height: 16px; margin: 0; accent-color: var(--color-primary); cursor: pointer; }
+    ol.rb .how { margin: 2px 0 0; font-size: var(--font-size-sm); line-height: 1.6; color: var(--color-text); }
+    ol.rb .see { margin: 6px 0 0; font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text); }
+    ol.rb .see b { color: var(--color-primary); margin-right: 4px; }
+    ol.rb .ifnot { margin: 6px 0 0; padding: 6px 10px; border-left: 3px solid var(--color-warn); border-radius: 0 var(--radius-sm, 4px) var(--radius-sm, 4px) 0; background: color-mix(in srgb, var(--color-warn) 10%, transparent); font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text); }
+    ol.rb .ifnot b { font: 600 var(--font-size-xs)/1.5 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-warn); margin-right: 6px; }
+    ol.rb figure.copy { margin-top: 10px; }
+    ol.rb .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    ol.rb .refs { margin-top: 6px; }
+    ol.rb > li.next { border-color: var(--color-primary); }
+    ol.rb .mks { display: inline-flex; gap: 3px; margin-left: 6px; vertical-align: super; }
+    ol.rb .mk { font: 600 10px/1 var(--font-mono); color: var(--color-primary); text-decoration: none; }
+    ol.rb .mk:hover { text-decoration: underline; }
+    ol.rb details.stuck { margin: 6px 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+    ol.rb details.stuck summary { cursor: pointer; width: fit-content; font: 600 var(--font-size-xs)/1.6 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-warn); }
+    ol.rb details.stuck p { margin: 4px 0 0; padding-left: 10px; border-left: 2px solid var(--color-warn); line-height: 1.5; color: var(--color-text); }
+    .rbbar { position: sticky; top: 0; z-index: 2; margin: 0 0 12px; padding: 10px 0 8px; background: var(--color-bg); }
+    .rbbar__row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+    .rbbar__n { font: 700 var(--font-size-sm)/1.3 var(--font-mono); color: var(--color-text); }
+    .rbbar__left { font: 500 var(--font-size-xs)/1.3 var(--font-mono); color: var(--color-text-muted); }
+    .rbbar__menu { margin-left: auto; position: relative; }
+    .rbbar__menu summary { cursor: pointer; font: 600 var(--font-size-xs)/1.6 var(--font-mono); color: var(--color-primary); list-style: none; }
+    .rbbar__menu summary::after { content: " ▾"; }
+    .rbbar__menu ol { position: absolute; right: 0; top: calc(100% + 6px); z-index: 3; width: min(360px, 80vw); max-height: 60vh; overflow: auto; margin: 0; padding: 6px; list-style: none; border: 1px solid var(--color-border); border-radius: var(--radius-md, 10px); background: var(--color-surface); }
+    .rbbar__menu li button { display: grid; grid-template-columns: 1.5rem minmax(0, 1fr); gap: 6px; width: 100%; padding: 6px 8px; border: 0; border-radius: var(--radius-sm, 6px); background: none; color: var(--color-text); font: inherit; font-size: var(--font-size-sm); text-align: left; cursor: pointer; }
+    .rbbar__menu li button:hover, .rbbar__menu li button:focus-visible { background: var(--color-surface-raised); }
+    .rbbar__menu li .o { font: 700 var(--font-size-sm)/1.4 var(--font-mono); color: var(--color-primary); }
+    .rbbar__menu li.done button { color: var(--color-text-muted); }
+    .rbbar__track { height: 4px; margin-top: 8px; border-radius: 2px; background: var(--color-surface-raised); overflow: hidden; }
+    .rbbar__track span { display: block; height: 100%; background: var(--color-primary); transition: width 0.2s ease; }
+    @media (prefers-reduced-motion: reduce) { .rbbar__track span { transition: none; } }
+    h5.ph { margin: 18px 0 8px; font: 600 var(--font-size-xs)/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-primary); }
+    h5.ph span { color: var(--color-text-muted); }
+    .rbbar + h5.ph { margin-top: 4px; }
+    .rbbar__go { margin-left: auto; padding: 0 10px; height: 28px; border: 1px solid var(--color-primary); border-radius: var(--radius-sm, 6px); background: none; color: var(--color-primary); font: 600 var(--font-size-sm)/1 var(--font-mono); cursor: pointer; }
+    .rbbar__go:hover, .rbbar__go:focus-visible { background: var(--color-primary-soft, color-mix(in srgb, var(--color-primary) 10%, transparent)); }
+    .rbbar__go + .rbbar__menu { margin-left: 0; }
+    .fa { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; padding: 20px max(20px, calc((100vw - 760px) / 2)); background: var(--color-bg); color: var(--color-text); overflow: auto; outline: none; overscroll-behavior: contain; }
+    .fa__top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .fa__where { font: 600 var(--font-size-sm)/1.4 var(--font-mono); color: var(--color-text-muted); }
+    .fa__where b { color: var(--color-primary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+    .fa__x { height: 28px; padding: 0 10px; border: 1px solid var(--color-border-strong, var(--color-border)); border-radius: var(--radius-sm, 6px); background: none; color: var(--color-text); font: 600 var(--font-size-sm)/1 var(--font-mono); cursor: pointer; }
+    .fa__track { height: 4px; margin: 14px 0 0; border-radius: 2px; background: var(--color-surface-raised); overflow: hidden; }
+    .fa__track span { display: block; height: 100%; background: var(--color-primary); }
+    .fa__resume { margin: 12px 0 0; font: 500 var(--font-size-sm)/1.4 var(--font-mono); color: var(--color-primary); }
+    .fa__body { flex: 1 0 auto; display: grid; align-content: center; gap: 16px; padding: 32px 0; }
+    .fa__t { margin: 0; font: 700 var(--font-size-2xl, 28px)/1.25 var(--font-display, var(--font-mono)); text-wrap: balance; }
+    .fa__ok { color: var(--color-primary); }
+    .fa__how { margin: 0; font-size: 20px; line-height: 1.55; }
+    .fa__see { margin: 0; font-size: 18px; line-height: 1.5; }
+    .fa__see b { margin-right: 6px; color: var(--color-primary); }
+    .fa details.stuck { font-size: 16px; }
+    .fa details.stuck summary { cursor: pointer; width: fit-content; font: 600 var(--font-size-sm)/1.6 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-warn); }
+    .fa details.stuck p { margin: 6px 0 0; padding-left: 12px; border-left: 2px solid var(--color-warn); line-height: 1.5; }
+    .fa__nav { position: sticky; bottom: 0; display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 10px; padding: 12px 0 calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--color-bg); }
+    .fa__nav button { height: 48px; border: 1px solid var(--color-border-strong, var(--color-border)); border-radius: var(--radius-md, 10px); background: var(--color-surface); color: var(--color-text); font: 600 var(--font-size-md, 14px)/1 var(--font-mono); cursor: pointer; }
+    .fa__nav button.pri { border-color: var(--color-primary); background: var(--color-primary); color: var(--color-bg); }
+    .fa__nav button:disabled { opacity: 0.4; cursor: default; }
+    .fa button:focus-visible, .fa summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+    /* What goes wrong (style "runbook"): what you see, then the fix, the likely cause beneath. */
+    .fixes { display: grid; gap: 0; }
+    .fixes .r { display: grid; grid-template-columns: minmax(8rem, 38%) minmax(0, 1fr); gap: 4px 16px; padding: 10px 0; border-bottom: 1px solid var(--color-border); }
+    .fixes .r:last-child { border-bottom: 0; }
+    .fixes .sym { font-size: var(--font-size-sm); font-weight: 600; line-height: 1.45; color: var(--color-text); }
+    .fixes .fix { font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text); }
+    .fixes .fix::before { content: "→ "; color: var(--color-primary); font-weight: 700; }
+    .fixes .cause { grid-column: 2; font-size: var(--font-size-xs); line-height: 1.5; color: var(--color-text-muted); }
+    .fixes .refs { grid-column: 2; }
+    @media (max-width: 560px) { .fixes .r { grid-template-columns: 1fr; } .fixes .cause, .fixes .refs { grid-column: 1; } ol.rb > li { grid-template-columns: 1.75rem minmax(0, 1fr); padding: 12px; } ol.rb > li::before { font-size: var(--font-size-lg, 20px); } }
+    /* Something to copy: its label and a Copy button over the text as written. */
+    figure.copy { margin: 0; border: 1px solid var(--color-border); border-radius: var(--radius-md, 8px); overflow: hidden; }
+    figure.copy figcaption { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; background: var(--color-surface-raised, var(--color-surface)); border-bottom: 1px solid var(--color-border); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+    figure.copy button { font: 600 var(--font-size-xs)/1.4 var(--font-sans, inherit); padding: 3px 10px; border: 1px solid var(--color-border); border-radius: var(--radius-sm, 4px); background: var(--color-surface); color: var(--color-text); cursor: pointer; }
+    figure.copy button:hover, figure.copy button:focus-visible { border-color: var(--color-primary); color: var(--color-primary); }
+    figure.copy pre { margin: 0; padding: 10px 12px; max-height: 360px; overflow: auto; font: var(--font-size-xs)/1.55 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--color-text); }
     .t { font-size: var(--font-size-sm); font-weight: 600; line-height: 1.45; color: var(--color-text); }
     .note { font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text-muted); }
     .refs { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: var(--font-size-xs); }
@@ -1559,10 +1659,192 @@ const sectionRefs = (it) => {
 };
 /** A table that reads as a rubric: 2–3 columns, the first a condition (core looksLikeRubric). */
 const looksLikeRubric = (cols) => cols.length >= 2 && cols.length <= 3 && typeof cols[0] === 'string' && /^(if|when|need|you|your)\b/i.test(cols[0].trim());
-/** One written part: steps numbered, a table (as a grid, or as ruled decision rows when `rubric`: true, or "auto" and it reads as one), a diagram, a paragraph. */
-function drawPart(x, { rubric = false, host } = {}) {
+/** Something to copy (a runbook's prompt, a starter file): its label, a Copy button, and the text as written. */
+function copyBlock(x) {
+  const copy = async (e) => {
+    const b = e.currentTarget;
+    try { await navigator.clipboard.writeText(x.body ?? ''); b.textContent = 'Copied'; } catch { b.textContent = 'Couldn\u2019t copy here'; }
+    setTimeout(() => { b.textContent = 'Copy'; }, 1800);
+  };
+  return html`<figure class="copy"><figcaption><span>${x.label ?? (x.lang === 'prompt' ? 'A prompt to paste' : '')}</span><button type="button" @click=${copy} aria-label=${`Copy ${x.label ?? x.title ?? 'this'}`}>Copy</button></figcaption><pre><code>${x.body ?? ''}</code></pre></figure>`;
+}
+/** A box to tick on a runbook's step: remembered in this browser only, for this page and step (a convenience; it can be empty). */
+const tickKey = (sec, i) => { try { return `sua-runbook:${location.pathname}:${sec}:${String(i)}`; } catch { return ''; } };
+const ticked = (k) => { try { return !!k && localStorage.getItem(k) === '1'; } catch { return false; } };
+const setTicked = (k, on) => { try { if (k) { if (on) localStorage.setItem(k, '1'); else localStorage.removeItem(k); } } catch { /* a convenience */ } };
+/** The column of a what-goes-wrong table that says the fix ("Fix", "What to do", "Try"), else its last. */
+const fixColumn = (cols) => { const i = cols.findIndex((c) => /\b(fix|fixes|what to do|do this|solution|try|remedy)\b/i.test(String(c))); return i > 0 ? i : cols.length - 1; };
+/** A runbook step's time in minutes, low and high ("5–10 min" → [5, 10]), as core runbookMinutes reads it. */
+const stepMinutes = (t) => {
+  const m = /^\s*(?:about\s+)?(\d+(?:\.\d+)?)\s*(?:[–-]\s*(\d+(?:\.\d+)?))?\s*(sec|secs|second|seconds|s|min|mins|minute|minutes|m|hr|hrs|hour|hours|h)\b/i.exec(String(t ?? ''));
+  if (!m) return undefined;
+  const per = /^(sec|secs|second|seconds|s)$/i.test(m[3]) ? 1 / 60 : /^(hr|hrs|hour|hours|h)$/i.test(m[3]) ? 60 : 1;
+  const lo = Number(m[1]) * per, hi = Number(m[2] ?? m[1]) * per;
+  return [lo, hi];
+};
+/** Minutes as words: "about 4 min", "4–6 min", "1 hr 10 min". */
+const minutesWords = (lo, hi) => {
+  const r = (x) => Math.max(1, Math.round(x));
+  const w = (x) => (x >= 60 ? `${Math.floor(r(x) / 60)} hr${r(x) % 60 ? ` ${r(x) % 60} min` : ''}` : `${r(x)} min`);
+  return r(lo) === r(hi) ? `about ${w(lo)}` : hi < 60 ? `${r(lo)}–${r(hi)} min` : `${w(lo)} to ${w(hi)}`;
+};
+/** The step to follow next: the first not done from `from` on, else the first not done, else the last. */
+const nextUndone = (done, from = 0) => { const a = done.findIndex((d, i) => i >= from && !d); if (a >= 0) return a; const b = done.findIndex((d) => !d); return b >= 0 ? b : Math.max(0, done.length - 1); };
+/** Keep the screen awake while following along (a convenience: without the Wake Lock API it still works). */
+async function keepAwake(host, on) {
+  try {
+    if (on) { if (!host._rbWake && navigator.wakeLock?.request) host._rbWake = await navigator.wakeLock.request('screen'); }
+    else { await host._rbWake?.release?.(); host._rbWake = undefined; }
+  } catch { host._rbWake = undefined; }
+}
+/**
+ * Following a runbook one step at a time (ADR-0097): a full-screen view of
+ * one step in large type, Back, Next and Done & next (ticking it, as the card
+ * does), the arrow keys and a swipe to move, Esc to close. Your place is kept
+ * in this browser, and the screen is kept awake while it's open.
+ */
+function followAlong(x, host, all, keys, done) {
+  const st = host._rbFollow;
+  if (!st) return nothing;
+  const i = Math.min(Math.max(0, st.i), all.length - 1);
+  const it = all[i] ?? {};
+  const placeKey = tickKey(x.key ?? '', 'follow');
+  const move = (to) => { host._rbFollow = { ...st, i: Math.min(Math.max(0, to), all.length - 1), finished: false, resumed: false }; try { localStorage.setItem(placeKey, String(host._rbFollow.i)); } catch { /* a convenience */ } host.requestUpdate(); setTimeout(() => host.renderRoot?.querySelector('.fa')?.focus(), 0); };
+  const close = () => { host._rbFollow = undefined; keepAwake(host, false); try { document.documentElement.style.overflow = host._rbOverflow ?? ''; } catch { /* fine */ } host.requestUpdate(); };
+  const doneNext = () => {
+    setTicked(keys[i], true);
+    const now = keys.map((k) => ticked(k));
+    if (now.every(Boolean)) { host._rbFollow = { ...st, finished: true }; host.requestUpdate(); return; }
+    move(nextUndone(now, i + 1));
+  };
+  const key = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); move(i + 1); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); move(i - 1); }
+    else if (e.key === 'Tab') {
+      // Focus stays inside the view.
+      const f = [...(host.renderRoot?.querySelectorAll('.fa button:not([disabled]), .fa summary, .fa a[href]') ?? [])];
+      if (!f.length) return;
+      const at = f.indexOf(host.renderRoot.activeElement);
+      if (e.shiftKey && at <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (!e.shiftKey && at === f.length - 1) { e.preventDefault(); f[0].focus(); }
+    }
+  };
+  const down = (e) => { host._rbSwipe = e.clientX; };
+  const up = (e) => { const dx = e.clientX - (host._rbSwipe ?? e.clientX); host._rbSwipe = undefined; if (Math.abs(dx) > 60 && e.pointerType !== 'mouse') move(dx < 0 ? i + 1 : i - 1); };
+  if (st.finished) {
+    return html`<div class="fa" role="dialog" aria-modal="true" aria-label="Following along" tabindex="-1" @keydown=${key}>
+      <div class="fa__top"><span class="fa__where">All ${String(all.length)} steps done</span><button type="button" class="fa__x" @click=${close} aria-label="Close">Close</button></div>
+      <div class="fa__body"><p class="fa__t"><span class="fa__ok">✓</span> All done.</p><p class="fa__how">Close this to see how you know you’re finished, and what to remember.</p></div>
+      <div class="fa__nav"><button type="button" @click=${() => move(all.length - 1)}>Back</button><span></span><button type="button" class="pri" @click=${close}>Close</button></div>
+    </div>`;
+  }
+  return html`<div class="fa" role="dialog" aria-modal="true" aria-label=${`Step ${String(i + 1)} of ${String(all.length)}`} tabindex="-1" @keydown=${key} @pointerdown=${down} @pointerup=${up}>
+    <div class="fa__top"><span class="fa__where">${it.phase ? html`<b>${it.phase}</b> · ` : nothing}Step ${String(i + 1)} of ${String(all.length)}${it.time ? html` · ${it.time}` : nothing}</span><button type="button" class="fa__x" @click=${close} aria-label="Close">Close</button></div>
+    <div class="fa__track" aria-hidden="true"><span style=${`width:${Math.round((done.filter(Boolean).length / Math.max(1, all.length)) * 100)}%`}></span></div>
+    ${st.resumed ? html`<p class="fa__resume">Picking up at step ${String(i + 1)}.</p>` : nothing}
+    <div class="fa__body">
+      <p class="fa__t">${done[i] ? html`<span class="fa__ok">✓</span> ` : nothing}${boldParts(it.text)}</p>
+      ${it.how ? html`<p class="fa__how">${boldParts(it.how)}</p>` : nothing}
+      ${it.copyPart ? copyBlock(it.copyPart) : nothing}
+      ${it.see ? html`<p class="fa__see"><b aria-hidden="true">✓</b><span class="sr">You’ll see: </span>${boldParts(it.see)}</p>` : nothing}
+      ${it.ifNot ? html`<details class="stuck"><summary>Stuck?</summary><p>${boldParts(it.ifNot)}</p></details>` : nothing}
+    </div>
+    <div class="fa__nav"><button type="button" @click=${() => move(i - 1)} ?disabled=${i === 0}>Back</button><button type="button" @click=${() => move(i + 1)} ?disabled=${i === all.length - 1}>Next</button><button type="button" class="pri" @click=${doneNext}>${done[i] ? 'Next not done' : 'Done & next'}</button></div>
+  </div>`;
+}
+/** Open following along: at the step you were on, else the first not done. */
+function openFollow(x, host, keys) {
+  const done = keys.map((k) => ticked(k));
+  let saved = -1; try { const v = localStorage.getItem(tickKey(x.key ?? '', 'follow')); saved = v === null ? -1 : Number(v); } catch { /* a convenience */ }
+  const at = Number.isInteger(saved) && saved >= 0 && saved < keys.length && !done[saved] ? saved : nextUndone(done);
+  host._rbFollow = { i: at, resumed: done.some(Boolean) };
+  keepAwake(host, true);
+  // The page behind stays put while following along.
+  try { host._rbOverflow = document.documentElement.style.overflow; document.documentElement.style.overflow = 'hidden'; } catch { /* fine */ }
+  // The screen sleeps again when the page is hidden; ask again when it's back.
+  if (!host._rbVis) { host._rbVis = () => { if (document.visibilityState === 'visible' && host._rbFollow) keepAwake(host, true); }; try { document.addEventListener('visibilitychange', host._rbVis); } catch { /* fine */ } }
+  host.requestUpdate();
+  setTimeout(() => host.renderRoot?.querySelector('.fa')?.focus(), 0);
+}
+
+/**
+ * A runbook's steps as cards (ADR-0097): grouped by phase, a sticky bar that
+ * says how many are done and how long the rest takes (and lists the steps, to
+ * jump to one), each step's sources as small numbered marks, "Stuck?" folded,
+ * and Done that moves you on to the next step. Ticks are kept in this browser.
+ */
+function runbookSteps(x, host) {
+  const all = Array.isArray(x.items) ? x.items : [];
+  const keys = all.map((_, i) => tickKey(x.key ?? '', i));
+  const done = keys.map((k) => ticked(k));
+  const count = done.filter(Boolean).length;
+  // What's left: the unticked steps' times, when each says one.
+  const left = all.map((it, i) => (done[i] ? [0, 0] : stepMinutes(it.time)));
+  const leftWords = count < all.length && left.every(Boolean) ? minutesWords(left.reduce((a, b) => a + b[0], 0), left.reduce((a, b) => a + b[1], 0)) : undefined;
+  const next = done.findIndex((d) => !d);
+  // Its sources as numbered marks, numbered in the order the steps first cite them.
+  const marks = new Map();
+  for (const it of all) for (const r of (Array.isArray(it.refs) ? it.refs : [])) if (r && safeUrl(r.href) && r.label && !marks.has(r.href)) marks.set(r.href, { n: marks.size + 1, label: r.label });
+  const markLinks = (it) => {
+    const r = (Array.isArray(it.refs) ? it.refs : []).filter((y) => y && marks.has(y.href)).slice(0, 4);
+    return r.length ? html`<span class="mks">${r.map((y) => html`<a class="mk" href=${y.href} target="_blank" rel="noopener" title=${marks.get(y.href).label}>${marks.get(y.href).n}</a>`)}</span>` : nothing;
+  };
+  const go = (i) => {
+    const li = host?.renderRoot?.querySelector(`li[data-step="${String(i)}"]`);
+    let still = false; try { still = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { /* default */ }
+    li?.scrollIntoView({ block: 'center', behavior: still ? 'auto' : 'smooth' });
+  };
+  const toggle = (i) => (e) => {
+    const on = e.currentTarget.checked;
+    setTicked(keys[i], on);
+    host?.requestUpdate?.();
+    // Done: on to the next step not yet done.
+    if (on) { const j = keys.findIndex((k, n) => n > i && !ticked(k)); if (j >= 0) setTimeout(() => go(j), 60); }
+  };
+  // Consecutive steps with one phase, numbered across them.
+  const groups = [];
+  all.forEach((it, i) => { const last = groups[groups.length - 1]; if (last && (last.phase ?? '') === (it.phase ?? '')) last.steps.push(i); else groups.push({ phase: it.phase, steps: [i] }); });
+  const span = (g) => (g.steps.length === 1 ? `step ${g.steps[0] + 1}` : `steps ${g.steps[0] + 1}–${g.steps[g.steps.length - 1] + 1}`);
+  const card = (it, i) => html`<li data-step=${String(i)} class=${[done[i] ? 'done' : '', i === next ? 'next' : ''].join(' ').trim()}>
+      <div class="head"><div class="t">${boldParts(it.text)}${it.time ? html`<span class="time">${it.time}</span>` : nothing}${it.advice ? html`<span class="advice" title="The writer's own advice, not something a source says">Advice</span>` : nothing}${markLinks(it)}</div><label class="tick"><input type="checkbox" .checked=${done[i]} @change=${toggle(i)} aria-label=${`Done: step ${String(i + 1)}`}>Done</label></div>
+      ${it.detail ? html`<div class="note">${boldParts(it.detail)}</div>` : nothing}
+      ${it.how ? html`<p class="how">${boldParts(it.how)}</p>` : nothing}
+      ${it.copyPart ? copyBlock(it.copyPart) : nothing}
+      ${it.see ? html`<p class="see"><b aria-hidden="true">✓</b><span class="sr">You’ll see: </span>${boldParts(it.see)}</p>` : nothing}
+      ${it.ifNot ? html`<details class="stuck"><summary>Stuck?</summary><p>${boldParts(it.ifNot)}</p></details>` : nothing}
+    </li>`;
+  return html`<div class="rbbar" role="status">
+      <div class="rbbar__row"><span class="rbbar__n">${count === all.length ? 'All done' : `${String(count)} of ${String(all.length)} done`}</span>${leftWords ? html`<span class="rbbar__left">${leftWords} to go</span>` : nothing}
+        <button type="button" class="rbbar__go" @click=${() => openFollow(x, host, keys)}>Follow along</button>
+        <details class="rbbar__menu"><summary>${next >= 0 ? `Step ${String(next + 1)} of ${String(all.length)}` : 'Steps'}</summary><ol>${all.map((it, i) => html`<li class=${done[i] ? 'done' : ''}><button type="button" @click=${(e) => { e.currentTarget.closest('details').open = false; go(i); }}><span class="o">${done[i] ? '✓' : String(i + 1)}</span>${it.text}</button></li>`)}</ol></details></div>
+      <div class="rbbar__track" aria-hidden="true"><span style=${`width:${all.length ? Math.round((count / all.length) * 100) : 0}%`}></span></div>
+    </div>
+    ${groups.map((g) => html`${g.phase ? html`<h5 class="ph">${g.phase} <span>· ${span(g)}</span></h5>` : nothing}<ol class="rb" style=${`counter-reset: step ${String(g.steps[0])}`}>${g.steps.map((i) => card(all[i], i))}</ol>`)}
+    ${followAlong(x, host, all, keys, done)}`;
+}
+/** What goes wrong as rows: what you see, then the fix, the likely cause beneath. */
+function runbookFixes(x) {
   const refs = sectionRefs;
-  if (x.kind === 'steps') return html`<ol class="steps">${(x.items ?? []).map((it) => html`<li><div class="t">${boldParts(it.text)}</div>${it.detail ? html`<div class="note">${boldParts(it.detail)}</div>` : nothing}${refs(it)}</li>`)}</ol>`;
+  const cols = Array.isArray(x.columns) ? x.columns : [];
+  const f = fixColumn(cols);
+  return html`<div class="fixes">${(x.rows ?? []).map((r) => {
+    const cells = r.cells ?? [];
+    const cause = cells.map((c, i) => (i !== 0 && i !== f && c ? c : '')).filter(Boolean);
+    return html`<div class="r"><div class="sym">${boldParts(cells[0] ?? '')}</div><div class="fix">${boldParts(cells[f] ?? '')}</div>${cause.length ? html`<div class="cause">${cols.length > 2 ? html`${cols.find((_, i) => i !== 0 && i !== f) ?? ''}: ` : nothing}${cause.map((c, i) => html`${i ? ' · ' : ''}${boldParts(c)}`)}</div>` : nothing}${refs(r)}</div>`;
+  })}</div>${x.note ? html`<p class="foot">${x.note}</p>` : nothing}${Array.isArray(x.refs) && x.refs.length ? html`<div class="foot every">Every row: ${refs(x)}</div>` : nothing}`;
+}
+/** One written part: steps numbered, a table (as a grid, or as ruled decision rows when `rubric`: true, or "auto" and it reads as one), a diagram, a paragraph. `style: "runbook"`: steps as cards, a what-goes-wrong table as symptom → fix. */
+function drawPart(x, { rubric = false, host, style } = {}) {
+  const refs = sectionRefs;
+  if (style === 'runbook' && x.kind === 'steps') return runbookSteps(x, host);
+  if (style === 'runbook' && x.kind === 'table' && x.role === 'trouble' && (x.columns ?? []).length >= 2) return runbookFixes(x);
+  if (x.kind === 'steps') return html`<ol class="steps">${(x.items ?? []).map((it) => {
+    // A runbook's step says how, what you'll see and what to do if not; advice is the writer's own, marked.
+    const run = [['How', it.how, ''], ['You\u2019ll see', it.see, ''], ['If not', it.ifNot, 'ifnot']].filter(([, v]) => typeof v === 'string' && v);
+    return html`<li><div class="t">${boldParts(it.text)}${it.time ? html`<span class="time">${it.time}</span>` : nothing}${it.advice ? html`<span class="advice" title="The writer's own advice, not something a source says">Advice</span>` : nothing}</div>${it.detail ? html`<div class="note">${boldParts(it.detail)}</div>` : nothing}${run.length ? html`<dl class="run">${run.map(([k, v, c]) => html`<dt>${k}</dt><dd class=${c}>${boldParts(v)}</dd>`)}</dl>` : nothing}${refs(it)}</li>`;
+  })}</ol>`;
+  if (x.kind === 'copy') return copyBlock(x);
   if (x.kind === 'table') {
     const cols = Array.isArray(x.columns) ? x.columns : [];
     const every = Array.isArray(x.refs) && x.refs.length ? html`<div class="foot every">Every row: ${refs(x)}</div>` : nothing;
@@ -1578,32 +1860,96 @@ function drawPart(x, { rubric = false, host } = {}) {
 }
 
 const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
-  Common.extend({ sections: CommonSchemas.DynamicValue, title: Str.optional(), empty: Str.optional(), only: z.array(Str).optional(), rest: z.boolean().optional(), skip: z.array(Str).optional(), rubric: z.union([z.boolean(), z.literal('auto')]).optional() }).strict(),
+  Common.extend({ sections: CommonSchemas.DynamicValue, title: Str.optional(), empty: Str.optional(), only: z.array(Str).optional(), rest: z.boolean().optional(), skip: z.array(Str).optional(), rubric: z.union([z.boolean(), z.literal('auto')]).optional(), roles: z.array(Str).optional(), style: z.literal('runbook').optional(), skipRoles: z.array(Str).optional() }).strict(),
   sectionStyles,
   function (p) {
     const given = (Array.isArray(p.sections) ? p.sections : []).filter((x) => x && typeof x.title === 'string');
     // Placed by key ("only", in that order), or everything another part of the page didn't place ("skip").
     const only = Array.isArray(p.only) ? p.only : undefined;
     const skip = Array.isArray(p.skip) ? p.skip : [];
-    const sections = only ? only.map((k) => given.find((x) => x.key === k)).filter(Boolean) : given.filter((x) => !skip.includes(x.key));
+    // …or by what each is for in a runbook (`roles`); a part to copy drawn inside its step isn't drawn again on its own.
+    const roles = Array.isArray(p.roles) ? p.roles : undefined;
+    const skipRoles = Array.isArray(p.skipRoles) ? p.skipRoles : [];
+    const runbook = p.style === 'runbook';
+    const sections = (only ? only.map((k) => given.find((x) => x.key === k)).filter(Boolean) : given.filter((x) => !skip.includes(x.key)))
+      .filter((x) => (!roles || roles.includes(x.role)) && !skipRoles.includes(x.role) && !(runbook && x.inStep));
     // One part on its own: the panel around it says its title.
     const untitled = !!only && only.length === 1;
     if (!sections.length) return only || skip.length ? nothing : html`<p class="empty">${p.empty ?? 'Nothing more yet.'}</p>`;
-    return html`<div>${sections.map((x) => html`<section class="sec">${untitled ? nothing : html`<h4 class="h">${x.title}</h4>`}${drawPart(x, { rubric: p.rubric === 'auto' ? 'auto' : !!p.rubric, host: this })}</section>`)}</div>`;
+    // One part by role ("The steps"): the panel's title says it, unless there are several.
+    const bare = untitled || (!!roles && sections.length === 1);
+    return html`<div>${sections.map((x) => html`<section class="sec">${bare ? nothing : html`<h4 class="h">${x.title}</h4>`}${drawPart(x, { rubric: p.rubric === 'auto' ? 'auto' : !!p.rubric, host: this, style: p.style })}</section>`)}</div>`;
+  });
+
+// A runbook read as a lesson (ADR-0097): what you'll make and be able to do,
+// what you'll need (a box to tick for each, kept in this browser), and how it
+// ends: you're done when…, key points, what's next, a self-check.
+const RunbookLesson = define('RunbookLesson', 'sua-a2ui-runbook-lesson',
+  Common.extend({ lesson: CommonSchemas.DynamicValue, part: z.enum(['opening', 'needs', 'finish']), outcome: Str.optional() }).strict(),
+  css`
+    :host { display: block; }
+    .lab { margin: 16px 0 6px; font: 600 var(--font-size-xs)/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); }
+    .lab:first-child { margin-top: 0; }
+    .out { margin: 0; font-size: var(--font-size-lg, 17px); line-height: 1.5; color: var(--color-text); }
+    .out strong { font-weight: 600; }
+    ul.goals { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+    ul.goals li { display: grid; grid-template-columns: 1.25rem minmax(0, 1fr); gap: 8px; font-size: var(--font-size-md, 14px); line-height: 1.5; color: var(--color-text); }
+    ul.goals li::before { content: "→"; color: var(--color-primary); font-family: var(--font-mono); }
+    ul.needs { margin: 0; padding: 0; list-style: none; columns: 2 220px; column-gap: 24px; }
+    ul.needs li { break-inside: avoid; }
+    ul.needs label { display: flex; align-items: baseline; gap: 10px; padding: 4px 0; font-size: var(--font-size-md, 14px); line-height: 1.45; color: var(--color-text); cursor: pointer; }
+    ul.needs input { width: 16px; height: 16px; margin: 0; flex: none; transform: translateY(2px); accent-color: var(--color-primary); cursor: pointer; }
+    ul.needs label.on span { color: var(--color-text-muted); text-decoration: line-through; }
+    .count { margin-top: 8px; font: 500 var(--font-size-xs)/1.2 var(--font-mono); color: var(--color-text-muted); }
+    .done { margin: 0; padding: 12px 14px; border-left: 3px solid var(--color-primary); background: var(--color-primary-soft, color-mix(in srgb, var(--color-primary) 10%, transparent)); border-radius: 0 var(--radius-sm, 6px) var(--radius-sm, 6px) 0; font-size: var(--font-size-md, 14px); line-height: 1.5; color: var(--color-text); }
+    .done b { margin-right: 6px; color: var(--color-primary); }
+    ol.kp { margin: 0; padding: 0; list-style: none; counter-reset: kp; display: grid; gap: 8px; }
+    ol.kp li { counter-increment: kp; display: grid; grid-template-columns: 1.75rem minmax(0, 1fr); gap: 8px; font-size: var(--font-size-md, 14px); line-height: 1.5; color: var(--color-text); }
+    ol.kp li::before { content: counter(kp); font: 700 var(--font-size-lg, 17px)/1.3 var(--font-mono); color: var(--color-primary); }
+    .next { margin: 0; font-size: var(--font-size-md, 14px); line-height: 1.5; color: var(--color-text); }
+    details { border-top: 1px solid var(--color-border); padding: 8px 0; }
+    details:last-of-type { border-bottom: 1px solid var(--color-border); }
+    summary { cursor: pointer; font-size: var(--font-size-md, 14px); line-height: 1.45; color: var(--color-text); }
+    summary::marker { color: var(--color-primary); }
+    details p { margin: 6px 0 0 1.1rem; font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text-muted); }`,
+  function (p) {
+    const l = p.lesson && typeof p.lesson === 'object' ? p.lesson : {};
+    const list = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x) : []);
+    if (p.part === 'opening') {
+      const text = typeof p.outcome === 'string' ? p.outcome : '';
+      // A lesson leads with its outcome in a sentence; a runbook written before lessons says its whole answer.
+      const out = l.written ? (text.match(/^.*?[.!?](?:\*\*)?(?=\s|$)/)?.[0] ?? text) : text;
+      const goals = list(l.goals);
+      return html`${out ? html`<p class="out">${boldParts(out)}</p>` : nothing}${goals.length ? html`<div class="lab">You\u2019ll be able to</div><ul class="goals">${goals.map((g) => html`<li>${boldParts(g)}</li>`)}</ul>` : nothing}`;
+    }
+    if (p.part === 'needs') {
+      const needs = list(l.needs);
+      if (!needs.length) return nothing;
+      const count = () => needs.filter((_, i) => ticked(tickKey('needs', i))).length;
+      const toggle = (i) => (e) => { setTicked(tickKey('needs', i), e.currentTarget.checked); e.currentTarget.closest('label')?.classList.toggle('on', e.currentTarget.checked); this.requestUpdate(); };
+      const have = count();
+      return html`<ul class="needs">${needs.map((n, i) => { const on = ticked(tickKey('needs', i)); return html`<li><label class=${on ? 'on' : ''}><input type="checkbox" .checked=${on} @change=${toggle(i)}><span>${boldParts(n)}</span></label></li>`; })}</ul><div class="count">${have === needs.length ? 'All set' : `${String(have)} of ${String(needs.length)} ready`}</div>`;
+    }
+    const keys = list(l.keyPoints);
+    const checks = (Array.isArray(l.selfCheck) ? l.selfCheck : []).filter((c) => c && c.q && c.a);
+    return html`${l.done ? html`<p class="done"><b aria-hidden="true">\u2713</b><span>You\u2019re done when ${boldParts(l.done.replace(/^you(\u2019|')re done when\s*/i, '').replace(/^([A-Z])(?=[a-z])/, (m) => m.toLowerCase()))}</span></p>` : nothing}
+      ${keys.length ? html`<div class="lab">Key points</div><ol class="kp">${keys.map((k) => html`<li>${boldParts(k)}</li>`)}</ol>` : nothing}
+      ${l.next ? html`<div class="lab">What\u2019s next</div><p class="next">${boldParts(l.next)}</p>` : nothing}
+      ${checks.length ? html`<div class="lab">Check yourself</div>${checks.map((c) => html`<details><summary>${c.q}</summary><p>${c.a}</p></details>`)}` : nothing}`;
   });
 
 // One written part (/notebook/section/<key>) on its own, drawn large when it
 // is the page's hero: a ladder with tall bars, a split as a wide band, a rubric
 // as ruled rows. Its title comes from the Panel around it.
 const Figure = define('Figure', 'sua-a2ui-figure',
-  Common.extend({ section: CommonSchemas.DynamicValue, size: z.enum(['hero', 'inline']).optional(), caption: Str.optional(), rubric: z.union([z.boolean(), z.literal('auto')]).optional() }).strict(),
+  Common.extend({ section: CommonSchemas.DynamicValue, size: z.enum(['hero', 'inline']).optional(), caption: Str.optional(), rubric: z.union([z.boolean(), z.literal('auto')]).optional(), style: z.literal('runbook').optional() }).strict(),
   sectionStyles,
   function (p) {
     const x = p.section && typeof p.section === 'object' && typeof p.section.kind === 'string' ? p.section : undefined;
     if (!x) return nothing;
     const big = (p.size ?? 'inline') === 'hero';
     const cap = typeof p.caption === 'string' && p.caption ? p.caption : undefined;
-    return html`<figure class=${big ? 'big' : ''} style="margin:0">${drawPart(cap && x.kind === 'diagram' ? { ...x, caption: undefined } : x, { rubric: p.rubric === 'auto' ? 'auto' : !!p.rubric, host: this })}${cap ? html`<figcaption class="cap">${cap}</figcaption>` : nothing}</figure>`;
+    return html`<figure class=${big ? 'big' : ''} style="margin:0">${drawPart(cap && x.kind === 'diagram' ? { ...x, caption: undefined } : x, { rubric: p.rubric === 'auto' ? 'auto' : !!p.rubric, host: this, style: p.style })}${cap ? html`<figcaption class="cap">${cap}</figcaption>` : nothing}</figure>`;
   });
 
 // The one number that matters, set large: a stat {value, label, note?, href?,
@@ -1876,7 +2222,7 @@ const tileStyles = css`
   header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
   .archived { flex: none; font-size: var(--font-size-xs); color: var(--color-warn); border: 1px solid currentColor; border-radius: 999px; padding: 0 6px; text-decoration: none; }
   .title { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .icon-btn { background: none; border: 0; padding: 2px 4px; color: var(--color-text-muted); cursor: pointer; font-size: var(--font-size-sm); line-height: 1; text-decoration: none; border-radius: var(--radius-sm, 4px); }
+  .icon-btn { display: inline-grid; place-items: center; min-width: 28px; min-height: 28px; background: none; border: 0; padding: 2px 4px; color: var(--color-text-muted); cursor: pointer; font-size: var(--font-size-sm); line-height: 1; text-decoration: none; border-radius: var(--radius-sm, 4px); }
   .icon-btn:hover, .icon-btn:focus-visible { color: var(--color-text); background: var(--color-surface-raised); outline: none; }
   form { display: inline; margin: 0; }
   .body { flex: 1; min-width: 0; overflow: auto; }
@@ -1884,6 +2230,8 @@ const tileStyles = css`
   footer { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--color-border); margin-top: 10px; padding-top: 8px; font-size: var(--font-size-xs); }
   footer .agent { font-family: var(--font-mono); color: var(--color-primary); text-decoration: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .age { margin-left: auto; color: var(--color-text-muted); text-decoration: none; white-space: nowrap; }
+  footer .change { color: var(--color-text-muted); text-decoration: none; white-space: nowrap; }
+  footer .change:hover, footer .change:focus-visible { color: var(--color-primary); text-decoration: underline; }
   .run { font: inherit; font-size: var(--font-size-xs); padding: 3px 10px; border-radius: var(--radius-sm, 4px); border: 0; background: var(--color-primary); color: var(--color-bg); cursor: pointer; text-decoration: none; white-space: nowrap; }
   .run[disabled] { opacity: .6; cursor: default; }
   .err { color: var(--color-err); }
@@ -1936,14 +2284,14 @@ const AgentTile = define('AgentTile', 'sua-a2ui-agent-tile',
         <span class="title" title=${t.title}>${t.title}</span>
         ${t.archived ? html`<a class="archived" href=${href} title="This agent is archived; open it to restore">archived</a>` : nothing}
         ${t.configure ? html`<a class="icon-btn" href=${`${href}/view?redesign=1#redesign`} title="Redesign this widget with sua" aria-label="Redesign ${t.title}">✎</a>` : nothing}
-        ${t.configure ? html`<button type="button" class="icon-btn" title="Configure tile" aria-label="Configure ${t.title}" @click=${() => this.configure(p.agentId, t)}>⚙</button>` : nothing}
         ${t.hideAction ? html`<form method="POST" action=${t.hideAction}><button type="submit" class="icon-btn" title="Hide from Pulse (restore it from the hidden section)" aria-label="Hide ${t.title} from Pulse">×</button></form>` : nothing}
       </header>`}
       <div class="body">${this._body}</div>
       <footer>
         <a class="agent" href=${href}>${p.agentId}</a>
         ${this._running ? html`<span class="age">running…</span>` : t.runHref ? html`<a class="age" href=${t.runHref}>${t.age}</a>` : html`<span class="age">${t.age}</span>`}
-        ${t.run === 'button' ? html`<button type="button" class="run" ?disabled=${this._running} @click=${() => this.runTile(p.agentId, '')}>Run</button>` : nothing}
+        ${t.changeHref ? html`<a class="change" href=${t.changeHref} title="Change what it runs with, on the agent's page">Change inputs…</a>` : nothing}
+        ${t.run === 'button' ? html`<button type="button" class="run" ?disabled=${this._running} title=${t.runBody ? 'Run it again with the same inputs' : nothing} @click=${() => this.runTile(p.agentId, t.runBody || '')}>Run</button>` : nothing}
         ${t.run === 'link' ? html`<a class="run" href=${href} title="This agent needs input before it can run">Run…</a>` : nothing}
       </footer>
       ${this._error ? html`<p class="note err" role="alert">${this._error}</p>` : nothing}
@@ -2006,10 +2354,6 @@ const AgentTile = define('AgentTile', 'sua-a2ui-agent-tile',
         this._error = e.message;
       } finally { this._running = false; this.requestUpdate(); }
     },
-    configure(agentId, t) {
-      // The page's configure modal (views/pulse-configure.js.ts) listens for this.
-      this.dispatchEvent(new CustomEvent('sua-configure-tile', { bubbles: true, composed: true, detail: { agentId, config: t.configure.config, outputFields: t.configure.outputFields } }));
-    },
   });
 
 const SystemTile = define('SystemTile', 'sua-a2ui-system-tile',
@@ -2027,10 +2371,77 @@ const SystemTile = define('SystemTile', 'sua-a2ui-system-tile',
     </div>`;
   });
 
-export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, AnswerSections, Figure, Lead, Bars, Compare, Changes, Stories, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile, Picture, DayBars];
+// Any chart, from a Vega-Lite spec (ADR-0089): the same component as A2UI's
+// vegachart catalog. Vega loads only when a page draws one, and draws CSP-safe
+// with nothing fetched (assets/vendor/a2ui-vega.js); colours from the page's tokens.
+let vegaModule;
+const VegaChart = define('VegaChart', 'sua-a2ui-vega-chart',
+  Common.extend({ spec: CommonSchemas.DynamicValue, height: CommonSchemas.DynamicNumber.optional() }).strict(),
+  css`
+    .chart { width: 100%; min-height: 40px; }
+    .chart svg { max-width: 100%; height: auto; }
+    .note { font-size: var(--font-size-xs); color: var(--color-text-muted); }`,
+  function (p) {
+    // A binding inside the spec (data.values: { "@path": "/notebook/options" }) is read from the surface's data here,
+    // through its signal, so the chart draws again when that data changes.
+    const dc = this.context?.dataContext;
+    const resolve = (v) => {
+      if (Array.isArray(v)) return v.map(resolve);
+      if (!v || typeof v !== 'object') return v;
+      const keys = Object.keys(v);
+      if (keys.length === 1 && typeof v['@path'] === 'string' && dc) { try { return dc.resolveSignal({ '@path': v['@path'] }).value; } catch { return undefined; } }
+      return Object.fromEntries(keys.map((k) => [k, resolve(v[k])]));
+    };
+    this._spec = p.spec && typeof p.spec === 'object' ? resolve(p.spec) : null;
+    return html`<div class="chart" role="img" aria-label="Chart"></div>${this._err ? html`<p class="note">${this._err}</p>` : nothing}`;
+  },
+  {
+    updated() {
+      const p = this.controller?.props;
+      const el = this.renderRoot.querySelector('.chart');
+      if (!p || !el) return;
+      const key = JSON.stringify([this._spec, p.height]);
+      if (key === this._drawn) return;
+      this._drawn = key;
+      const spec = this._spec ? JSON.parse(JSON.stringify(this._spec)) : null;
+      if (!spec) { this._err = 'No chart to draw.'; this.requestUpdate(); return; }
+      const cs = getComputedStyle(this);
+      const tok = (n, d) => cs.getPropertyValue(n).trim() || d;
+      const ink = tok('--color-text-muted', '#666'), line = tok('--color-border', '#ddd');
+      const config = { background: 'transparent', font: tok('--font-sans', 'sans-serif'),
+        axis: { domainColor: line, gridColor: line, tickColor: line, labelColor: ink, titleColor: tok('--color-text', '#222') },
+        legend: { labelColor: ink, titleColor: tok('--color-text', '#222') }, title: { color: tok('--color-text', '#222') },
+        view: { stroke: 'transparent' }, range: { category: [tok('--color-primary', '#0f766e'), '#64748b', '#b45309', '#2563eb', '#be123c', '#4d7c0f'] },
+        mark: { color: tok('--color-primary', '#0f766e') } };
+      const height = typeof p.height === 'number' ? p.height : 240;
+      vegaModule ??= import('/assets/vendor/a2ui-vega.js');
+      vegaModule
+        .then((m) => { this._view?.finalize?.(); return m.drawVega(el, { width: 'container', height, ...spec, config: { ...config, ...(spec.config ?? {}) } }); })
+        .then((res) => { this._view = res?.view; if (this._err) { this._err = ''; this.requestUpdate(); } })
+        .catch((e) => { this._err = `This chart couldn't be drawn: ${String(e?.message ?? e).slice(0, 160)}`; this.requestUpdate(); });
+    },
+    disconnectedCallback() { A2uiLitElement.prototype.disconnectedCallback?.call(this); this._view?.finalize?.(); },
+  });
+
+export const suaComponents = [VegaChart, Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, AnswerSections, RunbookLesson, Figure, Lead, Bars, Compare, Changes, Stories, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile, Picture, DayBars];
 export const suaCatalog = new Catalog(SUA_CATALOG_ID, '1.0',
   [...basicCatalog.components.values(), ...suaComponents],
-  [...basicCatalog.functions.values()]);
+  // sua's own functions (join, relativeTime, formatRange, count) beside the basic ones (ADR-0087).
+  [...basicCatalog.functions.values(), ...suaFunctions(z, CommonSchemas), ...suaAgentFunctions(z, CommonSchemas)]);
+
+/**
+ * A call the renderer can't make itself (an agent function, ADR-0088), sent
+ * to the dashboard; its answer goes back into the same processor, which draws
+ * it. A call it can't answer comes back as an error and draws as nothing.
+ */
+function askAgent(processor, message) {
+  if (!message || !message.callAgentFunction) return;
+  const id = message.callAgentFunction.functionCallId;
+  fetch('/a2ui/agent-functions', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'fetch' }, body: JSON.stringify(message) })
+    .then((r) => r.json())
+    .catch(() => ({ version: '1.0', agentFunctionResponse: { functionCallId: id, error: { code: 'UNAVAILABLE', message: 'The dashboard could not be reached.' } } }))
+    .then((answer) => { try { processor.processMessages([answer]); } catch { /* drawn as nothing */ } });
+}
 
 /** Draw one surface host: <div data-a2ui-surface><script type="application/json">[messages]</script></div>. */
 export function mountSurface(host) {
@@ -2042,35 +2453,43 @@ export function mountSurface(host) {
   catch (e) { host.insertAdjacentHTML('beforeend', `<p class="flash flash--error">This widget's data is unreadable.</p>`); return; }
   const processor = new MessageProcessor([suaCatalog], (action) => {
     host.dispatchEvent(new CustomEvent('a2ui-action', { bubbles: true, detail: action }));
-  });
+  }, { outboundListener: (message) => askAgent(processor, message) });
   const el = document.createElement('a2ui-surface');
   processor.onSurfaceCreated((s) => { el.surface = s; });
-  // Its components as sent (before the processor works on them), so the same surface can take new data in place (updateSurface).
-  const components = componentsKey(messages);
+  // Its components and data as sent (before the processor works on them), so the surface can take a new copy in place (updateSurface).
+  const drawn = drawnState(messages);
   try { processor.processMessages(messages); }
   catch (e) {
     host.insertAdjacentHTML('beforeend', `<p class="flash flash--error">This widget couldn't be drawn: ${esc(e.message)}</p>`);
     return;
   }
   host.appendChild(el);
-  host._a2ui = { processor, components };
+  host._a2ui = { processor, ...drawn };
 }
 
-const componentsKey = (messages) => JSON.stringify((Array.isArray(messages) ? messages : []).filter((m) => m && m.updateComponents).map((m) => m.updateComponents.components));
+/** What a drawn surface was drawn from: its id, its components by id (as JSON), its data. */
+const drawnState = (messages) => ({ surfaceId: surfaceIdOf(messages), byId: new Map(componentsOf(messages).map((c) => [c.id, JSON.stringify(c)])), data: dataOf(messages) });
 
 /**
- * New messages for a mounted surface whose components haven't changed: only
- * its data model is sent again, so every element stays where it is (a figure
- * you moved keeps its what-if, nothing jumps). False when the components
- * differ or the host isn't mounted; the caller redraws the whole thing then.
+ * A new copy of a mounted surface, taken in place (A2UI 1.0, ADR-0086): only
+ * the components that changed or appeared are sent (updateComponents upserts
+ * them by id; one that went is no longer anyone's child), and only the data
+ * paths that changed (updateDataModel). Nothing else is redrawn, so a figure
+ * keeps its what-if and an open panel stays open. False when it can't be (not
+ * mounted, another surface, no root); the caller redraws the whole thing then.
  */
 export function updateSurface(host, messages) {
   const kept = host?._a2ui;
-  if (!kept || !Array.isArray(messages) || componentsKey(messages) !== kept.components) return false;
-  const data = messages.filter((m) => m && m.updateDataModel);
-  if (!data.length) return false;
-  try { kept.processor.processMessages(data); return true; }
-  catch { return false; }
+  if (!kept || !Array.isArray(messages)) return false;
+  const delta = surfaceDelta(kept, messages);
+  if (!delta) return false;
+  if (delta.messages.length) {
+    try { kept.processor.processMessages(delta.messages); } catch { return false; }
+  }
+  Object.assign(kept, delta.next);
+  // How the last update landed (components and data paths sent): for tests and a look in the inspector.
+  host.setAttribute('data-a2ui-delta', `${String(delta.changed)}c ${String(delta.paths)}d`);
+  return true;
 }
 
 export function mountSurfaces(root = document) {
@@ -2096,6 +2515,9 @@ new MutationObserver(() => mountSurfaces()).observe(document.body, { childList: 
       const res = await fetch(`/boards/${encodeURIComponent(boardId())}/data.json`);
       if (!res.ok) return;
       const j = await res.json();
+      // New tiles join the registry first, so a tile the update adds in place finds what it shows.
+      boardTile('');
+      Object.assign(boardTiles, j.tiles || {});
       if (!updateSurface(host, j.messages)) remountBoard(host, j.messages, j.tiles);
     } catch { /* next time */ } finally { busy = false; }
   }

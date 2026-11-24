@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Notebook, NotebookEntry } from '@some-useful-agents/core';
-import { tldrData, tldrCard, tldrChart, tldrLayoutFor, renderNotebookTldr, TLDR_WIDTH } from './notebook-tldr.js';
+import { tldrData, tldrCard, tldrChart, tldrLayoutFor, renderNotebookTldr, showsTldrCard, tldrCardAdds, TLDR_WIDTH } from './notebook-tldr.js';
 import { render } from './html.js';
 
 const at = '2026-11-10T00:00:00.000Z';
@@ -91,6 +91,25 @@ describe("a notebook's TL;DR picture", () => {
     expect(briefed).toMatchObject({ leadLabel: "What it's for", lead: 'Prepare for my meeting with Dana Reyes', points: ['Ask about routing', 'Raise the pilot'], pointsLabel: 'Talking points' });
     expect(briefed.stats).toEqual([{ value: '2', label: 'talking points' }, { value: '1', label: 'question to ask' }]);
     expect(render(tldrCard(briefed))).toContain('<div class="tl__label">Talking points</div>');
+  });
+
+  it('the card shows on the page only when it adds something (ADR-0093), unless you say Always or Never', () => {
+    const answer = { question: 'Which?', text: 'A2UI describes the interface.', confidence: 'medium', findings: [{ text: 'A2UI is a spec.', from: [] }], open: [], at, by: 'agent:notebook-writer' };
+    // An answer alone: the card would say the answer and its findings again, over a drawing.
+    const answered = nb({ fields: [], answer } as Partial<Notebook>);
+    expect(tldrCardAdds(tldrData(answered, []))).toBe(false);
+    expect(showsTldrCard(answered, [])).toBe(false);
+    // Options to compare: its bars do.
+    expect(tldrCardAdds(tldrData(nb(), entries))).toBe(true);
+    expect(showsTldrCard(nb(), entries)).toBe(true);
+    // Someone with their photo does; without one it's their name again.
+    expect(tldrCardAdds({ who: 'person', leadPicture: 'data:image/png;base64,AA' })).toBe(true);
+    expect(tldrCardAdds({ who: 'person' })).toBe(false);
+    expect(tldrCardAdds({ photos: [{ src: 'https://x.example/p.jpg', credit: 'x.example', name: 'x' }] })).toBe(true);
+    // What you said wins. Redrawing the picture is how it looks when shared, not asking for it on the page.
+    expect(showsTldrCard({ ...answered, tldrCard: 'always' }, [])).toBe(true);
+    expect(showsTldrCard({ ...nb(), tldrCard: 'never' }, entries)).toBe(false);
+    expect(showsTldrCard({ ...answered, tldr: { at, layout: 'stack' } } as unknown as Notebook, [])).toBe(false);
   });
 
   it('about someone: their name, role and company with their photo, your goal, then the talking points; a company gets its logo', () => {
@@ -245,5 +264,105 @@ describe("a notebook's TL;DR picture", () => {
     expect(cleanTldrSpec({ layout: 'cover', picture: 'photos' })!.picture).toBeUndefined();
     expect(cleanTldrSpec({ layout: 'cover', picture: 'clipart' })!.picture).toBeUndefined();
     expect(tldrOptionsGuide()).toContain('picture (one, optional):');
+  });
+});
+
+describe('drawing a TL;DR card composed as a view (ADR-0096)', () => {
+  it('a PhotoCover draws its photo full-bleed with the headline over it and its credit; a PhotoGrid credits each; the foot is always there', async () => {
+    const { tldrCard } = await import('./notebook-tldr.js');
+    const t = {
+      title: 'Learn to make a sandwich', leadLabel: 'The answer', lead: 'A sandwich in about 5 minutes', leadFacts: [], sentence: true,
+      stats: [{ value: '3', label: 'findings' }], points: ['Wash your hands'],
+      photos: [{ src: 'data:image/jpeg;base64,AAAA', credit: 'A. Photographer', name: 'A sandwich' }, { src: 'data:image/jpeg;base64,BBBB', credit: 'example.org', name: 'Another' }],
+      drawing: 'data:image/svg+xml;base64,CCCC',
+    };
+    const view = [
+      { id: 'root', component: 'Column', children: ['cover', 'nums', 'grid'] },
+      { id: 'cover', component: 'PhotoCover', photo: { path: '/tldr/photo' }, kicker: { path: '/tldr/title' }, headline: { path: '/tldr/headline' }, scrim: 'dark', align: 'bottom', focus: 'top' },
+      { id: 'nums', component: 'TldrPart', part: 'stats' },
+      { id: 'grid', component: 'PhotoGrid', photos: { path: '/tldr/photos' }, count: 2, ratio: '1:1' },
+    ];
+    const out = String(tldrCard(t as never, { spec: { size: 'square', tone: 'bold', layout: 'stack', parts: ['lead'], headline: 'Two minutes, two clean knives', view: view as never } }));
+    expect(out).toContain('class="tl tl--view tl--square tl--bold"');
+    expect(out).toContain('<img src="data:image/jpeg;base64,AAAA" alt="A sandwich" style="object-position:center 20%">');
+    expect(out).toContain('<p class="tlv__kick">Learn to make a sandwich</p><h1 class="tlv__hl">Two minutes, two clean knives</h1>');
+    expect(out).toContain('<span class="tlv__credit">Photo: A. Photographer</span>');
+    expect(out).toContain('<span class="tl__num">3</span>');
+    expect(out).toContain('style="--ratio:1 / 1"');
+    expect(out).toContain('<span class="tl__credit">example.org</span>');
+    expect(out).toContain('Made with sua');
+    // The cover runs to the card's edges; the rest sits in its margins.
+    expect(out).not.toMatch(/<div class="tlv__pad"><section class="tlv__cover/);
+  });
+
+  it('a spec whose view was dropped (it could not be drawn) draws its layout as before', async () => {
+    const { tldrCard } = await import('./notebook-tldr.js');
+    const { cleanTldrSpec } = await import('@some-useful-agents/core');
+    const spec = cleanTldrSpec({ size: 'standard', tone: 'plain', layout: 'stack', parts: ['lead'], view: [{ id: 'root', component: 'Image', url: 'https://evil.example/a.jpg' }] })!;
+    expect(spec.view).toBeUndefined();
+    expect(String(tldrCard({ title: 'T', leadLabel: 'L', lead: 'x', leadFacts: [], stats: [], points: [] } as never, { spec }))).not.toContain('tl--view');
+  });
+});
+
+describe('a composed card fills its box (no empty band above the foot)', () => {
+  it('a row with a cover runs to the edges, the cover beside its parts; the view sits in a part that fills a fixed box', async () => {
+    const { tldrCard, TLDR_CSS } = await import('./notebook-tldr.js');
+    const t = { title: 'T', leadLabel: 'The answer', lead: 'A sandwich', leadFacts: [], sentence: true, stats: [], points: ['One'], photos: [{ src: 'data:image/jpeg;base64,AAAA', credit: 'A. Photographer', name: 'A sandwich' }] };
+    const view = [
+      { id: 'root', component: 'Columns', children: ['cover', 'details'], widths: [5, 7] },
+      { id: 'cover', component: 'PhotoCover', photo: { path: '/tldr/photos/0' }, headline: { path: '/tldr/headline' }, height: 'tall' },
+      { id: 'details', component: 'Column', children: ['points'] },
+      { id: 'points', component: 'TldrPart', part: 'points' },
+    ];
+    const out = String(tldrCard(t as never, { spec: { size: 'square', tone: 'editorial', layout: 'stack', parts: ['lead'], view: view as never } }));
+    expect(out).toMatch(/<div class="tlv__main"><div class="tlv__row is-bleed" style="grid-template-columns:minmax\(0, 5fr\) minmax\(0, 7fr\)"><section class="tlv__cover/);
+    expect(out).toContain('<div class="tlv__cell"><div class="tlv__col">');
+    // In a fixed box the view's part grows, and a cover in it takes the room the rest leaves.
+    expect(TLDR_CSS).toContain('.tl--view.tl--square .tlv__main');
+    expect(TLDR_CSS).toContain('.tl--view.tl--square .tlv__main > .tlv__row.is-bleed');
+  });
+
+  it("a row with a cover under the header sits in the card's margins (it doesn't butt the headline or jut out at the side)", async () => {
+    const { tldrCard } = await import('./notebook-tldr.js');
+    const t = { title: 'T', leadLabel: 'The answer', lead: 'A sandwich', leadFacts: [], sentence: true, stats: [], points: ['One'], photos: [{ src: 'data:image/jpeg;base64,AAAA', credit: 'A. Photographer', name: 'A sandwich' }] };
+    const view = [
+      { id: 'root', component: 'Column', children: ['head', 'body'] },
+      { id: 'head', component: 'TldrPart', part: 'header' },
+      { id: 'body', component: 'Columns', children: ['cover', 'points'], widths: [5, 7] },
+      { id: 'cover', component: 'PhotoCover', photo: { path: '/tldr/photos/0' }, scrim: 'none', height: 'short' },
+      { id: 'points', component: 'TldrPart', part: 'points' },
+    ];
+    const out = String(tldrCard(t as never, { spec: { size: 'landscape', tone: 'editorial', layout: 'stack', parts: ['lead'], view: view as never } }));
+    expect(out).not.toContain('is-bleed');
+    expect(out).toMatch(/<div class="tlv__pad"><div class="tlv__row" style="grid-template-columns:minmax\(0, 5fr\) minmax\(0, 7fr\)"><section class="tlv__cover/);
+  });
+});
+
+describe("a shortlist's own photos on a composed card", () => {
+  it('the top options with a photo, in order, each credited to its site; a card that leads with what it wrote leads with the first of them, not the drawing', async () => {
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { tldrViewData } = await import('./notebook-tldr.js');
+    const { cardForAgent } = await import('../lib/notebook-tldr-redraw.js');
+    const store = new NotebookStore(':memory:');
+    const made = store.create({ title: 'Choose a battery', statement: 'Good battery options' });
+    store.setFields(made.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'url', label: 'Listing', type: 'link', role: 'link' }]);
+    const a = store.upsertOption(made.id, { title: 'Werker 220Ah', by: 'x', data: { price: 139.99, url: 'https://shop.example/werker' } }).entry;
+    const b = store.upsertOption(made.id, { title: 'Duracell Ultra 215Ah', by: 'x', data: { price: 149.99, url: 'https://batteries.example/duracell' } }).entry;
+    store.upsertOption(made.id, { title: 'No picture', by: 'x', data: { price: 160 } });
+    const png = { contentType: 'image/png', bytes: new Uint8Array([1, 2, 3]) };
+    store.savePhoto(made.id, a.id, 'https://img.example/werker.jpg', png, { kind: 'listing' });
+    store.savePhoto(made.id, b.id, 'https://img.example/duracell.jpg', png, { kind: 'listing' });
+    store.setAnswer(made.id, { question: 'Which battery?', text: 'Lead-acid sets start at $139.99.', confidence: 'medium', findings: [], open: [], at, by: 'sua' } as never);
+    const t = tldrData(store.get(made.id)!, store.entries(made.id, 100), store, (o) => o.image);
+    expect(t.leadPicture).toBeUndefined();
+    expect(t.optionPhotos?.map((p) => [p.name, p.credit])).toEqual([['Werker 220Ah', 'shop.example'], ['Duracell Ultra 215Ah', 'batteries.example']]);
+    const first = t.optionPhotos![0].src;
+    const data = tldrViewData({ ...t, drawing: 'data:drawing' }, {}, 'today') as { photo: { src: string }; photos: unknown[] };
+    expect(data.photo.src).toBe(first);
+    expect(data.photos).toHaveLength(2);
+    // Asked for the drawing: the drawing.
+    expect((tldrViewData({ ...t, drawing: 'data:drawing' }, { picture: 'drawing' }, 'today') as { photo: { src: string } }).photo.src).toBe('data:drawing');
+    // The redraw agent is told there are photos (of the top options), so "lead with the photo" can.
+    expect(cardForAgent(t).photos).toMatchObject({ count: 2, of: 'the top options' });
   });
 });

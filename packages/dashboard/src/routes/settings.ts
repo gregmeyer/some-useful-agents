@@ -1,4 +1,4 @@
-import { ATTACH_FILE_TYPES, attachFileWords, NotebookStore } from '@some-useful-agents/core';
+import { ATTACH_FILE_TYPES, attachFileWords, NotebookStore, clearProviderCooldown, formatUsd, startOfLocalDay, providerCooldowns, providerHealthProblems, summarizeProviderHealth } from '@some-useful-agents/core';
 import { Router, type Request, type Response } from 'express';
 import {
   looksLikeSensitive,
@@ -1131,6 +1131,41 @@ settingsRouter.post('/settings/usage/limits', (req: Request, res: Response) => {
   }
 });
 
+/** Set or clear the daily cap on fallback spend (core fallback-spend.ts). */
+settingsRouter.post('/settings/llm/fallback-cap', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.llmSettingsStore) { redirectWith(res, '/settings/llm', 'error', 'LLM settings store not configured.'); return; }
+  const raw = typeof req.body?.capUsd === 'string' ? req.body.capUsd.trim() : '';
+  const usd = raw === '' ? undefined : Number(raw);
+  try {
+    ctx.llmSettingsStore.setFallbackCap(usd);
+    redirectWith(res, '/settings/llm', 'flash', usd ? `Fallbacks to a paid provider now stop at ${formatUsd(usd, true)} a day.` : 'No cap on fallback spend.');
+  } catch (err) {
+    redirectWith(res, '/settings/llm', 'error', (err as Error).message);
+  }
+});
+
+/** Try a provider that's cooling down again now (its next node calls it). */
+settingsRouter.post('/settings/llm/cooldown/clear', (req: Request, res: Response) => {
+  const provider = typeof req.body?.provider === 'string' ? req.body.provider.slice(0, 100) : '';
+  if (provider) clearProviderCooldown(provider);
+  redirectWith(res, '/settings/llm', 'flash', provider ? `The next node will try ${provider} again.` : 'Nothing to clear.');
+});
+
+/** How each provider did over the last 7 days, for Settings → LLM. Undefined when it can't be read. */
+function readProviderHealth(ctx: ReturnType<typeof getContext>) {
+  try {
+    const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    const summary = summarizeProviderHealth(ctx.runStore.providerHealthRows(since), since);
+    const s = ctx.llmSettingsStore?.get();
+    const disabled = new Set(s?.disabledProviders ?? []);
+    const chain = (s?.providers ?? []).filter((p) => !disabled.has(p));
+    return { summary, problems: providerHealthProblems(summary, chain) };
+  } catch {
+    return undefined;
+  }
+}
+
 settingsRouter.get('/settings/llm', async (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const { flash } = readQueryBanners(req);
@@ -1143,6 +1178,9 @@ settingsRouter.get('/settings/llm', async (req: Request, res: Response) => {
     formatAge: (v) => formatAge(typeof v === 'number' ? new Date(v).toISOString() : v),
     modelServer: await readModelServer(ctx),
     cliModels: readProviderModels(),
+    health: readProviderHealth(ctx),
+    cooldowns: providerCooldowns(),
+    fallbackSpentTodayUsd: (() => { try { return ctx.runStore.fallbackSpendSince(startOfLocalDay()); } catch { return undefined; } })(),
   });
   res.type('html').send(renderSettingsShell({ active: 'llm', body, flash }));
 });
@@ -1444,6 +1482,7 @@ settingsRouter.post('/settings/llm/probe', async (req: Request, res: Response) =
     error,
     probe,
     formatAge: (v) => formatAge(typeof v === 'number' ? new Date(v).toISOString() : v),
+    health: readProviderHealth(ctx),
   });
   res.type('html').send(renderSettingsShell({ active: 'llm', body }));
 });

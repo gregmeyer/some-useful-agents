@@ -1,73 +1,41 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   AgentStore,
   DashboardsStore,
   LocalProvider,
-  MemorySecretsStore,
   PacksStore,
   RunStore,
-  buildLoopbackAllowlist,
-  loadAgents,
   type PackManifest,
 } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
-import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
-import { MemorySecretsSession } from '../secrets-session.js';
+import { createTestContext, closeTestContext, type TestContext } from '../test-harness.js';
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3998;
 
-let dir: string;
-let provider: LocalProvider;
+let t: TestContext | undefined;
+let provider: LocalProvider | undefined;
 let runStore: RunStore;
 let agentStore: AgentStore;
 let packsStore: PacksStore;
 let dashboardsStore: DashboardsStore;
 
 async function makeApp() {
-  dir = mkdtempSync(join(tmpdir(), 'sua-packs-routes-'));
-  const dbPath = join(dir, 'runs.db');
-  const agentsDir = join(dir, 'agents', 'local');
-  mkdirSync(agentsDir, { recursive: true });
-  writeFileSync(join(agentsDir, 'hello.yaml'), 'name: hello\ntype: shell\ncommand: echo hi\n');
-
-  const secretsStore = new MemorySecretsStore();
-  runStore = new RunStore(dbPath);
-  agentStore = new AgentStore(dbPath);
-  packsStore = new PacksStore(dbPath);
-  dashboardsStore = new DashboardsStore(dbPath);
-  provider = new LocalProvider(dbPath, secretsStore);
-  await provider.initialize();
-
-  const ctx: DashboardContext = {
-    token: TOKEN,
-    allowlist: buildLoopbackAllowlist(PORT),
-    port: PORT,
-    provider,
-    runStore,
-    agentStore,
-    loadAgents: () => loadAgents({ directories: [agentsDir] }),
-    secretsStore,
-    secretsSession: new MemorySecretsSession({ backing: secretsStore }),
-    tokenPath: join(dir, 'mcp-token'),
-    retentionDays: 30,
-    dbPath,
-    secretsPath: join(dir, 'secrets.enc'),
-    rotateToken: () => 'r'.repeat(64),
-    packsStore,
-    dashboardsStore,
-    allowUntrustedShell: new Set(),
-    activeRuns: new Map(),
-    inboxTriageAbortControllers: new Map(),
-    inboxTriagePendingRefires: new Set(),
-    dataDir: dir,
-    dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
-  };
+  t = await createTestContext({ port: PORT, prefix: 'sua-packs-routes-', extra: ({ dbPath }) => ({
+    packsStore: new PacksStore(dbPath),
+    dashboardsStore: new DashboardsStore(dbPath),
+  }) });
+  const { ctx } = t;
+  writeFileSync(join(t.agentsDir, 'hello.yaml'), 'name: hello\ntype: shell\ncommand: echo hi\n');
+  provider = t.provider;
+  runStore = ctx.runStore;
+  agentStore = ctx.agentStore;
+  packsStore = ctx.packsStore!;
+  dashboardsStore = ctx.dashboardsStore!;
 
   return buildDashboardApp(ctx);
 }
@@ -90,13 +58,10 @@ afterEach(async () => {
     while ((provider as unknown as { running?: { size: number } }).running?.size && Date.now() - start < 2000) {
       await new Promise((r) => setTimeout(r, 20));
     }
-    await provider.shutdown();
   }
-  try { runStore?.close(); } catch { /* ignore */ }
-  try { agentStore?.close(); } catch { /* ignore */ }
-  try { packsStore?.close(); } catch { /* ignore */ }
-  try { dashboardsStore?.close(); } catch { /* ignore */ }
-  if (dir) rmSync(dir, { recursive: true, force: true });
+  await closeTestContext(t);
+  t = undefined;
+  provider = undefined;
 });
 
 describe('packs routes', () => {
@@ -163,6 +128,14 @@ describe('packs routes', () => {
     expect(res.status).toBe(303);
     // Falls back to the pack detail page rather than redirecting off-site.
     expect(res.headers.location).toMatch(/^\/packs\/test-pack\?ok=/);
+    // A path that a browser reads as another site (//host, /\host) is off-site too.
+    for (const returnTo of ['//evil.example.com/x', '/\\evil.example.com']) {
+      const again = await request(app)
+        .post('/packs/test-pack/install')
+        .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+        .type('form').send({ returnTo });
+      expect(again.headers.location).toMatch(/^\/packs\/test-pack\?/);
+    }
   });
 
   it('POST /packs/:id/uninstall removes dashboards but keeps agents', async () => {

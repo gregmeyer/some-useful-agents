@@ -18,27 +18,22 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   AgentStore,
-  LocalProvider,
-  MemorySecretsStore,
   RunStore,
   InboxStore,
-  buildLoopbackAllowlist,
-  loadAgents,
   loadBehaviors,
   type Agent,
   type Run,
 } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
-import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
-import { MemorySecretsSession } from '../secrets-session.js';
+import { createTestContext, closeTestContext, type TestContext } from '../test-harness.js';
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3996;
 const HDRS = { Host: `127.0.0.1:${PORT}`, Cookie: `${SESSION_COOKIE}=${TOKEN}` };
 
+let t: TestContext | undefined;
 let dir: string;
-let provider: LocalProvider;
 let runStore: RunStore;
 let agentStore: AgentStore;
 let inboxStore: InboxStore;
@@ -51,48 +46,19 @@ function writeSpec(root: string, name: string, scopeDir = '.agents/behaviors'): 
 }
 
 async function makeApp(opts: { userRoot?: string; bundledRoot?: string } = {}) {
-  dir = mkdtempSync(join(tmpdir(), 'sua-behavior-ui-'));
-  const dbPath = join(dir, 'runs.db');
-  const agentsDir = join(dir, 'agents', 'local');
-  mkdirSync(agentsDir, { recursive: true });
-
-  const secretsStore = new MemorySecretsStore();
-  runStore = new RunStore(dbPath);
-  agentStore = new AgentStore(dbPath);
-  inboxStore = new InboxStore(dbPath);
-  provider = new LocalProvider(dbPath, secretsStore);
-  await provider.initialize();
-
-  const scopes = [
-    { scope: 'project' as const, rootDir: dir, optional: true },
-    ...(opts.bundledRoot ? [{ scope: 'bundled' as const, rootDir: opts.bundledRoot, optional: true }] : []),
-    ...(opts.userRoot ? [{ scope: 'user' as const, rootDir: opts.userRoot, optional: true }] : []),
-  ];
-
-  const ctx = {
-    token: TOKEN,
-    allowlist: buildLoopbackAllowlist(PORT),
-    port: PORT,
-    provider,
-    runStore,
-    agentStore,
-    inboxStore,
-    loadAgents: () => loadAgents({ directories: [agentsDir] }),
-    loadBehaviors: () => loadBehaviors({ scopes }),
-    secretsStore,
-    secretsSession: new MemorySecretsSession({ backing: secretsStore }),
-    tokenPath: join(dir, 'mcp-token'),
-    retentionDays: 30,
-    dbPath,
-    secretsPath: join(dir, 'secrets.enc'),
-    rotateToken: () => 'r'.repeat(64),
-    allowUntrustedShell: new Set<string>(),
-    activeRuns: new Map(),
-    inboxTriageAbortControllers: new Map(),
-    inboxTriagePendingRefires: new Set(),
-    dataDir: dir,
-    dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
-  } as unknown as DashboardContext;
+  t = await createTestContext({ port: PORT, prefix: 'sua-behavior-ui-', extra: ({ dir: root, dbPath }) => {
+    const scopes = [
+      { scope: 'project' as const, rootDir: root, optional: true },
+      ...(opts.bundledRoot ? [{ scope: 'bundled' as const, rootDir: opts.bundledRoot, optional: true }] : []),
+      ...(opts.userRoot ? [{ scope: 'user' as const, rootDir: opts.userRoot, optional: true }] : []),
+    ];
+    return { inboxStore: new InboxStore(dbPath), loadBehaviors: () => loadBehaviors({ scopes }) };
+  } });
+  const { ctx } = t;
+  dir = t.dir;
+  runStore = ctx.runStore;
+  agentStore = ctx.agentStore;
+  inboxStore = ctx.inboxStore!;
 
   return buildDashboardApp(ctx);
 }
@@ -120,11 +86,8 @@ const get = (app: Awaited<ReturnType<typeof makeApp>>, url: string) =>
   request(app).get(url).set(HDRS);
 
 afterEach(async () => {
-  if (provider) await provider.shutdown();
-  try { runStore?.close(); } catch { /* ignore */ }
-  try { agentStore?.close(); } catch { /* ignore */ }
-  try { inboxStore?.close(); } catch { /* ignore */ }
-  if (dir) rmSync(dir, { recursive: true, force: true });
+  await closeTestContext(t);
+  t = undefined;
 });
 
 describe('agent detail — "Uses skills"', () => {

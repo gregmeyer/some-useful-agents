@@ -260,7 +260,9 @@ Per-node execution table with stdout, exit codes, errors, timings. For `llm-prom
 
 Resolved variables panel shows what values the run actually saw (inputs after defaults, vars after substitution).
 
-**Cancel + abandoned errors.** A **Cancel** button appears while the run is `running` or `pending`. The cancel route SIGTERMs the spawned child and escalates to SIGKILL after 5s if the child hasn't exited, then finalizes both the run row and any still-`running` `node_executions` rows to `cancelled` with a flash banner. A separate `errorCategory: 'abandoned'` appears on rows the orphan reaper finalized on a later dashboard boot (i.e. a daemon restart killed the parent process mid-run); the run-level error names the cause inline. See [Security model § Orphan process reaper](SECURITY.md) for the mechanism.
+**Cancel + abandoned errors.** A **Cancel** button appears while the run is `running` or `pending`. The cancel route SIGTERMs the node's process group (the spawned child and everything it started) and escalates to SIGKILL after 5s if anything in it is still running, then finalizes both the run row and any still-`running` `node_executions` rows to `cancelled` with a flash banner. A separate `errorCategory: 'abandoned'` appears on rows the orphan reaper finalized on a later dashboard boot (i.e. a daemon restart killed the parent process mid-run); the run-level error names the cause inline. See [Security model § Orphan process reaper](SECURITY.md) for the mechanism.
+
+**When the dashboard stops.** On SIGTERM (`sua daemon stop`/`restart`, or a live update) the dashboard stops taking requests, lets in-flight runs and background work finish for up to 10 seconds, then stops what's still going. Those runs end `cancelled` with "Stopped because the dashboard shut down." instead of being reaped as abandoned on the next boot. `sua daemon restart` waits up to 20 seconds for the old services to exit before starting the new ones, so the new dashboard's reaper only finds true orphans; `sua dashboard start --replace` does the same, then SIGKILLs a dashboard still holding the port. Each node runs in its own process group, so stopping a node (Cancel, a timeout, or the shutdown) also stops whatever its shell started; a stopped run ends `cancelled`, not `failed`.
 
 ## `/pulse` — today's edition, and the board
 
@@ -278,13 +280,20 @@ The board is your agents at a glance. Each agent with a `signal:` block, or an A
 
 **`template: widget`** is special — mirrors the agent's own outputWidget. No mapping required.
 
-**Everything else groups tiles by how recently you used them** — Health (system metrics),
-Recent (ran in the last 7 days, newest first), Idle, and Never run. Empty groups
-are omitted. The ordering is meant for a run console: what you used last is what
+**All agents says its health in one line**, problems first: a stopped scheduler (linked to the scheduled agents), then "2 of 56 runs failed in the last day" (linked to the failed runs), or "56 runs in the last day, none failed".
+
+**Everything else groups tiles by what needs you, then by how recently you used them:**
+- **Needs attention**: agents whose newest run failed.
+- **Recent**: ran in the last 7 days, newest first.
+- **Idle.**
+- **Never run.**
+- **Counts**: the system tiles, last, so you can still place them.
+
+Empty groups are omitted. The ordering is meant for a run console: what you used last is what
 you are most likely to run again, and agents you set up but never used are
 collected at the bottom rather than scattered through the board.
 
-Configure tiles via the ⚙ gear on each one, and set a tile's palette in **✎ Arrange**. Hide/unhide via the × (it toggles the agent's `pulseVisible` flag). System tiles (runs today, avg duration, failure rate, agent count, **scheduler**) head the tray until you place them.
+Redesign a tile's look with ✎ (sua redraws the agent's view), and set its palette in **Arrange**. Hide or unhide it with × (which toggles the agent's `pulseVisible` flag). The system tiles (runs today, avg duration, failure rate, agent count, **scheduler**) are under Counts until you place them.
 
 **The scheduler tile** reports whether the schedule daemon is actually running,
 because a dead scheduler is otherwise invisible here: `/health` knows and
@@ -318,7 +327,7 @@ the run, as before.
 
 ## `/dashboards/:id` — Named dashboards
 
-Named views over installed agents — pack-owned (e.g. `starter:media`) or user-created — each a [board](boards.md): arrange it with **✎ Arrange** (which also adds agent tiles) and **✨ Suggest a layout**. Render at `/dashboards/:id`, edit inline at `/dashboards/:id/edit` (rename the dashboard, add / remove / reorder sections and tiles, all server-rendered). Renaming changes only the display name — the dashboard's stable id is preserved (shown in the editor header), so delete and pack uninstall still match after a rename. The built-in "Default Dashboard" (Pulse) has no stored row and can't be renamed. Add a tile by arranging the board; edit mode persists across reloads and warns before you navigate away. Pack-owned dashboards are editable but not deletable (uninstall the pack) — their editor explains why and links to the owning pack's page, where Uninstall removes the pack's dashboards while keeping any contributed agents; user-created ones are deletable, and removing the last tile offers to delete the dashboard. Each named dashboard curates its own tile list independently of `pulseVisible`. The same tile behaviors as Pulse apply (first-run auto-execution, in-place Run again, CSP image-allow).
+Named views over installed agents — pack-owned (e.g. `starter:media`) or user-created — each a [board](boards.md): arrange it with **✎ Arrange** (which also adds agent tiles) and **✨ Suggest a layout**. Render at `/dashboards/:id`, edit inline at `/dashboards/:id/edit` (rename the dashboard, add / remove / reorder sections and tiles, all server-rendered). Renaming changes only the display name — the dashboard's stable id is preserved (shown in the editor header), so delete and pack uninstall still match after a rename. The built-in "Pulse" entry (Pulse itself) has no stored row and can't be renamed. Add a tile by arranging the board; edit mode persists across reloads and warns before you navigate away. Pack-owned dashboards are editable but not deletable (uninstall the pack) — their editor explains why and links to the owning pack's page, where Uninstall removes the pack's dashboards while keeping any contributed agents; user-created ones are deletable, and removing the last tile offers to delete the dashboard. Each named dashboard curates its own tile list independently of `pulseVisible`. The same tile behaviors as Pulse apply (first-run auto-execution, in-place Run again, CSP image-allow).
 
 ## `/boards/:id` — Boards
 

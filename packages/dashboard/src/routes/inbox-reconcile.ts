@@ -36,6 +36,7 @@
  * message, only when the auto-triage flag is on.
  */
 import { isInboxAutoTriageEnabled, type InboxMessage, type Run } from '@some-useful-agents/core';
+import { inBackground } from '../lib/background.js';
 import type { getContext } from '../context.js';
 import { parseActionMeta, addSystemMessage, publishInboxEvent, publishInboxChanged, settleWaitingThread } from './inbox-shared.js';
 import {
@@ -139,7 +140,7 @@ function reconcileMessage(ctx: Ctx, message: InboxMessage, result: ReconcileResu
       result.resumed += 1;
       resumedHere += 1;
       const runId = meta.runId;
-      void (async () => {
+      inBackground(ctx, 'inbox-reconcile', (async () => {
         const final = await awaitRunTerminal(ctx, runId);
         const outcome: ActionRunOutcome = final
           ? { id: final.id, status: final.status, result: typeof final.result === 'string' ? final.result : undefined, error: final.error }
@@ -147,7 +148,7 @@ function reconcileMessage(ctx: Ctx, message: InboxMessage, result: ReconcileResu
         finalizeActionFromOutcome(ctx, message.id, response.id, meta, outcome);
       })().catch((err) => {
         console.warn(`[inbox-reconcile] resume waiter for run ${runId} crashed:`, err instanceof Error ? err.message : String(err));
-      });
+      }));
       continue;
     }
 
@@ -177,7 +178,7 @@ function reconcileMessage(ctx: Ctx, message: InboxMessage, result: ReconcileResu
       // runTriageAgent, so every engine guard (turn cap, action cap,
       // one-write-per-turn) applies.
       addSystemMessage(ctx, message.id, 'The dashboard restarted mid-conversation — picking this back up.');
-      void runTriageAgent(ctx, message.id).catch(() => { /* engine logs */ });
+      inBackground(ctx, 'runTriageAgent', runTriageAgent(ctx, message.id).catch(() => { /* engine logs */ }));
       result.refired += 1;
     } else if (strandedTriage) {
       // Without auto-triage, don't spend LLM turns at boot — but don't let

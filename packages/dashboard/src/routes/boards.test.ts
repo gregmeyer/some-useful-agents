@@ -1,41 +1,26 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import request from 'supertest';
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
-  AgentStore, BoardsStore, DashboardsStore, InboxStore, LocalProvider, MemorySecretsStore, RunStore,
-  buildLoopbackAllowlist, loadAgents,
+  BoardsStore, DashboardsStore, InboxStore, LocalProvider,
 } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
 import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../session.js';
-import { MemorySecretsSession } from '../secrets-session.js';
+import { createTestContext, closeTestContext, type TestContext } from '../test-harness.js';
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3990;
 const COOKIE = `${SESSION_COOKIE}=${TOKEN}`;
-let dir = '';
 let ctx: DashboardContext;
 let provider: LocalProvider;
 
+let t: TestContext | undefined;
+
 async function setup() {
-  dir = mkdtempSync(join(tmpdir(), 'sua-boards-route-'));
-  const dbPath = join(dir, 'runs.db');
-  const agentsDir = join(dir, 'agents', 'local');
-  mkdirSync(agentsDir, { recursive: true });
-  const secretsStore = new MemorySecretsStore();
-  provider = new LocalProvider(dbPath, secretsStore);
-  await provider.initialize();
-  ctx = {
-    token: TOKEN, allowlist: buildLoopbackAllowlist(PORT), port: PORT, provider,
-    runStore: new RunStore(dbPath), agentStore: new AgentStore(dbPath), dashboardsStore: new DashboardsStore(dbPath), inboxStore: new InboxStore(dbPath),
-    loadAgents: () => loadAgents({ directories: [agentsDir] }), secretsStore,
-    secretsSession: new MemorySecretsSession({ backing: secretsStore }), tokenPath: join(dir, 'mcp-token'),
-    retentionDays: 30, dbPath, secretsPath: join(dir, 'secrets.enc'), rotateToken: () => 'r'.repeat(64),
-    allowUntrustedShell: new Set(), activeRuns: new Map(), inboxTriageAbortControllers: new Map(),
-    inboxTriagePendingRefires: new Set(), dataDir: dir, dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
-  } as DashboardContext;
+  t = await createTestContext({ port: PORT, prefix: 'sua-boards-route-', extra: ({ dbPath }) => ({
+    dashboardsStore: new DashboardsStore(dbPath), inboxStore: new InboxStore(dbPath),
+  }) });
+  ({ ctx, provider } = t);
   // No model in tests: a built board keeps its grid unless a test answers for the page agent.
   ctx.boardPageRun = async () => undefined;
   const add = (id: string, size?: string) => ctx.agentStore.createAgent({ id, name: id, status: 'active', source: 'local', mcp: false,
@@ -45,11 +30,8 @@ async function setup() {
   return buildDashboardApp(ctx);
 }
 afterEach(async () => {
-  if (!dir) return; // this test didn't call setup()
-  await provider?.shutdown();
-  try { ctx.runStore.close(); ctx.agentStore.close(); } catch { /* ignore */ }
-  rmSync(dir, { recursive: true, force: true });
-  dir = '';
+  await closeTestContext(t);
+  t = undefined;
 });
 const get = (app: Parameters<typeof request>[0], p: string) => request(app).get(p).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
 const post = (app: Parameters<typeof request>[0], p: string, body: unknown) => request(app).post(p).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).send(body as object);
@@ -261,10 +243,11 @@ describe('boards are canvases', () => {
 
   it("Pulse opens on today's edition when scheduled agents reported in the last day: a generated front page of their own views, never saved; the grid is under All agents", async () => {
     const app = await setup();
-    // Nothing scheduled has run: Pulse is its grid, with no tabs.
+    // Nothing scheduled has a result yet: Today says what would fill it, with its tabs; nothing runs on its own.
     const before = await get(app, '/pulse');
-    expect(before.text).toContain('data-board-canvas="pulse"');
-    expect(before.text).not.toContain('pulse-tabs');
+    expect(before.text).not.toContain('data-board-canvas=');
+    expect(before.text).toContain('Nothing for today yet');
+    expect(before.text).toContain('<a class="pulse-tabs__tab is-active" href="/pulse" aria-current="page">Today\'s edition</a>');
     const sched = (id: string, result: string) => {
       ctx.agentStore.createAgent({ id, name: id, status: 'active', source: 'local', mcp: false, schedule: '0 8 * * *',
         nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }], signal: { title: `The ${id}`, template: 'text-headline', mapping: { headline: 'result' } } } as never, 'cli');
@@ -277,7 +260,9 @@ describe('boards are canvases', () => {
     expect(page.status).toBe(200);
     expect(page.text).toContain('data-board-canvas="today"');
     expect(page.text).toContain('data-board-composed="1"');
-    expect(page.text).toContain('2 scheduled agents reported in the last day');
+    expect(page.text).toContain('2 of 2 parts from the last day');
+    // All fresh, and no scheduler problem on a test install with nothing stopped that matters: no health strip.
+    expect(page.text).not.toContain('Run the older part');
     expect(page.text).toContain('<a class="pulse-tabs__tab is-active" href="/pulse" aria-current="page">Today\'s edition</a>');
     expect(page.text).toContain('<a class="pulse-tabs__tab" href="/pulse/agents">All agents</a>');
     // Generated, so nothing to arrange: no editor, no Arrange.
@@ -311,6 +296,136 @@ describe('boards are canvases', () => {
     expect((await get(app, '/boards/today.json')).body.board).toMatchObject({ id: 'today', name: "Today's edition", version: 0 });
   });
 
+  it("Today's tab is always there: with nothing from the last day it says what would fill it and offers each scheduled agent's Run; All agents keeps Hide all beside Show all, not in the header", async () => {
+    const app = await setup();
+    ctx.agentStore.createAgent({ id: 'morning-brief', name: 'Morning brief', status: 'active', source: 'local', mcp: false, schedule: '0 8 * * *',
+      nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }], signal: { title: 'Morning brief', template: 'text-headline', mapping: { headline: 'result' } } } as never, 'cli');
+    const page = (await get(app, '/pulse')).text;
+    expect(page).toContain('Nothing for today yet');
+    expect(page).toContain('<span class="page-header__meta board-page__meta">nothing from the last day</span>');
+    expect(page).toMatch(/<a href="\/agents\/morning-brief">Morning brief<\/a>\s*<span class="edition-empty__when">never run<\/span>/);
+    expect(page).toContain('<form method="POST" action="/pulse/edition/run" class="edition-empty__run"><input type="hidden" name="agentId" value="morning-brief">');
+    const started: Array<[string, Record<string, string>]> = [];
+    ctx.agentRunStart = (id, inputs) => { started.push([id, inputs]); };
+    const ran = await post(app, '/pulse/edition/run', { agentId: 'morning-brief' });
+    expect(started.map(([id]) => id)).toEqual(['morning-brief']);
+    expect(decodeURIComponent(ran.headers.location)).toContain('Running Morning brief.');
+    expect(decodeURIComponent((await post(app, '/pulse/edition/run', { agentId: 'nope' })).headers.location)).toContain('No such agent to run.');
+    // All agents: a one-line description; Hide all sits with Show all at the bottom, not in the header.
+    const grid = (await get(app, '/pulse/agents')).text;
+    expect(grid).toContain("Every agent's latest result, run in place. Press Arrange to lay them out.");
+    const head = grid.slice(grid.indexOf('board-page__head'), grid.indexOf('</div>', grid.indexOf('board-page__actions')));
+    expect(head).not.toContain('/pulse/hide-all');
+    const bar = grid.slice(grid.indexOf('pulse-hidden-section'));
+    expect(bar).toContain('action="/pulse/hide-all"');
+    expect(bar).toContain('>Manage agents</a>');
+  });
+
+  it('All agents says its health in one line, problems first: failed runs link to them, and an agent whose newest run failed leads under Needs attention', async () => {
+    const app = await setup();
+    const at = new Date(Date.now() - 3600_000).toISOString();
+    ctx.runStore.createRun({ id: 'run-ok', agentName: 'weather', status: 'completed', startedAt: at, completedAt: at, result: '{}', triggeredBy: 'dashboard' } as never);
+    const later = new Date(Date.now() - 60_000).toISOString();
+    ctx.runStore.createRun({ id: 'run-bad', agentName: 'weather', status: 'failed', startedAt: later, completedAt: later, error: 'boom', triggeredBy: 'dashboard' } as never);
+    const page = (await get(app, '/pulse/agents')).text;
+    expect(page).toContain('<a class="pulse-health__part is-bad" href="/runs?status=failed">1 of 2 runs failed in the last day</a>');
+    const tabs = surface(page).find((c) => c.id === 'rest_tabs')!.tabs as Array<{ title: string }>;
+    expect(tabs[0].title).toBe('Needs attention (1)');
+  });
+
+  it("Ask sua: an edition-ask action works out a change to Today's edition; it waits on Pulse, one row each", async () => {
+    await setup();
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const { executeEditionAskAction } = await import('./inbox-engine.js');
+    const ok = parseProposedActions([{ type: 'edition-ask', rationale: 'r', inputs: { ASK: 'lead with markets' } }], []);
+    expect(ok.accepted[0]).toMatchObject({ agentId: 'edition-ask', effect: 'read', inputs: { ASK: 'lead with markets' } });
+    expect(parseProposedActions([{ type: 'edition-ask', inputs: {} }], []).rejected[0].reason).toContain('ASK');
+    let asked = '';
+    ctx.editionEditorRun = async (inputs) => { asked = inputs.ASK; return `<edition>${JSON.stringify({ ops: [{ op: 'numbers', on: false }], say: 'No numbers band.' })}</edition>`; };
+    const out = executeEditionAskAction(ctx, ok.accepted[0] as never);
+    expect(out).toMatchObject({ status: 'completed' });
+    expect(out.summary).toContain('/pulse');
+    await ctx.boardReviewWork;
+    expect(asked).toBe('lead with markets');
+    expect(ctx.editionAsk).toMatchObject({ status: 'ready', changes: ['Drop the numbers band'] });
+    expect(executeEditionAskAction(ctx, { ...(ok.accepted[0] as object), inputs: { ASK: '  ' } } as never).status).toBe('failed');
+  });
+
+  it("a new agent drafted for Today's edition (ADR-0101): approved, it's active, runs once, and is always shown; the message stays on the edition", async () => {
+    const app = await setup();
+    const { BoardBuildStore, EditionPrefsStore } = await import('@some-useful-agents/core');
+    ctx.agentStore.createAgent({ id: 'email-digest', name: 'Email digest', status: 'draft', source: 'local', mcp: false,
+      nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }], signal: { title: 'Email digest', template: 'text-headline', mapping: { headline: 'result' } } } as never, 'cli');
+    const builds = new BoardBuildStore(ctx.runStore.databaseHandle());
+    const b = builds.create('today', 'Know what changed overnight', { keepName: true, origin: 'review' });
+    builds.update(b.id, { phase: 'done', drafts: [{ purpose: 'Overnight email', ok: true, id: 'email-digest', name: 'Email digest', hasTile: true }], approval: 'pending' });
+    const res = await post(app, `/boards/builds/${b.id}/approve`, {});
+    expect(decodeURIComponent(res.headers.location)).toBe("/pulse?edition=Approved: 1 agent now active, 1 running, and in Today's edition once there's a result.");
+    expect(ctx.agentStore.getAgent('email-digest')?.status).toBe('active');
+    expect(new EditionPrefsStore(ctx.runStore.databaseHandle()).get().include).toEqual(['email-digest']);
+    // Approval runs it once; wait for that run, so it doesn't outlive the test's database.
+    for (let i = 0; i < 300 && !ctx.runStore.listRuns({ agentName: 'email-digest', limit: 1 }).some((r) => r.status === 'completed' || r.status === 'failed'); i++) await new Promise((r) => setTimeout(r, 10));
+  });
+
+  it("Today's edition says how fresh each part is: its age beside its title, a part older than a day says it's kept because you always show it, a failed newer run says so, and one press runs the older parts with their last inputs", async () => {
+    const app = await setup();
+    const { EditionPrefsStore } = await import('@some-useful-agents/core');
+    const mk = (id: string, ageMs: number, inputs?: Record<string, unknown>) => {
+      ctx.agentStore.createAgent({ id, name: id, status: 'active', source: 'local', mcp: false, schedule: '0 8 * * *', ...(inputs ? { inputs } : {}),
+        nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }], signal: { title: `The ${id}`, template: 'text-headline', mapping: { headline: 'result' } } } as never, 'cli');
+      const at = new Date(Date.now() - ageMs).toISOString();
+      ctx.runStore.createRun({ id: `run-${id}`, agentName: id, status: 'completed', startedAt: at, completedAt: at, result: JSON.stringify({ headline: `${id} says hi` }), triggeredBy: 'schedule' } as never);
+    };
+    mk('briefs', 3600_000);
+    mk('forecast', 15 * 86_400_000, { LOCATION: { type: 'string', default: '98225' } });
+    // Weather is 15 days old: in the edition only because you always show it.
+    const store = new EditionPrefsStore(ctx.runStore.databaseHandle());
+    store.save({ ...store.get(), include: ['forecast'] });
+    // News ran again since, and failed.
+    const later = new Date(Date.now() - 60_000).toISOString();
+    ctx.runStore.createRun({ id: 'run-briefs-failed', agentName: 'briefs', status: 'failed', startedAt: later, completedAt: later, error: 'boom', triggeredBy: 'schedule' } as never);
+
+    const page = await get(app, '/pulse');
+    expect(page.text).toContain('1 of 2 parts from the last day');
+    expect(page.text).toContain('<form method="POST" action="/pulse/edition/run-older" class="edition-health__line"><span>1 part is older than a day.</span>');
+    expect(page.text).toContain('>Run the older part</button>');
+    const comps = surface(page.text);
+    // The masthead is the day (the tab already says Today's edition); each part's age is its note.
+    expect(comps.find((c) => c.id === 'masthead')).toMatchObject({ title: { '@path': '/board/date' } });
+    const panel = (id: string) => comps.find((c) => c.component === 'Panel' && String(c.id).endsWith(`_${id}`));
+    expect(panel('forecast')).toMatchObject({ note: { '@path': '/board/agents/forecast/run/age' } });
+    expect(comps.find((c) => String(c.id).endsWith('_forecast_old'))).toMatchObject({ component: 'Text', text: 'Older than a day: kept because you always show it.' });
+    expect(comps.find((c) => String(c.id).endsWith('_briefs_failed'))).toMatchObject({ component: 'Link', url: '/runs/run-briefs-failed' });
+    // Drawn to be read: Run reuses the last inputs (here and after a refresh), and the inputs are changed on the agent's page.
+    const reg = registry(page.text) as Record<string, { run: string; runBody?: string; changeHref?: string }>;
+    expect(reg.forecast).toMatchObject({ run: 'button', runBody: 'again=1', changeHref: '/agents/forecast' });
+    const again = await get(app, '/boards/tile/forecast.json?board=today');
+    expect(again.body).toMatchObject({ run: 'button', runBody: 'again=1' });
+    expect((await get(app, '/boards/tile/forecast.json?board=pulse')).body.runBody).toBeUndefined();
+    // One press runs the older parts again (nothing runs just because the page opened). Recorded, not run:
+    // a real run would make the part fresh (and outlive the test).
+    const started: string[] = [];
+    ctx.agentRunStart = (id) => { started.push(id); };
+    const ran = await post(app, '/pulse/edition/run-older', {});
+    expect(decodeURIComponent(ran.headers.location)).toContain('Running 1 older part again.');
+    expect(started).toEqual(['forecast']);
+    // Asked "what's stale?", sua can offer to run the old part again: its own Run, never inside Apply all.
+    ctx.editionEditorRun = async () => `<edition>${JSON.stringify({ ops: [{ op: 'auto', agentId: 'forecast' }], actions: [{ do: 'rerun', agentId: 'forecast' }], say: 'The forecast is old.' })}</edition>`;
+    await post(app, '/pulse/edition/ask', { text: "what's stale?" });
+    await ctx.boardReviewWork;
+    const ask = (await get(app, '/pulse/edition/ask.json')).body.id as string;
+    const card = (await get(app, '/pulse')).text;
+    expect(card).toContain('<span class="board-review__what">Run The forecast again: its result is 15 days old</span>');
+    expect(card).toMatch(/<input type="hidden" name="do" value="run"><button type="submit" class="btn btn--sm">Run<\/button>/);
+    expect(card).not.toContain('Apply all');
+    const runIt = await post(app, `/pulse/edition/ask/${ask}/row/1`, { do: 'run' });
+    expect(decodeURIComponent(runIt.headers.location)).toContain('Running forecast again.');
+    expect(started).toEqual(['forecast', 'forecast']);
+    // The change is still open after the run; applying it ends the ask.
+    expect(decodeURIComponent((await post(app, `/pulse/edition/ask/${ask}/row/0`, { do: 'apply' })).headers.location)).toContain('Stop always showing The forecast');
+    expect(new EditionPrefsStore(ctx.runStore.databaseHandle()).get().include).toEqual([]);
+  });
+
   it("Today's edition can be improved: it has a goal, sua reviews it, and what you take becomes a preference the edition follows every day, with Undo and a way back", async () => {
     const app = await setup();
     const { EditionPrefsStore } = await import('@some-useful-agents/core');
@@ -335,7 +450,7 @@ describe('boards are canvases', () => {
     const goal = await post(app, '/boards/today/goal', { goal: 'Know what changed overnight' });
     expect(decodeURIComponent(goal.headers.location)).toBe('/pulse?edition=Goal saved.');
     expect((await get(app, goal.headers.location)).text).toContain('<span class="board-goal__text">Know what changed overnight</span>');
-    // The review reads the edition as it is drawn now, and the agents that could be brought in; no new agents, no note.
+    // The review reads the edition as it is drawn now, and the agents that could be brought in; a new agent for a gap (ADR-0101), no note.
     const asked: Record<string, string>[] = [];
     ctx.boardReviewRun = async (inputs) => {
       asked.push(inputs);
@@ -344,7 +459,7 @@ describe('boards are canvases', () => {
         { type: 'remove', agentId: 'routine', why: 'An evening checklist says nothing about what changed overnight.' },
         { type: 'add-agent', agentId: 'journal', why: 'Returns your entries, which nothing here shows.' },
         { type: 'content', kind: 'top-story', from: 'hn', why: 'Its first story is the one to read.' },
-        { type: 'draft', purpose: 'A summary of overnight email that needs a reply', why: 'Not offered for the edition.' },
+        { type: 'draft', purpose: 'A summary of overnight email that needs a reply', why: 'Nothing here covers email.' },
         { type: 'content', kind: 'note', why: 'Not for the edition.' },
       ] })}</review>`;
     };
@@ -358,11 +473,13 @@ describe('boards are canvases', () => {
     // news, weather and notes have never run: nothing to show, so not offered.
     expect(JSON.parse(asked[0].CANDIDATES).map((a: { id: string }) => a.id)).not.toContain('notes');
     const r = (await get(app, '/boards/today/review.json')).body;
-    expect(r).toMatchObject({ round: 1, status: 'ready', open: 4 });
+    expect(r).toMatchObject({ round: 1, status: 'ready', open: 5 });
     page = await get(app, '/pulse');
     expect(page.text).toContain('sua suggests');
     expect(page.text).toContain('Leave out The routine');
-    expect(page.text).not.toContain('Draft a new agent');
+    expect(page.text).toContain('A summary of overnight email that needs a reply');
+    // Skipped here (drafting runs the drafter); taking one drafts it behind one approval, as on a board.
+    await post(app, `/boards/today/review/${String(r.id)}/skip`, { key: 'draft:a-summary-of-overnight-email-that-needs-a-reply' });
     // Nothing has changed yet.
     expect(prefs()).toEqual({ hidden: [], include: [], wide: [], narrow: [] });
     // Take them all: preferences, not a saved page.
@@ -412,7 +529,12 @@ describe('boards are canvases', () => {
     expect(page.text).toContain('You asked');
     expect(page.text).toContain('<span class="board-review__what">Lead with The digest</span>');
     expect(page.text).toContain('<span class="board-review__what">Leave out The routine</span>');
-    expect(page.text).toContain('>Apply all 2</button>');
+    expect(page.text).toContain('>Apply all 2 changes</button>');
+    // Each change can be applied or skipped on its own.
+    expect(page.text).toMatch(/<input type="hidden" name="do" value="apply"><button type="submit" class="btn btn--sm">Apply<\/button>/);
+    // The editor saw how fresh each part is.
+    expect((seen.showing as unknown as Array<Record<string, unknown>>)[0]).toMatchObject({ lastRun: 'ok', why: 'scheduled', canRunAgain: true });
+    expect(typeof (seen.showing as unknown as Array<Record<string, unknown>>)[0].ageHours).toBe('number');
     const askId = (await get(app, '/pulse/edition/ask.json')).body.id as string;
     const applied = await post(app, `/pulse/edition/ask/${askId}/apply`, {});
     expect(decodeURIComponent(applied.headers.location)).toBe('/pulse?edition=Lead with The digest; Leave out The routine. The edition follows them from now on; Undo last change goes back.');
@@ -431,16 +553,36 @@ describe('boards are canvases', () => {
     expect((await get(app, '/pulse/edition/ask.json')).body).toEqual({ status: 'none' });
     expect(prefs()).toMatchObject({ lead: 'digest', hidden: ['routine'] });
     expect(decodeURIComponent((await post(app, '/pulse/edition/ask', { text: '   ' })).headers.location)).toContain('Say what to change');
+    // A change at a time: one applied, one skipped, and Undo goes back to before the whole ask.
+    const before = prefs();
+    ctx.editionEditorRun = async () => `<edition>${JSON.stringify({ ops: [{ op: 'numbers', on: false }, { op: 'note', text: 'Read me first' }], say: 'Two small changes.' })}</edition>`;
+    await post(app, '/pulse/edition/ask', { text: 'no numbers, and add a line' });
+    await ctx.boardReviewWork;
+    const one = (await get(app, '/pulse/edition/ask.json')).body.id as string;
+    expect(decodeURIComponent((await post(app, `/pulse/edition/ask/${one}/row/0`, { do: 'apply' })).headers.location)).toContain('Drop the numbers band. Undo last change goes back to before this ask.');
+    page = await get(app, '/pulse');
+    expect(page.text).toContain('<span class="board-review__state">Applied</span>');
+    expect(decodeURIComponent((await post(app, `/pulse/edition/ask/${one}/row/1`, { do: 'skip' })).headers.location)).toContain('Skipped: Add the line');
+    expect((await get(app, '/pulse/edition/ask.json')).body).toEqual({ status: 'none' });
+    expect(prefs()).toMatchObject({ numbers: false });
+    expect(prefs().note).toBeUndefined();
+    await post(app, '/pulse/edition/undo', {});
+    expect(prefs()).toEqual(before);
     // Still nothing to arrange or save.
     expect((await post(app, '/boards/today/doc', { doc: { components: [] } })).status).toBe(400);
   });
 
   it('Pulse: placed tiles on the canvas, the rest under "Everything else" in tabs; health tiles as A2UI; × hides', async () => {
     const app = await setup();
-    let page = await get(app, '/pulse');
+    let page = await get(app, '/pulse/agents');
     let comps = surface(page.text);
     expect(comps.find((c) => c.id === 'rest')).toMatchObject({ component: 'Section', title: 'Everything else', child: 'rest_tabs' });
-    expect((comps.find((c) => c.id === 'rest_tabs')!.tabs as Array<{ title: string }>).map((t) => t.title)).toEqual(expect.arrayContaining([expect.stringMatching(/^Health/), expect.stringMatching(/^Never run/)]));
+    expect((comps.find((c) => c.id === 'rest_tabs')!.tabs as Array<{ title: string }>).map((t) => t.title)).toEqual(expect.arrayContaining([expect.stringMatching(/^Counts/), expect.stringMatching(/^Never run/)]));
+    // The counts are one line above the board, problems first; no boxes needed to see them.
+    expect(page.text).toMatch(/<p class="pulse-health[^"]*" role="status">/);
+    expect(page.text).toMatch(/run(s)? in the last day/);
+    // Arrange and Suggest a layout are bordered buttons; a tile has no dead ⚙.
+    expect(page.text).toContain('<button type="button" class="btn btn--sm" data-canvas-edit>Arrange</button>');
     let tiles = registry(page.text);
     expect(tiles.weather.hideAction).toBe('/agents/weather/signal/toggle');
     expect(JSON.stringify(tiles['_system-runs-today'].messages)).toContain('"component":"Metric"');
@@ -450,7 +592,7 @@ describe('boards are canvases', () => {
       { id: 't1', component: 'AgentTile', agentId: 'news' }, { id: 't2', component: 'AgentTile', agentId: 'weather' },
       { id: 'root', component: 'Column', children: ['t1', 't2'] },
     ] } });
-    page = await get(app, '/pulse');
+    page = await get(app, '/pulse/agents');
     comps = surface(page.text);
     expect((comps.find((c) => c.id === 'root')!.children as string[]).slice(0, 2)).toEqual(['t1', 't2']);
     expect(comps.some((c) => c.id === 'rest_tile_news')).toBe(false); // placed, so not under Everything else
@@ -459,7 +601,7 @@ describe('boards are canvases', () => {
 
     // A placed agent hidden from Pulse drops off the canvas.
     ctx.agentStore.updateAgentMeta('news', { pulseVisible: false });
-    page = await get(app, '/pulse');
+    page = await get(app, '/pulse/agents');
     comps = surface(page.text);
     expect(comps.some((c) => c.component === 'AgentTile' && c.agentId === 'news')).toBe(false);
     expect(page.text).toContain('1 hidden');
@@ -567,7 +709,7 @@ describe('arranging a canvas', () => {
       sizes: { weather: '2x2' },
     });
     expect(res.status).toBe(200);
-    const comps = surface((await get(app, '/pulse')).text);
+    const comps = surface((await get(app, '/pulse/agents')).text);
     expect(comps.filter((c) => c.component === 'Section').map((c) => c.title)).toEqual(['Mine', 'Everything else']);
     expect(comps.find((c) => c.component === 'Cell')).toMatchObject({ span: 2, rows: 2 });
     res = await post(app, '/boards/pulse/import', { containers: [{ label: 'Again', tiles: ['news'] }] });

@@ -10,7 +10,7 @@
  * schemas. See docs/adr/0047-a2ui-views.md.
  */
 // A2UI protocol v1.0 (ADR-0084): web_core vendored from the A2UI repo, the same code the browser draws with.
-import { BASIC_FUNCTIONS, Catalog, CommonSchemas, basicCatalog, z } from '../../vendor/a2ui-web-core-v1.mjs';
+import { BASIC_FUNCTIONS, Catalog, CommonSchemas, basicCatalog, z, zodToJsonSchema } from '../../vendor/a2ui-web-core-v1.mjs';
 
 export const SUA_CATALOG_ID = 'https://some-useful-agents.dev/a2ui/catalogs/sua/v1.json';
 export const A2UI_PROTOCOL_VERSION = '1.0';
@@ -113,6 +113,12 @@ const SUA_COMPONENTS = [
     summary: 'Preformatted text in a monospace block.',
     example: { id: 'log', component: 'Code', text: { path: '/result' } },
     schema: Common.extend({ text: Str, language: z.string().max(32).optional() }).strict(),
+  },
+  {
+    name: 'VegaChart',
+    summary: 'Any chart from a Vega-Lite spec; its data in the spec or bound to a path (nothing is fetched).',
+    example: { id: 'chart', component: 'VegaChart', height: 240, spec: { data: { values: { path: '/outputs/rows' } }, mark: 'bar', encoding: { x: { field: 'name', type: 'nominal' }, y: { field: 'count', type: 'quantitative' } } } },
+    schema: Common.extend({ spec: CS.DynamicValue, height: CS.DynamicNumber.optional() }).strict(),
   },
   {
     name: 'Sparkline',
@@ -317,7 +323,7 @@ const SUA_COMPONENTS = [
   },
   {
     name: 'AnswerSections',
-    summary: 'The parts an answer was asked for, in order: `sections` [{key, title, kind: steps|table|text|diagram, items: [{text, detail?, refs?}] | columns + rows: [{cells, refs?}] + note? | body | diagram (laid out by sua: ladder, split or flow) + caption?}]; steps numbered, tables as a table, **bold** in text, diagrams drawn as bars; refs [{label, href}] link what each rests on. `only: ["key"]` draws just those parts, in that order (one key: without its own title, the Panel\'s says it); `rest: true` draws the parts no other part of the page places.',
+    summary: 'The parts an answer was asked for, in order: `sections` [{key, title, kind: steps|table|text|diagram, items: [{text, detail?, refs?}] | columns + rows: [{cells, refs?}] + note? | body | diagram (laid out by sua: ladder, split or flow) + caption?}]; steps numbered, tables as a table, **bold** in text, diagrams drawn as bars; refs [{label, href}] link what each rests on. `only: ["key"]` draws just those parts, in that order (one key: without its own title, the Panel\'s says it); `rest: true` draws the parts no other part of the page places. A runbook\'s parts can be placed by what each is for: `roles: ["ready"]` (what to have ready), `["method"]` (the steps and what to copy), `["trouble"]` (what goes wrong), `["background"]` (the guides, the why); `style: "runbook"` draws steps as cards (a big number, how, a ✓ what you\'ll see, an if-not aside, a box to tick, and the part to copy inside the step that uses it) and a what-goes-wrong table as symptom → fix rows.',
     example: { id: 'details', component: 'AnswerSections', sections: { path: '/notebook/answerSections' } },
     schema: Common.extend({
       sections: CS.DynamicValue,
@@ -332,13 +338,25 @@ const SUA_COMPONENTS = [
       skip: z.array(Str).optional(),
       /** Draw tables as ruled decision rows (if… → then…, why beneath) instead of a grid: for a rubric. "auto": only a table whose first column is a condition (If…, When…). */
       rubric: z.union([z.boolean(), z.literal('auto')]).optional(),
+      /** Only the parts for these runbook roles (core runbookRole): ready, method, trouble, background. */
+      roles: z.array(z.enum(['ready', 'method', 'trouble', 'background'])).optional(),
+      /** "runbook": steps as cards with the part to copy inside its step; what goes wrong as symptom → fix rows. */
+      style: z.literal('runbook').optional(),
+      /** Runbook roles another part of the page places (a notebook page sets it for `rest`). */
+      skipRoles: z.array(Str).optional(),
     }).strict(),
+  },
+  {
+    name: 'RunbookLesson',
+    summary: 'A runbook read as a lesson (ADR-0097), from `lesson` (/notebook/runbook/lesson): `part` "opening" (what you\'ll make, from `outcome`, then "You\'ll be able to" and its goals), "needs" (what you\'ll need, a box to tick for each, kept in this browser) or "finish" (you\'re done when…, key points, what\'s next, and a self-check with its answers folded).',
+    example: { id: 'finish', component: 'RunbookLesson', part: 'finish', lesson: { path: '/notebook/runbook/lesson' } },
+    schema: Common.extend({ lesson: CS.DynamicValue, part: z.enum(['opening', 'needs', 'finish']), outcome: Str.optional() }).strict(),
   },
   {
     name: 'Figure',
     summary: 'One written part on its own (`section`: /notebook/section/<key>, the same shape as an AnswerSections item), drawn large when `size` is "hero" (a ladder with tall bars, a split as a wide band, a rubric as ruled rows); `caption` under it; `rubric: true` for a table of decisions. Its title comes from the Panel around it.',
     example: { id: 'fig', component: 'Figure', section: { path: '/notebook/section/one-way-to-ladder-25-000' }, size: 'hero' },
-    schema: Common.extend({ section: CS.DynamicValue, size: z.enum(['hero', 'inline']).optional(), caption: Str.optional(), rubric: z.union([z.boolean(), z.literal('auto')]).optional() }).strict(),
+    schema: Common.extend({ section: CS.DynamicValue, size: z.enum(['hero', 'inline']).optional(), caption: Str.optional(), rubric: z.union([z.boolean(), z.literal('auto')]).optional(), style: z.literal('runbook').optional() }).strict(),
   },
   {
     name: 'Lead',
@@ -467,6 +485,48 @@ const BOARD_COMPONENTS = [
   },
 ] as const;
 
+/**
+ * Components only a notebook's TL;DR card may use (ADR-0096): the card's
+ * own renderer draws them (dashboard views/notebook-tldr.ts), as the PNG,
+ * the page's card and the brief's. Pictures, credits, names and numbers are
+ * bound from the card's data at /tldr/…, never written in.
+ */
+const TLDR_COMPONENTS = [
+  {
+    name: 'PhotoCover',
+    summary: 'A photo full-bleed with words over it on a scrim: `photo` bound to /tldr/photo or /tldr/photos/N (never an address); `kicker`, `headline`, `takeaway` (bind /tldr/title, /tldr/headline, /tldr/takeaway, or a short label); `scrim` dark | light | none; `align` where the words sit (top | center | bottom); `focus` the part of the photo kept (top | center | bottom); `height` short | tall. Its credit is drawn on it.',
+    example: { id: 'cover', component: 'PhotoCover', photo: { path: '/tldr/photo' }, kicker: { path: '/tldr/title' }, headline: { path: '/tldr/headline' }, scrim: 'dark', align: 'bottom' },
+    schema: Common.extend({
+      photo: CS.DynamicValue,
+      kicker: Str.optional(), headline: Str.optional(), takeaway: Str.optional(),
+      scrim: z.enum(['dark', 'light', 'none']).optional(),
+      align: z.enum(['top', 'center', 'bottom']).optional(),
+      focus: z.enum(['top', 'center', 'bottom']).optional(),
+      height: z.enum(['short', 'tall']).optional(),
+    }).strict(),
+  },
+  {
+    name: 'PhotoGrid',
+    summary: 'Up to four of the card\'s photos side by side, each credited under it: `photos` bound to /tldr/photos; `count` 1–4; `ratio` 4:3 | 1:1 | 16:10.',
+    example: { id: 'grid', component: 'PhotoGrid', photos: { path: '/tldr/photos' }, count: 3, ratio: '4:3' },
+    schema: Common.extend({ photos: CS.DynamicValue, count: z.number().int().min(1).max(4).optional(), ratio: z.enum(['4:3', '1:1', '16:10']).optional() }).strict(),
+  },
+  {
+    name: 'TldrPart',
+    summary: 'One of the standard card\'s parts, drawn as it always is from the notebook\'s data: `part` header (TL;DR, the date, the title or headline and takeaway) | lead (the lead and its facts) | hero (one thing very large) | stats (up to three numbers) | bars (the options as ranked bars) | points (the first findings) | photos (a strip of its photos, credited) | foot (where it\'s from).',
+    example: { id: 'nums', component: 'TldrPart', part: 'stats' },
+    schema: Common.extend({ part: z.enum(['header', 'lead', 'hero', 'stats', 'bars', 'points', 'photos', 'foot']) }).strict(),
+  },
+] as const;
+
+/** Components only a TL;DR card may use. */
+export const TLDR_COMPONENT_NAMES: readonly string[] = TLDR_COMPONENTS.map((c) => c.name);
+
+/** The TL;DR card's own components with a summary and an example, for the TL;DR agent. */
+export function tldrComponentDocs(): SuaComponentDoc[] {
+  return TLDR_COMPONENTS.map(({ name, summary, example }) => ({ name, summary, example: { ...example } }));
+}
+
 /** Components only a board may use. */
 export const BOARD_COMPONENT_NAMES: readonly string[] = BOARD_COMPONENTS.map((c) => c.name);
 
@@ -475,13 +535,43 @@ function basicComponentApis(): Array<{ name: string; schema: unknown }> {
   return [...basicCatalog.components.values()].map((v) => { const c = v as { name: string; schema: unknown }; return { name: c.name, schema: c.schema }; });
 }
 
+/**
+ * sua's own A2UI functions (ADR-0087), as the server validates them: name,
+ * return type, args. What each does runs in the browser
+ * (dashboard assets/sua-functions.js, the same names and args; a test keeps
+ * them in step); here it never runs.
+ */
+const suaFn = (name: string, returnType: string, description: string, args: Record<string, unknown>) =>
+  ({ name, returnType, description, allowedCallers: 'rendererOnly', schema: z.object(args).strict(), execute: () => undefined });
+export const SUA_FUNCTIONS = [
+  suaFn('join', 'string', 'A list as words: "hotel, rental" (separator ", " unless given; last, e.g. " and ", before the last item).', { value: CS.DynamicValue, separator: z.string().optional(), last: z.string().optional() }),
+  suaFn('relativeTime', 'string', 'A date or time as how long ago or until: "3 days ago", "in 2 hours".', { value: CS.DynamicString }),
+  suaFn('formatRange', 'string', 'Two numbers as a range: "$120K–$140K" with a currency code, "120–140" without; one end when they match or one is missing.', { min: CS.DynamicValue, max: CS.DynamicValue, currency: z.string().optional() }),
+  suaFn('count', 'number', 'How many items a list has (0 when it has none or isn\'t a list).', { value: CS.DynamicValue }),
+];
+export const SUA_FUNCTION_NAMES: readonly string[] = SUA_FUNCTIONS.map((f) => f.name);
+
+/**
+ * sua's agent functions (ADR-0088): declared here and in the browser with no
+ * implementation, so the A2UI 1.0 renderer sends each call to the dashboard
+ * (callAgentFunction) and draws the answer. They answer only on a notebook's
+ * own page, about that notebook (dashboard lib/a2ui-agent-functions.ts).
+ */
+const agentFn = (name: string, returnType: string, description: string, args: Record<string, unknown>) =>
+  ({ name, returnType, description, allowedCallers: 'rendererOnly', schema: z.object(args).strict() });
+export const SUA_AGENT_FUNCTIONS = [
+  agentFn('findOptions', 'array', "The notebook's options in the running whose name or facts have every word of q, best first, as rows for a Table: {id, name, page, link, and a value per field key}. Empty q: the best. limit: at most this many (10 unless given, 50 at most).", { q: CS.DynamicString, limit: CS.DynamicValue.optional() }),
+  agentFn('optionFacts', 'array', "One option's facts as {label, value} rows for a KeyValue: id is the option's id (a findOptions row's id).", { id: CS.DynamicString }),
+];
+export const SUA_AGENT_FUNCTION_NAMES: readonly string[] = SUA_AGENT_FUNCTIONS.map((f) => f.name);
+
 let catalog: Catalog<never> | undefined;
 
 /** The sua catalog, built once. */
 export function suaCatalog(): Catalog<never> {
   if (!catalog) {
-    const components = [...basicComponentApis(), ...[...SUA_COMPONENTS, ...BOARD_COMPONENTS].map(({ name, schema }) => ({ name, schema }))];
-    catalog = new Catalog(SUA_CATALOG_ID, '1.0', components as never[], BASIC_FUNCTIONS as never[]) as Catalog<never>;
+    const components = [...basicComponentApis(), ...[...SUA_COMPONENTS, ...BOARD_COMPONENTS, ...TLDR_COMPONENTS].map(({ name, schema }) => ({ name, schema }))];
+    catalog = new Catalog(SUA_CATALOG_ID, '1.0', components as never[], [...BASIC_FUNCTIONS, ...SUA_FUNCTIONS, ...SUA_AGENT_FUNCTIONS] as never[]) as Catalog<never>;
   }
   return catalog;
 }
@@ -500,3 +590,65 @@ export function suaComponentDocs(): SuaComponentDoc[] {
 export function boardComponentDocs(): SuaComponentDoc[] {
   return BOARD_COMPONENTS.map(({ name, summary, example }) => ({ name, summary, example: { ...example } }));
 }
+
+/** What the sua catalog is for, for an agent drawing with it (the catalog document's `instructions`). */
+export const SUA_CATALOG_INSTRUCTIONS = [
+  'sua draws agent results, notebooks and boards with this catalog: the A2UI v1.0 basic components plus sua\'s own.',
+  'Bind a value to the surface\'s data with {"@path": "/a/b"}; inside a List template, a path without a leading slash is relative to the item. Write a literal when it never changes.',
+  'One component has id "root". Ids are identifiers (letters, digits and _). A container lists its children by id, or repeats a template over a list: {"path": "/items", "componentId": "row"}.',
+  'Prefer sua\'s components for what they are for (Metric for a number, Table for rows, Bars for a ranking, Callout for the answer) over composing them from Text, Row and Column.',
+  'Board pages only: Grid, Cell, Section, AgentTile and SystemTile.',
+  'A notebook\'s TL;DR card only: PhotoCover, PhotoGrid and TldrPart.',
+].join(' ');
+
+/** A zod-derived JSON schema with A2UI's REF markers made $refs to common types, and its generic "Represents a …" notes dropped. */
+function catalogJson(n: unknown): unknown {
+  if (Array.isArray(n)) return n.map(catalogJson);
+  if (!n || typeof n !== 'object') return n;
+  const o = n as Record<string, unknown>;
+  const m = typeof o.description === 'string' ? /^REF:([^|]+)(?:\|([\s\S]*))?$/.exec(o.description) : null;
+  if (m) {
+    const ref = m[1].trim();
+    const note = m[2]?.trim();
+    return { $ref: ref.startsWith('#/$defs/') ? `common_types.json${ref}` : ref, ...(note && !/^Represents an? /.test(note) ? { description: note } : {}) };
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(o)) {
+    if (k === 'description' && typeof v === 'string' && /^Represents an? /.test(v)) continue;
+    if (k === '$schema') continue;
+    out[k] = catalogJson(v);
+  }
+  return out;
+}
+
+let catalogDocument: Record<string, unknown> | undefined;
+
+/**
+ * The sua catalog as an A2UI v1.0 catalog document (ADR-0085), what its
+ * `catalogId` names: the basic components and functions as A2UI publishes
+ * them, and sua's own, each with its props (from its schema), a one-line
+ * description and an example. A2UI's own loader (`Catalog.fromJson`) reads
+ * it back; the dashboard serves it at /a2ui/catalogs/sua/v1.json. Built once.
+ */
+export function suaCatalogDocument(): Record<string, unknown> {
+  if (catalogDocument) return structuredClone(catalogDocument);
+  const doc = suaCatalog().toJson();
+  const components = (doc.components ?? {}) as Record<string, unknown>;
+  const docs = new Map<string, { summary: string; example: Record<string, unknown>; board: boolean; tldr?: boolean }>([...SUA_COMPONENTS.map((c) => ({ ...c, board: false })), ...BOARD_COMPONENTS.map((c) => ({ ...c, board: true })), ...TLDR_COMPONENTS.map((c) => ({ ...c, board: false, tldr: true }))].map((c) => [c.name as string, c]));
+  for (const api of suaCatalog().components.values() as Iterable<{ name: string; schema: unknown }>) {
+    const d = docs.get(api.name);
+    if (!d) continue;
+    const j = zodToJsonSchema(api.schema, { target: 'jsonSchema2019-09', $refStrategy: 'none' });
+    const all = (catalogJson(j.properties ?? {}) ?? {}) as Record<string, unknown>;
+    const props = Object.fromEntries(Object.entries(all).filter(([k]) => k !== 'id' && k !== 'component' && !k.startsWith('@')));
+    const required = (Array.isArray(j.required) ? j.required as string[] : []).filter((r) => r !== 'id' && r !== 'component');
+    components[api.name] = { type: 'object', description: `${d.summary}${d.board ? ' Board pages only.' : ''}${d.tldr ? ' A notebook\'s TL;DR card only.' : ''}`, properties: { component: { const: api.name }, ...props }, required: ['component', ...required], examples: [d.example] };
+  }
+  catalogDocument = {
+    $id: SUA_CATALOG_ID, ...doc, components,
+    title: 'sua', description: 'The components sua draws agent results, notebooks and boards with: A2UI v1.0\'s basic catalog plus sua\'s own.',
+    instructions: SUA_CATALOG_INSTRUCTIONS,
+  };
+  return structuredClone(catalogDocument);
+}
+

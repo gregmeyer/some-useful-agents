@@ -1,84 +1,32 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  AgentStore,
-  LocalProvider,
-  MemorySecretsStore,
-  PlannerTelemetryStore,
-  RunStore,
-  buildLoopbackAllowlist,
-  loadAgents,
-} from '@some-useful-agents/core';
+import { PlannerTelemetryStore } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
-import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
-import { MemorySecretsSession } from '../secrets-session.js';
+import { createTestContext, closeTestContext, type TestContext } from '../test-harness.js';
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3997;
 
-let dir: string;
-let provider: LocalProvider;
-let runStore: RunStore;
-let agentStore: AgentStore;
 let plannerTelemetryStore: PlannerTelemetryStore;
+let t: TestContext | undefined;
 
 async function makeApp(): Promise<ReturnType<typeof buildDashboardApp>> {
-  dir = mkdtempSync(join(tmpdir(), 'sua-metrics-planner-'));
-  const dbPath = join(dir, 'runs.db');
-  const agentsDir = join(dir, 'agents', 'local');
-  mkdirSync(agentsDir, { recursive: true });
-  writeFileSync(join(agentsDir, 'hello.yaml'), 'name: hello\ntype: shell\ncommand: echo hi\n');
-
-  const secretsStore = new MemorySecretsStore();
-  runStore = new RunStore(dbPath);
-  agentStore = new AgentStore(dbPath);
-  plannerTelemetryStore = new PlannerTelemetryStore(dbPath);
-  provider = new LocalProvider(dbPath, secretsStore);
-  await provider.initialize();
-
-  const ctx: DashboardContext = {
-    token: TOKEN,
-    allowlist: buildLoopbackAllowlist(PORT),
-    port: PORT,
-    provider,
-    runStore,
-    agentStore,
-    loadAgents: () => loadAgents({ directories: [agentsDir] }),
-    secretsStore,
-    secretsSession: new MemorySecretsSession({ backing: secretsStore }),
-    tokenPath: join(dir, 'mcp-token'),
-    retentionDays: 30,
-    dbPath,
-    secretsPath: join(dir, 'secrets.enc'),
-    rotateToken: () => 'r'.repeat(64),
-    plannerTelemetryStore,
-    allowUntrustedShell: new Set(),
-    activeRuns: new Map(),
-    inboxTriageAbortControllers: new Map(),
-    inboxTriagePendingRefires: new Set(),
-    dataDir: dir,
-    dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
-  };
+  t = await createTestContext({ port: PORT, prefix: 'sua-metrics-planner-', extra: ({ dbPath }) => ({
+    plannerTelemetryStore: new PlannerTelemetryStore(dbPath),
+  }) });
+  const { ctx } = t;
+  writeFileSync(join(t.agentsDir, 'hello.yaml'), 'name: hello\ntype: shell\ncommand: echo hi\n');
+  plannerTelemetryStore = ctx.plannerTelemetryStore!;
 
   return buildDashboardApp(ctx);
 }
 
 afterEach(async () => {
-  if (provider) {
-    const start = Date.now();
-    while ((provider as unknown as { running?: { size: number } }).running?.size && Date.now() - start < 2000) {
-      await new Promise((r) => setTimeout(r, 20));
-    }
-    await provider.shutdown();
-  }
-  try { runStore?.close(); } catch { /* ignore */ }
-  try { agentStore?.close(); } catch { /* ignore */ }
-  try { plannerTelemetryStore?.close(); } catch { /* ignore */ }
-  if (dir) rmSync(dir, { recursive: true, force: true });
+  await closeTestContext(t);
+  t = undefined;
 });
 
 describe('GET /metrics/planner', () => {

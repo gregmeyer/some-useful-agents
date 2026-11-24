@@ -1,80 +1,36 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import request from 'supertest';
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   AgentStore,
-  LocalProvider,
-  MemorySecretsStore,
   RunStore,
-  buildLoopbackAllowlist,
-  loadAgents,
   parseAgent,
 } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
-import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
-import { MemorySecretsSession } from '../secrets-session.js';
+import { createTestContext, closeTestContext, type TestContext } from '../test-harness.js';
 import { missingTrialInputs, trialTimeoutMs } from './build-try.js';
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3993;
 const COOKIE = `${SESSION_COOKIE}=${TOKEN}`;
 
-let dir: string;
-let provider: LocalProvider;
 let runStore: RunStore;
 let agentStore: AgentStore;
+let t: TestContext | undefined;
 const onRunFailure = vi.fn(async () => {});
 const onRunComplete = vi.fn(async () => {});
 
 async function makeApp() {
-  dir = mkdtempSync(join(tmpdir(), 'sua-build-try-'));
-  const dbPath = join(dir, 'runs.db');
-  const agentsDir = join(dir, 'agents', 'local');
-  mkdirSync(agentsDir, { recursive: true });
-  const secretsStore = new MemorySecretsStore();
-  runStore = new RunStore(dbPath);
-  agentStore = new AgentStore(dbPath);
-  provider = new LocalProvider(dbPath, secretsStore);
-  await provider.initialize();
+  t = await createTestContext({ port: PORT, prefix: 'sua-build-try-', extra: { onRunFailure, onRunComplete } });
+  ({ runStore, agentStore } = t.ctx);
   onRunFailure.mockClear();
   onRunComplete.mockClear();
-  const ctx: DashboardContext = {
-    token: TOKEN,
-    allowlist: buildLoopbackAllowlist(PORT),
-    port: PORT,
-    provider,
-    runStore,
-    agentStore,
-    loadAgents: () => loadAgents({ directories: [agentsDir] }),
-    secretsStore,
-    secretsSession: new MemorySecretsSession({ backing: secretsStore }),
-    tokenPath: join(dir, 'mcp-token'),
-    retentionDays: 30,
-    dbPath,
-    secretsPath: join(dir, 'secrets.enc'),
-    rotateToken: () => 'r'.repeat(64),
-    allowUntrustedShell: new Set(),
-    activeRuns: new Map(),
-    inboxTriageAbortControllers: new Map(),
-    inboxTriagePendingRefires: new Set(),
-    dataDir: dir,
-    dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
-    onRunFailure,
-    onRunComplete,
-  };
-  return buildDashboardApp(ctx);
+  return buildDashboardApp(t.ctx);
 }
 
 afterEach(async () => {
-  if (!dir) return;
-  await provider.shutdown();
-  try { runStore.close(); } catch { /* ignore */ }
-  try { agentStore.close(); } catch { /* ignore */ }
-  rmSync(dir, { recursive: true, force: true });
-  dir = '';
+  await closeTestContext(t);
+  t = undefined;
 });
 
 const post = (app: Parameters<typeof request>[0], body: unknown) => request(app).post('/agents/build/try')

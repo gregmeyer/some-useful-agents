@@ -10,6 +10,7 @@
  * option's facts don't.
  */
 import { randomUUID } from 'node:crypto';
+import { inBackground } from './background.js';
 import {
   NotebookStore, executeAgentDag, extractTaggedJson, fetchImage as coreFetchImage,
   type FetchedImage,
@@ -150,7 +151,7 @@ export function startNotebookPictures(ctx: Ctx, notebookId: string): boolean {
   const ac = new AbortController();
   ctx.activeRuns.set(runId, ac);
   const inputs = { NOTEBOOK: nb.statement || nb.title, OPTIONS: JSON.stringify(options) };
-  void (async () => {
+  inBackground(ctx, 'notebook-pictures', (async () => {
     try {
       let result: string | undefined;
       if (fake) {
@@ -175,7 +176,7 @@ export function startNotebookPictures(ctx: Ctx, notebookId: string): boolean {
       // The page redraws on the notebook's change mark.
       try { store.touch(notebookId); } catch { /* gone */ }
     }
-  })();
+  })());
   return true;
 }
 

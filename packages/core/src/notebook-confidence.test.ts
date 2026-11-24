@@ -71,4 +71,23 @@ describe("how sure an answer is, from its evidence (ADR-0083)", () => {
     expect(criterionMet(nb({}), [], 'The answer on how they differ written')).toBe(true);
     expect(criterionMet(nb({ text: '' }), [], 'The answer on how they differ written')).toBe(false);
   });
+
+  it("a finding about options is tagged by how they did on the notebook's checks (each confirmed from the option's own page)", () => {
+    const opt = (id: string, checked: string[]) => ({ id, notebookId: 'nb', kind: 'option', title: id, body: '', by: 'x', createdAt: at, checked } as unknown as NotebookEntry);
+    const all = opt('o1', ['Open', 'Remote']), some = opt('o2', ['Open']), none = opt('o3', []);
+    const byId = new Map([all, some, none].map((e) => [e.id, e]));
+    const jobs = { ...nb({}), checks: ['Open', 'Remote'] };
+    expect(findingStatus(jobs, { text: 'Lead', from: ['o1'] }, byId)).toBe('verified');
+    expect(findingStatus(jobs, { text: 'Two', from: ['o1', 'o2'] }, byId)).toBe('supported');
+    expect(findingStatus(jobs, { text: 'Rest', from: ['o3'] }, byId)).toBe('unverified');
+    // No checks to go by: no word either way.
+    expect(findingStatus({ ...jobs, checks: [] }, { text: 'Lead', from: ['o1'] }, byId)).toBeUndefined();
+  });
+
+  it('talking points written is something written: a briefing\'s points tick it', () => {
+    const meeting = { ...nb({}), answer: undefined, steps: [{ id: 'w', title: 'Write', kind: 'write', status: 'done', tries: 0 }], briefing: { points: [{ text: 'Ask about the raise' }], questions: [], watch: [], at, by: 'x' } } as unknown as Notebook;
+    expect(criterionMet(meeting, [], 'Talking points written')).toBe(true);
+    expect(criterionMet({ ...meeting, briefing: undefined } as Notebook, [], 'Talking points written')).toBe(false);
+  });
 });
+

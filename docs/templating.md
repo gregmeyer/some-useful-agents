@@ -122,7 +122,7 @@ For shell downstream nodes, each declared output is exported as `$UPSTREAM_<NODE
 
 Output widgets use the **same extractor** (XML tag or JSON key) but a different template syntax — `{{outputs.NAME}}` and `{{result}}`. See [Output widgets](output-widgets.md) for the full reference.
 
-Run output is extracted first, HTML-escaped, then substituted into the (sanitized) template. The AI-generated `ai-template` widget is the primary consumer.
+Run output is extracted first, HTML-escaped, then substituted into the (sanitized) template. A `{{…}}` placeholder in text also draws the value's inline Markdown (links, bold, italic, code), so an agent's answer with `[a source](https://…)` shows a link; in an attribute it stays the plain value. The AI-generated `ai-template` widget is the primary consumer.
 
 ## Quick reference
 

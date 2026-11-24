@@ -1,16 +1,20 @@
 # Edition Editor — turns something the person asks about Today's edition
-# on Pulse ("lead with markets", "drop the evening routine", "put the job
-# digest in the wide column") into the changes the edition takes. The
-# dashboard checks every change (only agents that exist) and shows them as a
-# card to apply; the edition then follows them every day. Route-dispatched
-# only (dashboard lib/edition-ask.ts); never proposed in triage.
+# on Pulse ("lead with markets", "drop the evening routine", "what's
+# stale?") into the changes the edition takes, and offers to run a part
+# again when it's old or failed. It sees how fresh each part is. The
+# dashboard checks every change and action (only agents that exist, only a
+# part that can run again) and shows them as a card, one row each, applied
+# or skipped on its own; a run has its own button and is never in Apply all.
+# Route-dispatched only (dashboard lib/edition-ask.ts); never proposed in
+# triage.
 
 id: edition-editor
 name: Edition Editor
 description: >
   Turns what you ask about Today's edition into the changes it takes: what
   leads, what is left out or always shown, which column, the numbers band,
-  the top item, and a line of your own.
+  the top item, and a line of your own; offers to run an old or failed
+  part again, or to draft a new agent for something none of yours covers.
 status: active
 source: examples
 
@@ -22,7 +26,7 @@ inputs:
   EDITION:
     type: string
     required: true
-    description: 'JSON: {"goal"?, "showing": [{"id","title","column","leads"?}], "leftOut": [{"id","title"}], "couldShow": [{"id","title","about"?}], "numbersBand": true|false, "topItemOf"?, "yourLine"?}: the edition as it is now.'
+    description: 'JSON: {"goal"?, "showing": [{"id","title","column","leads"?,"ageHours","lastRun":"ok"|"failed","why":"scheduled"|"always shown","canRunAgain"}], "scheduler": {"running", "says"?}, "leftOut": [{"id","title"}], "couldShow": [{"id","title","about"?}], "numbersBand": true|false, "topItemOf"?, "yourLine"?}: the edition as it is now.'
 
 nodes:
   - id: edit
@@ -43,9 +47,14 @@ nodes:
       WHAT THEY ASKED:
       {{inputs.ASK}}
 
-      THE EDITION NOW (JSON). "showing" is on the page; "leftOut" they
-      removed earlier; "couldShow" are other agents of theirs that have a
-      result and could be brought in:
+      THE EDITION NOW (JSON). "showing" is on the page, each with how
+      fresh it is: "ageHours" since its result, "lastRun" ("failed" means
+      its newest run failed and this is the result from before), "why" it
+      is shown ("always shown" means they asked for it whatever its age;
+      only those can be older than a day), and "canRunAgain". "scheduler"
+      says whether scheduled agents will run. "leftOut" they removed
+      earlier; "couldShow" are other agents of theirs that have a result
+      and could be brought in:
       {{inputs.EDITION}}
 
       CHANGES (use agent ids exactly as given above; never invent one):
@@ -56,6 +65,9 @@ nodes:
       - {"op":"show","agentId":"<id>"}: bring back one from "leftOut".
       - {"op":"include","agentId":"<id>"}: always show one from
         "couldShow", whenever it has a result.
+      - {"op":"auto","agentId":"<id>"}: stop always showing one whose
+        "why" is "always shown": it is in the edition again only when it
+        ran in the last day. For an old part they don't want every day.
       - {"op":"width","agentId":"<id>","width":"wide"|"narrow"|"auto"}:
         which column its result takes.
       - {"op":"numbers","on":true|false}: the "By the numbers" band.
@@ -67,6 +79,25 @@ nodes:
       - {"op":"reset"}: forget every change; the edition decides
         everything again. Only when they ask for that.
 
+      ACTIONS (they cost a run, so each gets its own button; at most 4):
+      - {"do":"rerun","agentId":"<id>"}: run a showing part again with
+        its last inputs. Only when its ageHours is over 24 or its lastRun
+        is "failed", and canRunAgain is true.
+      - {"do":"draft","purpose":"<what the new agent would find, one
+        sentence>","suggestedName"?:"<short name>"}: draft a new agent for
+        something they want in the edition that no agent of theirs covers
+        (none in "showing" or "couldShow" does it). sua drafts it; they
+        approve it in their inbox; approved, it runs once and is always
+        shown. At most two. Never for something an existing agent does:
+        bring that one in with "include".
+
+      When they ask what's stale, old, broken or out of date: offer
+      "rerun" for each part that can run again, and "auto" for an old
+      "always shown" part only if they say they don't need it every day.
+      When the scheduler isn't running, say so in "say" (it's why
+      scheduled parts are old) and that it is started from the
+      Scheduled page; you can't start it.
+
       Match what they call an agent to its "title" or id. When part of
       what they ask can't be done with these changes (three columns,
       colours, a new agent, a new chart) or names something that isn't in
@@ -76,9 +107,11 @@ nodes:
       it can be done.
 
       "say": one plain sentence telling them what will change, or why
-      nothing will. No ids in it; use titles.
+      nothing will. No ids in it; use titles. No numbers in it (no ages,
+      no counts): the card shows each part's age itself, and a line with a
+      number is left out.
 
-      Reply with only this, as valid JSON:
+      Reply with only this, as valid JSON ("actions" may be empty):
       <edition>
-      {"ops": [{"op": "lead", "agentId": ""}], "say": ""}
+      {"ops": [{"op": "lead", "agentId": ""}], "actions": [], "say": ""}
       </edition>

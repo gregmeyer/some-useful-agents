@@ -10,6 +10,7 @@
  */
 
 import { contextWithAttachments, fileThreadAttachments } from '../lib/conversation-attach.js';
+import { inBackground } from '../lib/background.js';
 import { randomUUID } from 'node:crypto';
 import { meetingWhenWords } from '../lib/notebook-edit.js';
 import { forkForNotebook } from '../lib/agent-fork.js';
@@ -70,6 +71,7 @@ import {
 import { getContext } from '../context.js';
 import { startBoardBuild } from '../lib/board-build.js';
 import { startViewProposal } from '../lib/view-designer.js';
+import { startEditionAsk } from '../lib/edition-ask.js';
 import { maybeKickoffFirstRun } from './dashboard-first-run.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import { autoFixYaml } from './run-now-build.js';
@@ -85,6 +87,7 @@ import {
   parseActionMeta,
   formatLearnings,
   formatConversationSnapshot,
+  latestAskAt,
   isTriagePaused,
   TRIAGE_REJECTION_RECOVERY_NOTE,
   PENDING_USER_REPLY_WINDOW_MS,
@@ -169,6 +172,8 @@ const TRIAGE_AUTO_APPROVE_AGENTS: ReadonlySet<string> = new Set([
   'board-build',
   // Only asks for a proposal; the operator compares and chooses on the View page.
   'view-redesign',
+  // Only works out changes to Today's edition; each is applied (or a run started) on Pulse.
+  'edition-ask',
   // Additive and removable entry by entry: what you said goes into the notebook as you talk.
   'notebook-add',
   // Only works out what a correction changes; applying it is its own card.
@@ -188,6 +193,16 @@ const TRIAGE_AUTO_APPROVE_AGENTS: ReadonlySet<string> = new Set([
  * the policy layer is inert until the operator edits it. Exported so the UI
  * can render the same verdict it enforces ("auto-runs" vs "needs approval").
  */
+/** A commitment chip for work that waits for the operator's Run. Pure. */
+export function waitingChip(summary: string): string {
+  return /^waiting for you/i.test(summary) ? summary : `waiting for you: ${summary}`;
+}
+
+/** The agents a proposed action starts on its own right now (the rest wait for Run), for triage's STARTS_ON_ITS_OWN. */
+export function startsOnItsOwn(ctx: ReturnType<typeof getContext>, agentIds: readonly string[]): string[] {
+  return agentIds.filter((id) => isAutoApproved(ctx, id));
+}
+
 export function isAutoApproved(ctx: ReturnType<typeof getContext>, agentId: string): boolean {
   const store = ctx.inboxStore;
   if (!store) return TRIAGE_AUTO_APPROVE_AGENTS.has(agentId);
@@ -215,7 +230,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'board-build', 'view-redesign']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'board-build', 'view-redesign', 'edition-ask']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -888,7 +903,7 @@ function maybeRefireTriage(
     publishInboxEvent(ctx, messageId, 'state', { phase: 'done', since: Date.now() });
     return;
   }
-  void runTriageAgent(ctx, messageId).catch(() => { /* swallow */ });
+  inBackground(ctx, 'runTriageAgent', runTriageAgent(ctx, messageId).catch(() => { /* swallow */ }));
 }
 
 /**
@@ -966,6 +981,9 @@ async function executeRouteHandledAgent(
   if (meta.agentId === 'view-redesign') {
     return executeViewRedesign(ctx, meta);
   }
+  if (meta.agentId === 'edition-ask') {
+    return executeEditionAskAction(ctx, meta);
+  }
   return {
     status: 'failed',
     refusalReason: `Route-handled agent "${meta.agentId}" has no executor.`,
@@ -989,6 +1007,22 @@ export function executeViewRedesign(
     return { status: 'completed', summary: `sua is already redesigning ${agent.name}'s view (or the view designer isn't available). See ${link}.` };
   }
   return { status: 'completed', summary: `Redesigning ${agent.name}'s view now. In a minute or two the proposal is at ${link}, beside the current view; nothing changes until it's used.` };
+}
+
+/**
+ * Execute an `edition-ask` action: start working out the change to Today's
+ * edition (lib/edition-ask.ts) and return the Pulse link at once. The changes
+ * wait on Pulse, one row each; nothing changes and nothing runs until the
+ * operator presses Apply or Run there.
+ */
+export function executeEditionAskAction(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
+  const out = startEditionAsk(ctx, meta.inputs.ASK ?? '');
+  if (out.error) return { status: 'failed', refusalReason: out.error };
+  if (out.work) ctx.boardReviewWork = out.work;
+  return { status: 'completed', summary: "Working out that change to Today's edition now. In a minute the changes are on Pulse (/pulse), one row each; nothing changes until you apply them there." };
 }
 
 /**
@@ -1679,9 +1713,9 @@ export function proposeAgentFix(
     if (store.transitionActionStatus(resp.id, 'proposed', JSON.stringify(runningMeta))) {
       publishInboxEvent(ctx, messageId, 'action:status', { responseId: resp.id, status: 'running', agentId: action.agentId, startedAt });
       const claimed = store.getResponse(resp.id) ?? resp;
-      void runProposedAction(ctx, messageId, claimed, runningMeta).catch((err) => {
+      inBackground(ctx, 'runProposedAction', runProposedAction(ctx, messageId, claimed, runningMeta).catch((err) => {
         process.stderr.write(`[inbox] fix analysis ${resp.id} crashed: ${(err as Error)?.message ?? err}\n`);
-      });
+      }));
     }
   }
   return resp.id;
@@ -2124,9 +2158,9 @@ export function proposeWiring(ctx: ReturnType<typeof getContext>, messageId: str
     if (store.transitionActionStatus(resp.id, 'proposed', JSON.stringify(runningMeta))) {
       publishInboxEvent(ctx, messageId, 'action:status', { responseId: resp.id, status: 'running', agentId: action.agentId, startedAt });
       const claimed = store.getResponse(resp.id) ?? resp;
-      void runProposedAction(ctx, messageId, claimed, runningMeta).catch((err) => {
+      inBackground(ctx, 'runProposedAction', runProposedAction(ctx, messageId, claimed, runningMeta).catch((err) => {
         process.stderr.write(`[inbox] wiring analysis ${resp.id} crashed: ${(err as Error)?.message ?? err}\n`);
-      });
+      }));
     }
   }
   return resp.id;
@@ -2703,7 +2737,9 @@ export async function runTriageAgent(
   // The notebook this conversation is about (started on its page, or linked to it),
   // or else the one it has turned to (sua's latest reply links just that one).
   const threadNotebook = (() => { try { return notebookForThread(ctx, messageId, message.contextJson) ?? notebookTalkedAbout(ctx, messageId); } catch { return undefined; } })();
-  const focusAgentRun = focusAgentId ? collectRunSummary(ctx, focusAgentId) : '';
+  // Its failure says how long ago, and whether it came before what they last asked (then it's history, not news).
+  const latestAsk = latestAskAt(responsesSnapshot);
+  const focusAgentRun = focusAgentId ? collectRunSummary(ctx, focusAgentId, { now: Date.now(), ...(latestAsk !== undefined ? { latestAsk } : {}) }) : '';
   // Outcome-awareness: what the latest run was SUPPOSED to achieve and whether
   // it did. Run output alone can't answer that — a clean run with an empty
   // digest looks fine in FOCUS_AGENT_RUN. Empty when the agent declared no
@@ -2818,6 +2854,8 @@ export async function runTriageAgent(
           RUNNABLE_AGENT_SPECS: runnableAgentSpecs,
           RUNNABLE_CANDIDATES: candidates.join(', '),
           RUNNABLE_CANDIDATE_SPECS: candidateAgentSpecs,
+          // Which of them start on their own when proposed; the rest wait for the operator's Run.
+          STARTS_ON_ITS_OWN: startsOnItsOwn(ctx, [...new Set([...allowlist, ...candidates])]).join(', '),
           // Trimmed installed-agent catalog (newest first) so triage can answer
           // recency / "what does agent X do" directly, with a link, instead of
           // dispatching agent-catalog-search for a simple lookup.
@@ -2972,6 +3010,9 @@ export async function runTriageAgent(
     // promise the chip exists to prevent. The triage reply is written before
     // actions are parsed, so we decide the chip after the fact.
     let pendingWorkInserted = false;
+    // Proposed work that waits for the operator's Run (not one it starts on its own): its chip says so.
+    let waitsForRun = false;
+    let startedOnItsOwn = false;
     const rawActionList = Array.isArray(parsed.actions) ? parsed.actions : [];
     const planHasShowWidget = rawActionList.some(
       (a) => a && typeof a === 'object' && (a as { type?: unknown }).type === 'show-widget',
@@ -3063,7 +3104,7 @@ export async function runTriageAgent(
       && countConsecutiveTriageTurns(ctx, messageId) < MAX_AUTO_TRIAGE_TURNS) {
       addSystemMessage(ctx, messageId, vetted.rejected.map((r) => `Refused action on \`${r.agentId}\`: ${r.reason}.`).join('\n'));
       addSystemMessage(ctx, messageId, TRIAGE_REJECTION_RECOVERY_NOTE);
-      void runTriageAgent(ctx, messageId).catch(() => { /* swallow */ });
+      inBackground(ctx, 'runTriageAgent', runTriageAgent(ctx, messageId).catch(() => { /* swallow */ }));
       return;
     }
 
@@ -3207,7 +3248,9 @@ export async function runTriageAgent(
         // idempotently. On completion runProposedAction publishes the terminal
         // action:status event and (when all actions resolve) fires the
         // follow-up triage turn.
-        if (isAutoApproved(ctx, action.agentId) && !isTriagePaused(ctx, messageId)) {
+        if (!isAutoApproved(ctx, action.agentId) || isTriagePaused(ctx, messageId)) waitsForRun = true;
+        else {
+          startedOnItsOwn = true;
           const startedAt = Date.now();
           const runningMeta: InboxActionMeta = { ...stamped, status: 'running', startedAt, approvedBy: 'policy' };
           const claimed = ctx.inboxStore.transitionActionStatus(
@@ -3223,9 +3266,9 @@ export async function runTriageAgent(
               startedAt,
             });
             const claimedResponse = ctx.inboxStore.getResponse(actionResp.id) ?? actionResp;
-            void runProposedAction(ctx, messageId, claimedResponse, runningMeta).catch((err) => {
+            inBackground(ctx, 'runProposedAction', runProposedAction(ctx, messageId, claimedResponse, runningMeta).catch((err) => {
               process.stderr.write(`[inbox-triage] auto-approved action ${actionResp.id} crashed: ${(err as Error)?.message ?? err}\n`);
-            });
+            }));
           }
         }
       }
@@ -3263,7 +3306,7 @@ export async function runTriageAgent(
         && !hasRecoveryRefireSinceLastUser(ctx, messageId)
         && countConsecutiveTriageTurns(ctx, messageId) < MAX_AUTO_TRIAGE_TURNS) {
         addSystemMessage(ctx, messageId, TRIAGE_REJECTION_RECOVERY_NOTE);
-        void runTriageAgent(ctx, messageId).catch(() => { /* swallow */ });
+        inBackground(ctx, 'runTriageAgent', runTriageAgent(ctx, messageId).catch(() => { /* swallow */ }));
       }
     }
 
@@ -3277,6 +3320,10 @@ export async function runTriageAgent(
       ctx.inboxStore.updateResponse(triageReply.id, {
         metaJson: Object.keys(keptMeta).length > 0 ? JSON.stringify(keptMeta) : null,
       });
+    }
+    // Nothing started on its own and the work waits for the operator's Run: the chip says it's waiting, not under way.
+    else if (commitmentSummary && waitsForRun && !startedOnItsOwn) {
+      ctx.inboxStore.updateResponse(triageReply.id, { metaJson: JSON.stringify({ ...triageMeta, commitmentSummary: waitingChip(commitmentSummary) }) });
     }
 
     // A resolve-thread action already set the thread to `resolved`; don't stomp
@@ -3330,7 +3377,7 @@ export async function runTriageAgent(
         // (the delay comfortably outlasts the synchronous teardown), so the
         // retry isn't deferred as a concurrent run.
         setTimeout(() => {
-          void runTriageAgent(ctx, messageId).catch(() => { /* swallow — terminal note posts on final failure */ });
+          inBackground(ctx, 'runTriageAgent', runTriageAgent(ctx, messageId).catch(() => { /* swallow — terminal note posts on final failure */ }));
         }, TRIAGE_CRASH_RETRY_DELAY_MS);
       } else {
         retries.delete(messageId);
