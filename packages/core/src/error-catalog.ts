@@ -173,7 +173,7 @@ const CATEGORY_HELP: Record<string, Omit<ErrorCatalogEntry, 'kind' | 'label'>> =
     ],
     troubleshooting: [
       'Inspect the node output on the run page against the declared `outputContract`.',
-      'Tighten the prompt, or allow a stronger provider in the waterfall.',
+      'Tighten the prompt, or add a stronger provider to the provider order.',
       'Loosen the contract if the requirement is stricter than necessary.',
     ],
   },

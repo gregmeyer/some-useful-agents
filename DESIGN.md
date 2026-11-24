@@ -181,6 +181,7 @@ the dashboard and CLI help, the same way the Color section is authoritative for 
 | sua answering in the inbox | sua | the triage agent, `inbox-triage` |
 | Older agent file format | the older format | v1, legacy v1 |
 | The board of tiles | Pulse | information radiator, dashboard |
+| The providers tried in turn | provider order; "moves on to the next provider" | waterfall, fallback chain, chain |
 
 ### Never ships to a user
 `DAG` · `v1` / `v2` · `slot` · `outputWidget` · `executor` · `waterfall` · `fallback chain` ·

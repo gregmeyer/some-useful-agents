@@ -691,7 +691,7 @@ function renderNodeCards(
         // Hover detail: full per-provider category + error snippet when present.
         const titleDetail = failures.length > 0
           ? failures.map((f) => `${f.provider}: ${f.category}${f.error ? ` — ${f.error}` : ''}`).join('\n')
-          : `LLM waterfall: ${trail.join(' → ')}`;
+          : `Providers tried: ${trail.join(' → ')}`;
         const verdict = e.status === 'completed' ? 'ran on' : 'ended on';
         waterfallChip = html`<span class="badge badge--muted" title="${titleDetail}">${verdict} <span class="mono">${e.usedLLMProvider}</span> · <span class="mono">${failedFrom}</span> failed</span>`;
       }

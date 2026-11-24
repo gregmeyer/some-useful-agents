@@ -206,7 +206,7 @@ export class LlmSettingsStore {
       if (!deduped.includes(p)) deduped.push(p);
     }
     if (deduped.length === 0) {
-      throw new Error('Provider waterfall must have at least one entry.');
+      throw new Error('The provider order must have at least one provider.');
     }
     data.settings.providers = deduped;
     this.write(data);
@@ -221,7 +221,7 @@ export class LlmSettingsStore {
   setProviderEnabled(name: string, enabled: boolean): void {
     const data = this.read();
     if (!data.settings.providers.includes(name)) {
-      throw new Error(`"${name}" is not in the waterfall.`);
+      throw new Error(`"${name}" is not in the provider order.`);
     }
     const disabled = new Set(data.settings.disabledProviders ?? []);
     if (enabled) {
@@ -303,7 +303,7 @@ export class LlmSettingsStore {
     }
     const nextProviders = data.settings.providers.filter((p) => p !== name);
     if (nextProviders.length === 0) {
-      throw new Error('Cannot remove the last provider in the waterfall — add a replacement first.');
+      throw new Error('Cannot remove the last provider in the provider order — add a replacement first.');
     }
     data.settings.customProviders = list.filter((c) => c.name !== name);
     data.settings.providers = nextProviders;
