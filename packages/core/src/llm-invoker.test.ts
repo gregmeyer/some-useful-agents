@@ -1,5 +1,32 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { detectLlms, invokeLlm } from './llm-invoker.js';
+
+// Every case runs against stand-in `claude` / `codex` scripts on PATH, never
+// the real CLIs: a test must not spend a model call (or wait on one) just
+// because the machine it runs on has them installed.
+let bin: string;
+let savedPath: string | undefined;
+
+function fake(name: string, body: string): void {
+  const p = join(bin, name);
+  writeFileSync(p, `#!/bin/sh\n${body}\n`);
+  chmodSync(p, 0o755);
+}
+
+beforeEach(() => {
+  bin = mkdtempSync(join(tmpdir(), 'sua-llm-invoker-'));
+  savedPath = process.env.PATH;
+  // Only the stand-ins and the basics they need (sh, sleep).
+  process.env.PATH = `${bin}:/bin:/usr/bin`;
+});
+
+afterEach(() => {
+  process.env.PATH = savedPath;
+  rmSync(bin, { recursive: true, force: true });
+});
 
 describe('detectLlms', () => {
   it('returns a structure with both provider slots', () => {
@@ -12,36 +39,27 @@ describe('detectLlms', () => {
 });
 
 describe('invokeLlm', () => {
-  it('returns exit code 127 with ENOENT message when CLI missing', async () => {
-    // Call with a provider name that is definitely not on PATH by spawning
-    // a bogus binary through the real code path. We can't mock spawn here
-    // without a heavy setup, so we trust the ENOENT branch by invoking a
-    // non-existent CLI via a shim: the spawn in llm-invoker uses the literal
-    // provider name, so we test by renaming the PATH lookup via env.
-    const result = await invokeLlm({
-      provider: 'claude',
-      prompt: 'test',
-      timeoutMs: 1000,
-    });
-    // Either: claude exists and returned some exit code, OR it didn't and we got 127.
-    // The test is that we got a well-formed result object either way.
-    expect(result).toHaveProperty('output');
-    expect(result).toHaveProperty('exitCode');
-    expect(typeof result.exitCode).toBe('number');
+  it('returns what the CLI printed and its exit code', async () => {
+    fake('claude', 'echo "answer to: $*"');
+    const result = await invokeLlm({ provider: 'claude', prompt: 'test', timeoutMs: 5000 });
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain('answer to:');
+    expect(result.output).toContain('test');
+    expect(result.error).toBeUndefined();
+  });
+
+  it('returns exit code 127 with a clear message when the CLI is missing', async () => {
+    const result = await invokeLlm({ provider: 'claude', prompt: 'test', timeoutMs: 1000 });
+    expect(result.exitCode).toBe(127);
+    expect(result.error).toMatch(/not found on PATH/);
   });
 
   it('respects the timeout option', async () => {
-    // If claude is installed and hangs we should get exit 124. If it's not
-    // installed we'll get 127 quickly. Either way, the call returns within
-    // a reasonable bound.
+    fake('codex', 'exec sleep 30');
     const start = Date.now();
-    await invokeLlm({
-      provider: 'codex',
-      prompt: 'hang forever please',
-      timeoutMs: 500,
-    });
-    const elapsed = Date.now() - start;
-    // Either we timed out fast (500ms+some) or the CLI is missing and errored quickly
-    expect(elapsed).toBeLessThan(3000);
+    const result = await invokeLlm({ provider: 'codex', prompt: 'hang forever please', timeoutMs: 500 });
+    expect(result.exitCode).toBe(124);
+    expect(result.error).toMatch(/timed out/);
+    expect(Date.now() - start).toBeLessThan(3000);
   });
 });

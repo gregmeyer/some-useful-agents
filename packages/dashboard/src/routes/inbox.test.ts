@@ -76,6 +76,10 @@ async function makeApp() {
     inboxTriagePendingRefires: new Set(),
     dataDir: dir,
     dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
+    // Never a real model: a triage turn the routes start answers at once with
+    // nothing to do. A real CLI here outlived the test and wrote to a closed
+    // store ("database is not open"), and spent real calls.
+    workflowSpawnNode: async () => ({ result: '<plan>{"reply": "", "actions": []}</plan>', exitCode: 0 }),
   };
   currentCtx = ctx;
   return buildDashboardApp(ctx);
