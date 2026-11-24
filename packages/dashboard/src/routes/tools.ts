@@ -18,6 +18,7 @@ import {
 } from '@some-useful-agents/core';
 import { randomUUID } from 'node:crypto';
 import { renderToolForm } from '../views/tool-form.js';
+import { startToolDraft, readToolDraft } from '../lib/tool-drafter.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import {
   EMPTY_TOOL_FORM,
@@ -287,7 +288,7 @@ function handleToolForm(req: Request, res: Response, mode: 'new' | 'edit', editI
   const sample = typeof body.sample === 'string' ? body.sample : undefined;
   const posted = postedTool(body);
   const page = (extra: Partial<Parameters<typeof renderToolForm>[0]>) =>
-    res.type('html').send(renderToolForm({ mode, values: posted.values, view: posted.view, yaml: posted.yaml, sample, ...extra }));
+    res.type('html').send(renderToolForm({ mode, tab: 'write', values: posted.values, view: posted.view, yaml: posted.yaml, sample, ...extra }));
 
   // Switching between the fields and the YAML keeps what you wrote.
   if (action === 'to_yaml') { page({ view: 'yaml', yaml: toolFormToYaml(posted.values) }); return; }
@@ -317,8 +318,44 @@ function handleToolForm(req: Request, res: Response, mode: 'new' | 'edit', editI
   }
 }
 
-toolsRouter.get('/tools/new', (_req: Request, res: Response) => {
-  res.type('html').send(renderToolForm({ mode: 'new', values: EMPTY_TOOL_FORM, view: 'fields' }));
+toolsRouter.get('/tools/new', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const draftId = typeof req.query.draft === 'string' ? req.query.draft : undefined;
+  const draft = draftId ? readToolDraft(ctx, draftId) : undefined;
+  if (draft?.status === 'ready') {
+    const values = toolFormFromYaml(draft.yaml);
+    if (!('error' in values)) {
+      res.type('html').send(renderToolForm({
+        mode: 'new', tab: 'write', values, view: 'fields', sample: draft.sample,
+        warnings: draft.warnings.length ? draft.warnings : undefined,
+        drafted: { said: draft.description, ...(draft.why ? { why: draft.why } : {}) },
+      }));
+      return;
+    }
+  }
+  const tab = req.query.tab === 'write' ? 'write' : 'describe';
+  res.type('html').send(renderToolForm({ mode: 'new', tab, values: EMPTY_TOOL_FORM, view: 'fields' }));
+});
+
+/** POST /tools/draft { description } → { ok, id }: sua drafts a tool in the background. */
+toolsRouter.post('/tools/draft', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const description = typeof req.body?.description === 'string' ? req.body.description.trim() : '';
+  if (description.length < 8) { res.json({ ok: false, error: 'Say a little more about what the tool should do.' }); return; }
+  const id = startToolDraft(ctx, description);
+  if (!id) { res.json({ ok: false, error: "sua can't draft tools right now (its tool drafter isn't installed). Write it yourself instead." }); return; }
+  res.json({ ok: true, id });
+});
+
+/** GET /tools/draft/:id → the draft's status; when ready, the form to open it in. */
+toolsRouter.get('/tools/draft/:id', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = String(req.params.id);
+  const d = readToolDraft(ctx, id);
+  if (!d) { res.status(404).json({ ok: false, error: 'That draft is gone (drafts are kept for an hour). Describe it again.' }); return; }
+  if (d.status === 'ready') { res.json({ ok: true, status: 'ready', tries: d.tries, url: `/tools/new?draft=${encodeURIComponent(id)}` }); return; }
+  if (d.status === 'failed') { res.json({ ok: true, status: 'failed', tries: d.tries, error: d.error }); return; }
+  res.json({ ok: true, status: 'working', tries: d.tries });
 });
 
 toolsRouter.post('/tools/new', (req: Request, res: Response) => handleToolForm(req, res, 'new'));

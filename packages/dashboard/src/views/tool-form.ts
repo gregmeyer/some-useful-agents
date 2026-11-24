@@ -19,6 +19,10 @@ export interface ToolFormPage {
   /** Shown before saving; "Save anyway" keeps the tool despite them. */
   warnings?: string[];
   sample?: string;
+  /** New tool only: which way in is showing. Default 'describe'. */
+  tab?: 'describe' | 'write';
+  /** The form was filled by sua's drafter from this description. */
+  drafted?: { said: string; why?: string };
 }
 
 const typeOptions = (selected: string): SafeHtml[] =>
@@ -48,8 +52,32 @@ function sampleFor(v: ToolFormValues): string {
   return v.inputs.filter((i) => i.name).map((i) => `${i.name}: ${i.default || ''}`).join('\n');
 }
 
+function describePanel(): SafeHtml {
+  return html`
+    <section class="tool-form__describe" data-tool-describe>
+      <label class="form-field">
+        <span class="form-field__label">Describe the tool you want</span>
+        <textarea class="form-field__textarea tool-form__describe-box" name="description" rows="3" maxlength="1000"
+          placeholder="Look up a word on dictionaryapi.dev and give back its first definition"></textarea>
+        <span class="form-field__hint">sua drafts it and opens it in the form, filled in, for you to read and try. Nothing runs until you press Try it.</span>
+      </label>
+      <div class="tool-form__actions">
+        <button type="button" class="btn btn--primary" data-draft>Draft it</button>
+      </div>
+      <div data-draft-status class="tool-form__draft-status"></div>
+    </section>
+    ${unsafeHtml(DESCRIBE_JS)}
+  `;
+}
+
+function newToolTabs(active: 'describe' | 'write'): SafeHtml {
+  const tab = (t: 'describe' | 'write', label: string) => html`<a href="/tools/new?tab=${t}" class="tool-form__tab${t === active ? ' is-active' : ''}"${t === active ? unsafeHtml(' aria-current="page"') : unsafeHtml('')}>${label}</a>`;
+  return html`<nav class="tool-form__tabs" aria-label="How to make it">${tab('describe', 'Describe it')}${tab('write', 'Write it')}</nav>`;
+}
+
 export function renderToolForm(p: ToolFormPage): string {
   const v = p.values;
+  const tab = p.mode === 'new' ? (p.tab ?? 'describe') : 'write';
   const action = p.mode === 'new' ? '/tools/new' : `/tools/${encodeURIComponent(v.id)}/edit`;
   const isCommand = v.kind === 'command';
 
@@ -133,9 +161,16 @@ export function renderToolForm(p: ToolFormPage): string {
         : [{ label: 'Home', href: '/' }, { label: 'Tools', href: '/tools' }, { label: v.id, href: `/tools/${encodeURIComponent(v.id)}` }, { label: 'Edit' }],
     })}
 
+    ${p.mode === 'new' ? newToolTabs(tab) : html``}
+    ${tab === 'describe' ? describePanel() : html`
+    ${p.drafted ? html`<div class="flash flash--info tool-form__drafted" role="status">
+      <strong>sua drafted this</strong> from “${p.drafted.said}”.${p.drafted.why ? html` ${p.drafted.why}` : html``}
+      Read the ${v.kind === 'command' ? 'command' : 'prompt'} before you try it.
+    </div>` : html``}
     <form method="POST" action="${action}" class="tool-form" data-tool-form>
       <input type="hidden" name="view" value="${p.view}">
       ${p.view === 'yaml' ? html`<input type="hidden" name="kind" value="${v.kind}">` : html``}
+      ${p.mode === 'new' ? html`<input type="hidden" name="tab" value="write">` : html``}
       <div class="tool-form__switch">
         ${p.view === 'fields'
           ? html`<button type="submit" name="action" value="to_yaml" class="btn btn--sm btn--ghost" formnovalidate>Edit as YAML</button>`
@@ -163,7 +198,7 @@ export function renderToolForm(p: ToolFormPage): string {
         <a href="${p.mode === 'new' ? '/tools' : `/tools/${encodeURIComponent(v.id)}`}" class="btn btn--ghost">Cancel</a>
       </div>
     </form>
-    ${unsafeHtml(TOOL_FORM_JS)}
+    ${unsafeHtml(TOOL_FORM_JS)}`}
   `;
   return render(layout({ title: p.mode === 'new' ? 'New tool' : `Edit ${v.id}`, activeNav: 'tools' }, body));
 }
@@ -238,6 +273,44 @@ const TOOL_FORM_JS = `<script>
         poll(r.runId, 0);
       })
       .catch(function () { tryBtn.disabled = false; status.textContent = 'Lost touch with the dashboard.'; });
+  });
+})();
+</script>`;
+
+const DESCRIBE_JS = `<script>
+(function () {
+  var root = document.querySelector('[data-tool-describe]');
+  if (!root) return;
+  var box = root.querySelector('textarea');
+  var btn = root.querySelector('[data-draft]');
+  var status = root.querySelector('[data-draft-status]');
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function fail(msg) {
+    btn.disabled = false;
+    btn.textContent = 'Draft it';
+    status.innerHTML = '<div class="flash flash--error">' + esc(msg) + '</div>';
+  }
+  function poll(id, n) {
+    fetch('/tools/draft/' + encodeURIComponent(id)).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d.ok) return fail(d.error || 'The draft went missing.');
+      if (d.status === 'ready') { location.href = d.url; return; }
+      if (d.status === 'failed') return fail("sua couldn't draft a tool that checks out: " + d.error + ' Try saying more about its inputs and what it gives back, or write it yourself.');
+      if (n > 400) return fail('It is taking too long. Try again.');
+      var note = status.querySelector('[data-try-note]');
+      if (note) note.textContent = d.tries > 1 ? 'Its first draft didn\\u2019t check out, so it\\u2019s trying again (' + d.tries + ' of 3).' : '';
+      setTimeout(function () { poll(id, n + 1); }, 1500);
+    }).catch(function () { fail('Lost touch with the dashboard.'); });
+  }
+  btn.addEventListener('click', function () {
+    var said = box.value.trim();
+    if (!said) { box.focus(); return; }
+    btn.disabled = true;
+    btn.innerHTML = window.suaWorking ? window.suaWorking({ text: 'Drafting\\u2026' }) : 'Drafting\\u2026';
+    status.innerHTML = (window.suaWorking ? window.suaWorking({ size: 'panel', title: 'sua heard you and is drafting your tool', said: said, text: 'It writes the tool, checks it, and opens it here for you to read and try. Usually under a minute.', since: new Date().toISOString() }) : '') + '<p class="dim" data-try-note></p>';
+    fetch('/tools/draft', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ description: said }).toString() })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { if (!d.ok) return fail(d.error || 'sua can\\u2019t draft tools right now.'); poll(d.id, 0); })
+      .catch(function () { fail('Lost touch with the dashboard.'); });
   });
 })();
 </script>`;

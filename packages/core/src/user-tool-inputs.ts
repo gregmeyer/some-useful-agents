@@ -155,7 +155,8 @@ export function userToolWarnings(def: Pick<ToolDefinition, 'implementation' | 'i
       if (lines.some((l) => unquoted.test(l))) {
         warnings.push(`$${name} is used without quotes. Write "$${name}" so a value with spaces or a leading - can't change the command.`);
       }
-      if (!new RegExp(`\\$\\{?${name}\\b`).test(cmd)) {
+      // $name, ${name}, or read by name (os.environ["name"] in a python3 one-liner).
+      if (!new RegExp(`\\b${name}\\b`).test(cmd)) {
         warnings.push(`The command never uses its "${name}" input ($${name}).`);
       }
     }

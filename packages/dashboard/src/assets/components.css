@@ -1900,3 +1900,10 @@
 .tool-detail__remove > summary::-webkit-details-marker { display: none; }
 .tool-detail__remove-panel { margin-top: var(--space-2); padding: var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); max-width: 28rem; font-size: var(--font-size-sm); }
 .tool-detail__yaml { background: var(--color-surface-raised); padding: var(--space-3); border-radius: var(--radius-sm); font-size: var(--font-size-xs); overflow: auto; }
+.tool-form__tabs { display: flex; gap: var(--space-4); border-bottom: 1px solid var(--color-border); margin-bottom: var(--space-4); max-width: 960px; }
+.tool-form__tab { padding: var(--space-2) var(--space-1); border-bottom: 2px solid transparent; color: var(--color-text-muted); text-decoration: none; }
+.tool-form__tab.is-active { border-bottom-color: var(--color-primary); color: var(--color-text); font-weight: var(--weight-bold); }
+.tool-form__describe { max-width: 960px; }
+.tool-form__describe-box { font-family: inherit; font-size: var(--font-size-md); }
+.tool-form__draft-status { margin-top: var(--space-4); }
+.tool-form__drafted { max-width: 960px; box-sizing: border-box; }

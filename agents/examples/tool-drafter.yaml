@@ -1,0 +1,99 @@
+# Tool Drafter — drafts a tool you described (docs/tools.md "Describe it").
+# Route-dispatched only, by Tools → New tool → Describe it (dashboard
+# lib/tool-drafter.ts); never proposed in triage. Its <tool> YAML is checked
+# like any tool before you see it, in the New tool form; nothing runs until
+# you press Try it, and nothing is saved until you press Save.
+
+id: tool-drafter
+name: Tool Drafter
+description: >
+  Drafts a tool from a description: a command or a prompt with named inputs,
+  plus sample inputs to try it with.
+status: active
+source: examples
+
+inputs:
+  DESCRIPTION:
+    type: string
+    required: true
+    description: What the person wants the tool to do, in their words.
+  TOOLS:
+    type: string
+    required: true
+    description: The tools that already exist, one per line (id and what it does).
+  FIX:
+    type: string
+    required: false
+    default: ""
+    description: Why the previous draft couldn't be used, to fix this time.
+
+nodes:
+  - id: draft
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 180
+    outputContract:
+      mustMatch: '<tool>[\s\S]*?</tool>'
+      description: a <tool> YAML block
+    prompt: |
+      You write one tool for sua, a local agent runner. A tool is a small,
+      reusable thing an agent's step (or a model) calls with named inputs. It
+      is either a shell COMMAND (bash) or a PROMPT for a model.
+
+      What they want: {{inputs.DESCRIPTION}}
+
+      Tools that already exist (don't duplicate one; never reuse an id):
+      {{inputs.TOOLS}}
+
+      Fix this from your last draft (may be empty): {{inputs.FIX}}
+
+      Rules for a command tool:
+      - Each input arrives as an environment variable named exactly as
+        declared. Always quote it: "$url", never $url. Never use eval or
+        bash -c on an input.
+      - Input names: letters, digits and _ only (start with a letter), and
+        not PATH, HOME, USER, SHELL, TMPDIR, or anything ending in _proxy or
+        starting with UPSTREAM_ or SUA_.
+      - End by printing ONE line of JSON whose keys are the output fields
+        (e.g. {"count": 3}). Build it with jq or python3 when values may hold
+        quotes or newlines (python3 -c 'import json,os; print(json.dumps({...}))').
+      - Use only common tools: bash, curl, jq, python3 (standard library),
+        sed, awk. No sudo, no rm -rf, nothing that installs software.
+      - Never write a key or password in the command. If it needs one, read
+        it from an environment variable (e.g. "$GITHUB_TOKEN") and say in the
+        description that the step calling it must declare that secret.
+      - Keep it short: a few lines.
+      Rules for a prompt tool (when the job is judgement or writing, not
+      computing or fetching):
+      - Write {{inputs.name}} (the input's name, as declared) where each
+        input goes.
+      - Say exactly what to return.
+
+      The id is lowercase words joined by - (e.g. word-count). The
+      description says what it does in one sentence a model can choose it
+      by. Declare outputs only for the JSON keys a command prints.
+
+      Reply with exactly these three blocks:
+
+      <tool>
+      id: word-count
+      name: Word count
+      description: Counts the words in some text.
+      inputs:
+        text: { type: string, required: true, description: The text to count }
+      outputs:
+        count: { type: number, description: How many words }
+      implementation:
+        type: shell
+        command: |
+          n=$(printf '%s' "$text" | wc -w | tr -d ' ')
+          echo "{\"count\": $n}"
+      </tool>
+      <samples>
+      text: the quick brown fox
+      </samples>
+      <why>One sentence: what it does and anything to know before using it.</why>
+
+      (For a prompt tool, implementation is { type: llm-prompt, prompt: … }.)
+      The <samples> block is one set of inputs to try it with, as name: value
+      lines, safe to run (no writes, no paid calls).

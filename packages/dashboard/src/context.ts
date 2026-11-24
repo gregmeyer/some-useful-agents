@@ -372,6 +372,10 @@ export interface DashboardContext {
   viewDesignerRunning?: Set<string>;
   /** Tests: stand in for the view-designer agent; gets its inputs, returns its reply. */
   viewDesignerRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Tools → New tool → Describe it: drafts being made or ready, by id (lib/tool-drafter.ts). */
+  toolDrafts?: Map<string, import('./lib/tool-drafter.js').ToolDraft>;
+  /** Tests: stand in for the tool-drafter agent; gets its inputs, returns its reply. */
+  toolDrafterRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /**
    * Message ids the operator has explicitly STOPPED (clicked Cancel/Stop).
    * While present, `maybeRefireTriage` will not auto-fire a follow-up triage
