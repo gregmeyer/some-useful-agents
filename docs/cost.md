@@ -52,7 +52,9 @@ Two limits, in USD at list price:
 - **Per run.** A run stops once it has spent this much, including the agents it called. sua checks before each node, and inside a node: claude gets `--max-budget-usd` for what's left, and an OpenAI-compatible model's tool loop stops before calling the model again. The node that hits it fails as `budget_exhausted`, the rest are skipped, and the run fails. A provider only notices after a model turn, so **a run can end up about one turn over its limit** (a single claude turn can cost $0.15–0.20 on its own).
 - **Per agent, per day.** Once an agent's runs today (local time, from midnight) reach this, its new runs fail straight away, before any node runs, whatever started them: Run now, the schedule, MCP, a chat message, another agent calling it. One inbox item per agent says so (later refusals add a note to it).
 
-A run stopped by a limit is never retried or handed to the next provider in the chain: either would only spend more.
+A run stopped by a limit is never retried or handed to the next provider: either would only spend more.
+
+There's also a separate **daily cap on fallbacks**: money spent only because an earlier provider failed, such as a paid provider answering while your first one is out of quota. It's off by default; see [llm-providers.md](llm-providers.md#a-daily-cap-on-fallback-spend).
 
 Set them:
 

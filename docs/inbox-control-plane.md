@@ -96,7 +96,7 @@ watcher** (`packages/dashboard/src/lib/scheduler-health-inbox.ts`): every minute
 it reads the scheduler heartbeat and posts one high-priority thread when the
 scheduler crashed — heartbeat file left behind, silent for 5+ minutes, pid dead,
 and at least one agent scheduled — naming the agents that aren't firing and the
-restart command. A clean `sua schedule stop` (heartbeat removed) and a sleeping
+restart command. A scheduler that stopped cleanly (`sua daemon stop`, or Ctrl+C on `sua schedule start`; the heartbeat file is removed) and a sleeping
 laptop (pid alive) stay quiet. One thread per crashed scheduler instance
 (`dedupeKey: system-health:scheduler-down:<startedAt>`); it resolves itself with
 a system note once a scheduler heartbeats again. `system-health` threads are never

@@ -78,6 +78,10 @@ http://127.0.0.1:3000/auth#token=<64 chars>
 
 Click it — the dashboard stores the cookie and bookmarks `http://127.0.0.1:3000/` as your landing page. Lost the link? `sua dashboard signin-url` prints it again.
 
+**Connect a model.** Agents with an `llm-prompt` or `goal` node need a model. If sua finds the `claude` or `codex` CLI on this machine it uses it, and you go straight to Home. If it finds none, the dashboard opens **Connect a model** first: paste a hosted endpoint and key, or point it at a local server (Ollama, LM Studio, llama.cpp). **Skip for now** lets you in; shell agents still run. See [LLM providers](llm-providers.md#first-run-connect-a-model).
+
+**Keep it running.** `sua dashboard start` runs in the foreground. To run sua in the background, with schedules firing, use `sua daemon start` (and `sua daemon status`, `sua daemon stop`). Agent schedules fire only while the scheduler is running.
+
 From here you can:
 
 - Start on `/start` — four starter agents, one per pattern
