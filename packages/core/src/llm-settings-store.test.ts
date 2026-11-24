@@ -236,7 +236,7 @@ describe('LlmSettingsStore (enable/disable a provider)', () => {
 
   it('rejects toggling a provider that is not in the waterfall', () => {
     store.setProviders(['claude']);
-    expect(() => store.setProviderEnabled('codex', false)).toThrow(/not in the waterfall/i);
+    expect(() => store.setProviderEnabled('codex', false)).toThrow(/not in the provider order/i);
   });
 
   it('drops a disabled entry when the provider leaves the chain', () => {

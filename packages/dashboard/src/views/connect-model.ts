@@ -219,7 +219,7 @@ export function renderConnectModelPage(args: ConnectModelArgs): string {
       </h1>
       <p class="connect__lede">
         ${args.ready
-          ? 'At least one model resolves, so llm-prompt agents will run. Add another route below, or manage the full fallback waterfall in Settings.'
+          ? 'At least one model resolves, so llm-prompt agents will run. Add another route below, or set the provider order in Settings.'
           : 'Agents run shell commands on their own, but the interesting ones call a model. Connect one and the rest of the dashboard comes alive. You can change this later.'}
       </p>
 

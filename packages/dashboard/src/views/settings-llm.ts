@@ -278,7 +278,7 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
         <span class="dim">${c.apiBase} · ${c.model}${c.apiKey ? ' · key ••••' : ' · no key'}</span>
       </span>
       <div class="settings-llm__chain-actions">
-        <form method="POST" action="/settings/llm/custom/remove" style="display:inline;" onsubmit="return confirm('Remove custom provider ${c.name}? It will also be removed from the waterfall.');">
+        <form method="POST" action="/settings/llm/custom/remove" style="display:inline;" onsubmit="return confirm('Remove custom provider ${c.name}? It will also be removed from the provider order.');">
           <input type="hidden" name="name" value="${c.name}">
           <button type="submit" class="btn btn--xs btn--ghost">Remove</button>
         </form>
@@ -322,7 +322,7 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
 
   return html`
     <section class="settings-section">
-      <h2 class="mt-0">LLM provider waterfall</h2>
+      <h2 class="mt-0">Provider order</h2>
       <p class="dim">
         An ordered chain of LLM providers. The first entry is the
         <strong>primary</strong> — every <code>llm-prompt</code> node calls

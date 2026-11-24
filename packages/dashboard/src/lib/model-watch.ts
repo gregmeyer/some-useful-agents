@@ -127,7 +127,7 @@ export function buildRetiredModelMessage(r: RetiredModel, list: ProviderModelLis
     source: 'system-health',
     title: `${name} no longer offers ${r.model}`,
     body: [
-      `${name} no longer offers the model \`${r.model}\`, so every attempt that asks for it fails and moves on to the next provider in your waterfall. Runs still finish, but each one pays for a failed ${name} attempt first, and nothing runs on ${name}.`,
+      `${name} no longer offers the model \`${r.model}\`, so every attempt that asks for it fails and moves on to the next provider. Runs still finish, but each one pays for a failed ${name} attempt first, and nothing runs on ${name}.`,
       ...(r.refusal ? ['', `${name} said: “${r.refusal}”`] : []),
       '',
       `Where \`${r.model}\` is chosen:`,
