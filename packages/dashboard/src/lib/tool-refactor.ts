@@ -83,6 +83,48 @@ const sameKeys = (a: object | undefined, b: object | undefined): boolean => {
   return ka === kb;
 };
 
+/**
+ * One agent's change on the card, checked as it will be saved: the shared
+ * edit checks with every tool required to exist (or be `toolId`), using
+ * `toolId`, still installed, and giving back the same outputs.
+ */
+export function checkRefactorEdit(
+  ctx: Ctx,
+  edit: Pick<RefactorEdit, 'agentId' | 'yaml' | 'baseVersion'>,
+  toolId: string,
+): { ok: true; value: { parsed: Parsed; before?: Agent; preserved: string[] } } | { ok: false; reason: string } {
+  const read = parseAgentEdit(ctx, edit.agentId, edit.yaml, { checkTools: true, pendingTools: [toolId] });
+  if (!read.ok) return { ok: false, reason: read.reason };
+  const { parsed, repairedYaml } = read.value;
+  if (!toolIdsUsed(parsed).includes(toolId)) return { ok: false, reason: `The change to \`${edit.agentId}\` doesn't use \`${toolId}\`.` };
+  const cutShort = readsToolResultCutShort(parsed, toolId);
+  if (cutShort) return { ok: false, reason: `In the change to \`${edit.agentId}\`, step "${cutShort.step}" reads the tool's result from $${cutShort.name}, which holds only its first 32 KB, so a large result breaks. Read it with upstream_json("${cutShort.toolStep}") from sua_helpers (python3), or from "$${cutShort.name}_FILE".` };
+  const current = ctx.agentStore.getAgent(edit.agentId);
+  if (!current) return { ok: false, reason: `\`${edit.agentId}\` isn't installed any more.` };
+  if (!sameKeys(current.outputs, parsed.outputs)) {
+    return { ok: false, reason: `The change to \`${edit.agentId}\` would change what it gives back (its outputs), which a shared tool shouldn't.` };
+  }
+  const ready = prepareAgentEdit(ctx, parsed, repairedYaml, edit.baseVersion);
+  if (!ready.ok) return { ok: false, reason: ready.reason };
+  return { ok: true, value: { parsed, before: ready.value.before, preserved: ready.value.preserved } };
+}
+
+/**
+ * A shell step that reads a tool step's result from \`$UPSTREAM_<ID>_RESULT\`
+ * (cut at 32 KB in the environment) instead of its \`_FILE\` or
+ * sua_helpers' upstream(): the first such step, or undefined. Pure.
+ */
+export function readsToolResultCutShort(agent: Pick<Parsed, 'nodes'>, toolId: string): { step: string; toolStep: string; name: string } | undefined {
+  for (const t of agent.nodes.filter((n) => n.tool === toolId)) {
+    const name = `UPSTREAM_${t.id.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_RESULT`;
+    const bare = new RegExp(`${name}(?!_FILE)`);
+    for (const n of agent.nodes) {
+      if (n.type === 'shell' && !n.tool && n.command && bare.test(n.command)) return { step: n.id, toolStep: t.id, name };
+    }
+  }
+  return undefined;
+}
+
 /** Everything checked, nothing saved. The reasons it can't be applied, or what to save. */
 export function checkToolRefactor(ctx: Ctx, card: ToolRefactorCard): { ok: true; value: CheckedRefactor } | { ok: false; reasons: string[] } {
   if (!ctx.toolStore) return { ok: false, reasons: ["The tool store isn't available here."] };
@@ -112,19 +154,9 @@ export function checkToolRefactor(ctx: Ctx, card: ToolRefactorCard): { ok: true;
   for (const edit of card.edits) {
     if (seen.has(edit.agentId)) { reasons.push(`\`${edit.agentId}\` is changed twice on this card.`); continue; }
     seen.add(edit.agentId);
-    const read = parseAgentEdit(ctx, edit.agentId, edit.yaml, { checkTools: true, pendingTools: [toolId] });
-    if (!read.ok) { reasons.push(read.reason); continue; }
-    const { parsed, repairedYaml } = read.value;
-    if (!toolIdsUsed(parsed).includes(toolId)) { reasons.push(`The change to \`${edit.agentId}\` doesn't use \`${toolId}\`.`); continue; }
-    const current = ctx.agentStore.getAgent(edit.agentId);
-    if (!current) { reasons.push(`\`${edit.agentId}\` isn't installed any more.`); continue; }
-    if (!sameKeys(current.outputs, parsed.outputs)) {
-      reasons.push(`The change to \`${edit.agentId}\` would change what it gives back (its outputs), which a shared tool shouldn't.`);
-      continue;
-    }
-    const ready = prepareAgentEdit(ctx, parsed, repairedYaml, edit.baseVersion);
-    if (!ready.ok) { reasons.push(ready.reason); continue; }
-    agents.push({ parsed, before: ready.value.before, preserved: ready.value.preserved });
+    const one = checkRefactorEdit(ctx, edit, toolId);
+    if (!one.ok) { reasons.push(one.reason); continue; }
+    agents.push(one.value);
   }
   if (reasons.length) return { ok: false, reasons };
   return { ok: true, value: { tool, toolId, replacing, agents } };

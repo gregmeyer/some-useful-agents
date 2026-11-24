@@ -380,6 +380,10 @@ export interface DashboardContext {
   toolIdeaJobs?: Map<string, import('./lib/tool-ideas.js').ToolIdeaJob>;
   /** Tests: stand in for the tool-suggester agent; gets its inputs, returns its reply. */
   toolSuggesterRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Tests: stand in for the tool-refactorer agent (sua's tool-refactor; lib/tool-refactor-draft.ts). */
+  toolRefactorRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Tests: stand in for the agent-retooler agent, once per agent. */
+  agentRetoolerRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /**
    * Message ids the operator has explicitly STOPPED (clicked Cancel/Stop).
    * While present, `maybeRefireTriage` will not auto-fire a follow-up triage

@@ -381,6 +381,29 @@ too. See [ADR-0051](adr/0051-build-and-wire-on-one-card.md).
 
 ![An example build-and-wire card: a new helper, example-founding-year, and the step in example-peer-research that calls it](images/agent-build-and-wire.png)
 
+### Point several agents at a shared tool, on one card
+
+When several agents do the same job each in their own way (the same fetch,
+the same API), ask sua to share a tool across them ("point my job-board agents
+at a shared tool"):
+
+1. sua proposes **`tool-refactor`** with the agents it means (two to eight).
+   It only works things out, so it runs on its own when your trust settings
+   allow: the tool refactorer drafts one tool for what their command steps do,
+   or picks one of yours that already does it, and the retooler rewrites each
+   agent to call it, three at a time. Each is checked the way the card will
+   check it, with one more try told what was wrong.
+2. One **`tool-refactor-apply`** card shows the tool (what it does, its
+   inputs, its YAML), each agent's change in plain words and as a diff, and
+   any agent left out and why (it doesn't do that job, it already calls the
+   tool, or its change didn't check out).
+3. Approving checks everything again, then saves the tool and each agent as a
+   new version. If any save fails, everything before it is undone. An agent's
+   change must keep what it gives back (its outputs).
+
+See [ADR-0103](adr/0103-a-shared-tool-on-one-card.md) and
+[Tools you add](tools.md#tools-you-add).
+
 ### How sua chooses: run, call, build a helper, then edit
 
 When an agent can't do part of its job (it never fetches some data, or a

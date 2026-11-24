@@ -317,3 +317,17 @@ describe('buildDiscoveryCatalog', () => {
     expect(catalog).toContain('No packs registered.');
   });
 });
+
+describe('buildYourToolsSection', () => {
+  it('lists the operator\'s tools (not built-ins) with inputs and what they give back', async () => {
+    const { buildYourToolsSection } = await import('./discovery-catalog.js');
+    expect(buildYourToolsSection([])).toBe('');
+    const out = buildYourToolsSection([
+      { id: 'http-get', name: 'HTTP GET', source: 'builtin', inputs: {}, outputs: {}, implementation: { type: 'builtin', builtinName: 'http-get' } },
+      { id: 'hn-stories', name: 'HN', description: 'Top stories', source: 'local', inputs: { count: { type: 'number' }, feed: { type: 'string', required: true } }, outputs: { stories: { type: 'array' } }, implementation: { type: 'shell', command: 'x' } },
+    ]);
+    expect(out).toMatch(/## THEIR TOOLS/);
+    expect(out).toMatch(/- hn-stories \(command\): Top stories Inputs: count\?: number, feed: string\. Gives back: stories\./);
+    expect(out).not.toMatch(/http-get \(/);
+  });
+});

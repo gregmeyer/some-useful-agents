@@ -63,6 +63,8 @@ A tool you add is a **command** or a **prompt** with named inputs. Write it in t
 
 **Make a tool from this step.** A command or prompt step has **Make a tool** (on the agent's Nodes tab, and in the diagram's step dialog). It opens Describe it with that step's command or prompt, asking for its hard-coded values as inputs.
 
+**Ask sua to share a tool.** In a conversation, say which agents keep doing the same job ("point my job-board agents at a shared tool"). sua drafts one tool for what their command steps do (or uses one of yours that already does it), rewrites each agent to call it, and shows it all on one card: the tool, each agent's change with its diff, and any agent left out and why. Approving saves the tool and every agent together (each as a new version you can roll back from Versions), or nothing if any of it fails. An agent's change must keep what the agent gives back. Design notes: [ADR-0103](adr/0103-a-shared-tool-on-one-card.md).
+
 **Describe it.** On **Tools → + New tool**, the first tab takes a sentence ("look up a word on dictionaryapi.dev and give back its first definition") and sua's tool drafter writes the tool: its id, inputs, output fields, the command or prompt, and a sample to try it with. The draft is checked like a tool you wrote, and also must use every input it declares and have no key written into it. A draft that doesn't check out is sent back once or twice with what was wrong. Then it opens in the form, filled in, with a note on what it does: read the command, press **Try it**, change anything, and **Save tool**. Nothing runs before you press Try it, and nothing is saved before you press Save. Drafts are kept for an hour.
 
 ```yaml

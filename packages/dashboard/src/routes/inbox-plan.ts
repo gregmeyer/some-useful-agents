@@ -531,6 +531,17 @@ export function parseProposedActions(
     // `notebook-correct` hands a correction to sua's correction agent: what they
     // said (INSTRUCTION) is worked out against the notebook, then shown as a
     // card to apply, or a question. Working it out changes nothing.
+    // `tool-refactor` points several agents at one shared tool: sua works out
+    // the tool and each agent's change (changing nothing), then shows them on
+    // one card to approve (lib/tool-refactor-draft.ts).
+    if (type === 'tool-refactor') {
+      const raw = e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs) ? e.inputs as Record<string, unknown> : {};
+      const ask = typeof raw.ASK === 'string' ? raw.ASK.trim() : '';
+      const ids = Array.isArray(raw.AGENT_IDS) ? raw.AGENT_IDS.filter((x): x is string => typeof x === 'string').join(',') : typeof raw.AGENT_IDS === 'string' ? raw.AGENT_IDS : '';
+      if (!ask) { rejected.push({ agentId: type, reason: 'tool-refactor needs inputs.ASK: what to share, in their words' }); continue; }
+      accepted.push({ kind: 'action', status: 'proposed', agentId: type, effect: 'read', inputs: { ASK: ask.slice(0, 600), ...(ids ? { AGENT_IDS: ids.slice(0, 600) } : {}) }, rationale: rationaleRaw || undefined, ctaLabel: 'Work it out' });
+      continue;
+    }
     if (type === 'notebook-correct') {
       const raw = e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs) ? e.inputs as Record<string, unknown> : {};
       const nbId = typeof raw.NOTEBOOK === 'string' ? raw.NOTEBOOK : '';

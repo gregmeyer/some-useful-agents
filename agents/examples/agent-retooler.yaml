@@ -1,0 +1,99 @@
+# Agent Retooler — rewrites ONE agent to call a shared tool instead of doing
+# the tool's job itself (docs/tools.md "Ask sua to share a tool").
+# Route-dispatched only, by sua's tool-refactor action (dashboard
+# lib/tool-refactor-draft.ts), once per agent; never proposed in triage. Its
+# YAML is checked (same agent, same outputs, uses the tool) and shown as a diff
+# on the card; nothing is saved until approved.
+
+id: agent-retooler
+name: Agent Retooler
+description: >
+  Rewrites one agent so the steps that do a shared tool's job call the tool,
+  keeping everything the agent gives back the same.
+status: active
+source: examples
+
+inputs:
+  AGENT_YAML:
+    type: string
+    required: true
+    description: The agent's full YAML as it is now.
+  TOOL_YAML:
+    type: string
+    required: true
+    description: The shared tool's YAML.
+  ASK:
+    type: string
+    required: false
+    default: ""
+    description: What the person asked for, in their words.
+  FIX:
+    type: string
+    required: false
+    default: ""
+    description: Why the previous rewrite couldn't be used, to fix this time.
+
+nodes:
+  - id: rewrite
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 240
+    outputContract:
+      mustMatch: '<(yaml|skip)>[\s\S]*?</(yaml|skip)>'
+      description: a <yaml> agent or a <skip> reason
+    prompt: |
+      Rewrite this sua agent so the step(s) that do the shared tool's job
+      call the tool instead. Change nothing else about what it does or gives
+      back.
+
+      What they asked: {{inputs.ASK}}
+
+      The shared tool:
+      {{inputs.TOOL_YAML}}
+
+      The agent now:
+      {{inputs.AGENT_YAML}}
+
+      Fix this from your last rewrite (may be empty): {{inputs.FIX}}
+
+      How sua runs it:
+      - A tool step is `type: shell` with `tool: <the tool's id>` and
+        `toolInputs:` (string values). A value can be a literal, one of the
+        agent's inputs written as {{inputs.<NAME>}}, or an earlier step's
+        field written as {{upstream.<step-id>.<field>}} (.result for all it
+        printed), with the real names in place of the angle brackets.
+      - A tool step prints the tool's JSON, which can be large. A later
+        python3 step reads it whole with
+        `from sua_helpers import upstream_json` then
+        `data = upstream_json("<tool-step-id>", {})`; a jq step with
+        `jq … "$UPSTREAM_<STEP_ID>_RESULT_FILE"`. Never
+        json.loads(os.environ["UPSTREAM_…_RESULT"]) or echo
+        "$UPSTREAM_…_RESULT" for a tool step: past 32 KB that holds only the
+        start and the JSON breaks. A prompt can use
+        {{upstream.<step-id>.result}}.
+      - The agent above may show double braces as "{ {"; write them as "{{".
+
+      Rules:
+      - Replace only the steps (or the part of a step) that do the tool's
+        job. Keep every other step, prompt and command word for word.
+      - Later steps must still get what they get now: keep the step id they
+        read from. If the tool's JSON is shaped differently from what that
+        step printed, make the tool step a new step (e.g. "<old-id>-tool")
+        and keep the old step id as a short python3 or jq step that reshapes
+        the tool's JSON into exactly what the old step printed (same keys).
+      - Keep the agent's id, name, description, inputs, outputs, signal,
+        outputWidget, view, schedule, permissions and status as they are.
+      - Only use the tool's declared inputs. Values that were hard-coded in
+        the old command become toolInputs.
+      - Never fill a field with an empty or made-up value because the tool
+        doesn't give it back (a description, a date, a score). If the tool
+        can't give this agent everything its steps use, reply only
+        <skip>the tool doesn't give back <what>, which <step> uses</skip>.
+      - If this agent doesn't actually do the tool's job, reply only
+        <skip>one sentence why</skip>.
+
+      Reply with the WHOLE agent:
+      <yaml>
+      …
+      </yaml>
+      <why>One sentence: which steps now call the tool.</why>
