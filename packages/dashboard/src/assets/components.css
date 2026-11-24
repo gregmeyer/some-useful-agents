@@ -1907,3 +1907,10 @@
 .tool-form__describe-box { font-family: inherit; font-size: var(--font-size-md); }
 .tool-form__draft-status { margin-top: var(--space-4); }
 .tool-form__drafted { max-width: 960px; box-sizing: border-box; }
+.tool-ideas__title { margin: 0 0 var(--space-1); font-size: var(--font-size-lg); }
+.tool-ideas { list-style: none; margin: var(--space-3) 0 var(--space-6); padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: var(--space-3); }
+.tool-ideas__card { border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); background: var(--color-surface); }
+.tool-ideas__card .btn { align-self: flex-start; margin-top: auto; }
+.tool-ideas__label { margin: 0; font-family: var(--font-mono); font-weight: var(--weight-semibold); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+.tool-ideas__from { margin: 0; font-size: var(--font-size-xs); }
+.tool-ideas__none { margin: var(--space-2) 0 var(--space-6); font-size: var(--font-size-sm); }

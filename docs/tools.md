@@ -57,6 +57,10 @@ Tools imported from an MCP server. See [`tools/mcp.md`](tools/mcp.md) for the ty
 
 A tool you add is a **command** or a **prompt** with named inputs. Write it in the dashboard (**Tools → + New tool**, where **Try it** runs it once before you save; see [the New tool page](dashboard.md#toolsnew--new-tool)), or as YAML added with `sua tool add <file>` (run it again to update; `sua tool validate <file>` only checks; `sua tool remove <id>` removes it). Design notes: [ADR-0102](adr/0102-tools-you-add.md).
 
+**Ideas from your agents.** Describe it opens with up to five ideas taken from your own agents, worked out without a model: a web address that two or more of your agents fetch (each in its own way), or near-identical commands in two or more agents. Each card says which agents it came from; **Use this** puts a ready-to-draft sentence in the box. An address a tool you already have uses isn't suggested again.
+
+**Make a tool from this step.** A command or prompt step has **Make a tool** (on the agent's Nodes tab, and in the diagram's step dialog). It opens Describe it with that step's command or prompt, asking for its hard-coded values as inputs.
+
 **Describe it.** On **Tools → + New tool**, the first tab takes a sentence ("look up a word on dictionaryapi.dev and give back its first definition") and sua's tool drafter writes the tool: its id, inputs, output fields, the command or prompt, and a sample to try it with. The draft is checked like a tool you wrote, and also must use every input it declares and have no key written into it. A draft that doesn't check out is sent back once or twice with what was wrong. Then it opens in the form, filled in, with a note on what it does: read the command, press **Try it**, change anything, and **Save tool**. Nothing runs before you press Try it, and nothing is saved before you press Save. Drafts are kept for an hour.
 
 ```yaml

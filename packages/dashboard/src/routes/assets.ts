@@ -503,6 +503,17 @@ window.renderDagViz = function () {
       edit.textContent = 'Edit node';
       edit.href = editBase + '/' + encodeURIComponent(data.id) + '/edit';
       actionsEl.appendChild(edit);
+      // A command or prompt step can become a reusable tool (Tools → New tool → Describe it).
+      var baseParts = editBase.split('/');
+      var agentMatch = baseParts.length === 4 && baseParts[1] === 'agents' && baseParts[3] === 'nodes' ? [editBase, baseParts[2]] : null;
+      if (agentMatch && (data.type === 'shell' || data.type === 'llm-prompt' || data.type === 'claude-code')) {
+        var mk = document.createElement('a');
+        mk.className = 'btn btn--sm btn--ghost';
+        mk.textContent = 'Make a tool';
+        mk.title = 'Draft a reusable tool from this step';
+        mk.href = '/tools/new?from=' + agentMatch[1] + '/' + encodeURIComponent(data.id);
+        actionsEl.appendChild(mk);
+      }
     }
 
     // A graph node with a link (a notebook's Workflow): open it.
