@@ -183,3 +183,61 @@ export function toolIdeaFromStep(agent: Pick<Agent, 'id' | 'name'>, node: AgentN
   const cut = body.length > 600 ? `${body.slice(0, 600)}…` : body;
   return `Make a reusable tool from the "${node.id}" step of my agent "${agent.name || agent.id}". Turn the values its ${kind} hard-codes into inputs. Its ${kind}:\n${cut.trim()}`;
 }
+
+// ── Or start from… an agent, an input, an outcome (the tool-suggester agent) ──
+
+export type ToolIdeaLens = 'agent' | 'input' | 'outcome';
+export const TOOL_SUGGESTER_ID = 'tool-suggester';
+const IDEA_TTL_MS = 60 * 60 * 1000;
+const MAX_MODEL_IDEAS = 4;
+const MAX_INPUT_CHARS = 4000;
+
+export type ToolIdeaJob =
+  | { status: 'working'; lens: ToolIdeaLens; hash: string; at: string }
+  | { status: 'ready'; lens: ToolIdeaLens; hash: string; at: string; ideas: ToolIdea[] }
+  | { status: 'failed'; lens: ToolIdeaLens; hash: string; at: string; error: string };
+
+/** The tool-suggester's <ideas>, cleaned: at most four, each with a label, a sentence and why. Pure. */
+export function parseToolIdeas(raw: string): ToolIdea[] {
+  const m = /<ideas>([\s\S]*?)<\/ideas>/i.exec(raw);
+  if (!m) return [];
+  let v: unknown;
+  try { v = JSON.parse(m[1].trim()); } catch { return []; }
+  if (!Array.isArray(v)) return [];
+  const out: ToolIdea[] = [];
+  for (const x of v as Array<Record<string, unknown>>) {
+    const label = typeof x?.label === 'string' ? x.label.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+    const text = typeof x?.text === 'string' ? x.text.trim().slice(0, 1200) : '';
+    if (!label || !text || out.some((o) => o.label.toLowerCase() === label.toLowerCase())) continue;
+    const why = typeof x.why === 'string' ? x.why.replace(/\s+/g, ' ').trim().slice(0, 300) : '';
+    out.push({ key: `idea:${createHash('sha256').update(text).digest('hex').slice(0, 12)}`, label, text, from: why, agents: [] });
+    if (out.length === MAX_MODEL_IDEAS) break;
+  }
+  return out;
+}
+
+/** An agent as the suggester reads it: what it's for and each step, cut short. Pure. */
+export function agentForIdeas(agent: Pick<Agent, 'id' | 'name' | 'description' | 'nodes'>): string {
+  const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
+  const lines = [`Agent "${agent.name || agent.id}"${agent.description ? `: ${agent.description.replace(/\s+/g, ' ').trim()}` : ''}`, 'Its steps, in order:'];
+  for (const n of agent.nodes) {
+    const body = n.tool ? `uses the tool ${n.tool}${n.toolInputs ? ` with ${JSON.stringify(n.toolInputs)}` : ''}`
+      : n.type === 'shell' ? n.command ?? ''
+        : n.type === 'goal' ? `goal: ${n.goal ?? ''}${n.tools?.length ? ` (tools: ${n.tools.join(', ')})` : ''}`
+          : n.type === 'agent-invoke' ? `runs the agent ${n.agentInvokeConfig?.agentId ?? '?'}`
+            : n.prompt ?? '';
+    lines.push(`- ${n.id} (${n.type === 'claude-code' ? 'llm-prompt' : n.type}): ${cut(body.trim(), 700)}`);
+  }
+  return cut(lines.join('\n'), 6000);
+}
+
+function ideaJobs(ctx: { toolIdeaJobs?: Map<string, ToolIdeaJob> }): Map<string, ToolIdeaJob> {
+  const map = (ctx.toolIdeaJobs ??= new Map());
+  const cutoff = Date.now() - IDEA_TTL_MS;
+  for (const [id, j] of map) if (Date.parse(j.at) < cutoff) map.delete(id);
+  return map;
+}
+
+export function readToolIdeaJob(ctx: { toolIdeaJobs?: Map<string, ToolIdeaJob> }, id: string): ToolIdeaJob | undefined {
+  return ideaJobs(ctx).get(id);
+}

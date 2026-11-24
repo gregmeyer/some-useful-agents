@@ -66,6 +66,7 @@ export const METADATA_EXEMPT_AGENT_IDS: Readonly<Record<string, string>> = {
   'brand-maker': 'Settings → Appearance only: proposes a brand theme, never proposed',
   'view-designer': 'View editor only: proposes a better view for one agent, never proposed',
   'tool-drafter': 'New tool only: drafts a tool from a description, never proposed',
+  'tool-suggester': 'New tool only: suggests tools to make from an agent, an input or an outcome, never proposed',
   'notebook-drafter': 'New notebook only: drafts a notebook from a sentence, never proposed',
   'notebook-suggester': 'New notebook only: suggests notebooks from recent conversations, never proposed',
   'edition-editor': "Pulse's edition only: turns an ask about Today's edition into the changes it takes, never proposed",

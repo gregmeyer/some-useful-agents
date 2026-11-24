@@ -28,6 +28,8 @@ export interface ToolFormPage {
   ideas?: ToolIdea[];
   /** Describe it: the box starts with this (Make a tool from this step). */
   prefill?: string;
+  /** Describe it → Or start from… an agent: the agents to pick from. */
+  agents?: Array<{ id: string; name: string }>;
 }
 
 const typeOptions = (selected: string): SafeHtml[] =>
@@ -57,11 +59,12 @@ function sampleFor(v: ToolFormValues): string {
   return v.inputs.filter((i) => i.name).map((i) => `${i.name}: ${i.default || ''}`).join('\n');
 }
 
-function ideaCards(ideas: readonly ToolIdea[]): SafeHtml {
+/** Idea cards; Use this puts the idea's sentence in the Describe it box. */
+export function ideaCards(ideas: readonly ToolIdea[], label = 'Ideas from your agents'): SafeHtml {
   if (!ideas.length) {
     return html`<p class="dim tool-ideas__none">No ideas from your agents yet: none of them repeats a fetch or a command another one has. Describe one below, or open a step of an agent and choose <strong>Make a tool from this step</strong>.</p>`;
   }
-  return html`<ul class="tool-ideas" aria-label="Ideas from your agents">
+  return html`<ul class="tool-ideas" aria-label="${label}">
     ${ideas.map((i) => html`<li class="tool-ideas__card">
       <p class="tool-ideas__label">${i.label}</p>
       <p class="tool-ideas__from dim">${i.from}</p>
@@ -71,12 +74,53 @@ function ideaCards(ideas: readonly ToolIdea[]): SafeHtml {
   </ul>`;
 }
 
-function describePanel(ideas: readonly ToolIdea[], prefill?: string): SafeHtml {
+function startFrom(agents: ReadonlyArray<{ id: string; name: string }>): SafeHtml {
+  return html`
+    <details class="tool-start" data-tool-start>
+      <summary class="tool-start__summary">Or start from…</summary>
+      <div class="tool-start__body">
+        <div class="tool-start__lenses" role="radiogroup" aria-label="Start from">
+          <label class="radio-option"><input type="radio" name="lens" value="agent" checked> An agent</label>
+          <label class="radio-option"><input type="radio" name="lens" value="input"> An input</label>
+          <label class="radio-option"><input type="radio" name="lens" value="outcome"> An outcome</label>
+        </div>
+        <div data-lens-panel="agent">
+          <label class="form-field">
+            <span class="form-field__label">Which agent?</span>
+            <select class="form-field__input" name="agent">
+              ${agents.map((a) => html`<option value="${a.id}">${a.name}</option>`)}
+            </select>
+            <span class="form-field__hint">sua reads its steps and suggests tools that would make it simpler, or that other agents could use too.</span>
+          </label>
+        </div>
+        <div data-lens-panel="input" hidden>
+          <label class="form-field">
+            <span class="form-field__label">What do you have?</span>
+            <textarea class="form-field__textarea" name="input" rows="5" maxlength="4000" placeholder="Paste a sample (a CSV's first rows, some JSON, a page's text), a URL, or say what it is: a bank statement CSV, a meeting transcript"></textarea>
+            <span class="form-field__hint">sua suggests tools that take it in and give back what's useful in it.</span>
+          </label>
+        </div>
+        <div data-lens-panel="outcome" hidden>
+          <label class="form-field">
+            <span class="form-field__label">What do you want to end up with?</span>
+            <textarea class="form-field__textarea" name="outcome" rows="2" maxlength="1000" placeholder="A weekly summary of what changed in my repos"></textarea>
+            <span class="form-field__hint">sua suggests the tools that would produce it.</span>
+          </label>
+        </div>
+        <div class="tool-form__actions"><button type="button" class="btn btn--sm" data-suggest>Suggest tools</button></div>
+        <div data-suggest-result class="tool-start__result"></div>
+      </div>
+    </details>
+  `;
+}
+
+function describePanel(ideas: readonly ToolIdea[], prefill: string | undefined, agents: ReadonlyArray<{ id: string; name: string }>): SafeHtml {
   return html`
     <section class="tool-form__describe" data-tool-describe>
       ${prefill ? html`` : html`<h2 class="tool-ideas__title">Ideas from your agents</h2>
       <p class="form-field__hint">Things your agents keep doing in their own way, that one tool could do for all of them.</p>
-      ${ideaCards(ideas)}`}
+      ${ideaCards(ideas)}
+      ${startFrom(agents)}`}
       <label class="form-field">
         <span class="form-field__label">Describe the tool you want</span>
         <textarea class="form-field__textarea tool-form__describe-box" name="description" rows="${prefill ? '10' : '3'}" maxlength="2000"
@@ -184,7 +228,7 @@ export function renderToolForm(p: ToolFormPage): string {
     })}
 
     ${p.mode === 'new' ? newToolTabs(tab) : html``}
-    ${tab === 'describe' ? describePanel(p.ideas ?? [], p.prefill) : html`
+    ${tab === 'describe' ? describePanel(p.ideas ?? [], p.prefill, p.agents ?? []) : html`
     ${p.drafted ? html`<div class="flash flash--info tool-form__drafted" role="status">
       <strong>sua drafted this</strong> from “${p.drafted.said}”.${p.drafted.why ? html` ${p.drafted.why}` : html``}
       Read the ${v.kind === 'command' ? 'command' : 'prompt'} before you try it.
@@ -303,7 +347,7 @@ const DESCRIBE_JS = `<script>
 (function () {
   var root = document.querySelector('[data-tool-describe]');
   if (!root) return;
-  var box = root.querySelector('textarea');
+  var box = root.querySelector('textarea[name=description]');
   var btn = root.querySelector('[data-draft]');
   var status = root.querySelector('[data-draft-status]');
   root.addEventListener('click', function (e) {
@@ -315,6 +359,45 @@ const DESCRIBE_JS = `<script>
     btn.scrollIntoView({ block: 'nearest' });
   });
   function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  var start = root.querySelector('[data-tool-start]');
+  if (start) {
+    var result = start.querySelector('[data-suggest-result]');
+    var sBtn = start.querySelector('[data-suggest]');
+    var lens = function () { var c = start.querySelector('input[name=lens]:checked'); return c ? c.value : 'agent'; };
+    start.addEventListener('change', function (e) {
+      if (e.target.name !== 'lens') return;
+      var panels = start.querySelectorAll('[data-lens-panel]');
+      for (var i = 0; i < panels.length; i++) panels[i].hidden = panels[i].getAttribute('data-lens-panel') !== lens();
+      result.innerHTML = '';
+    });
+    var done = function (html) { sBtn.disabled = false; sBtn.textContent = 'Suggest tools'; result.innerHTML = html; };
+    var pollIdeas = function (id, n) {
+      fetch('/tools/ideas/' + encodeURIComponent(id)).then(function (r) { return r.json(); }).then(function (d) {
+        if (!d.ok) return done('<div class="flash flash--error">' + esc(d.error) + '</div>');
+        if (d.status === 'ready') return done(d.html);
+        if (d.status === 'failed') return done('<div class="flash flash--error">' + esc(d.error) + '</div>');
+        if (n > 200) return done('<div class="flash flash--error">It is taking too long. Try again.</div>');
+        setTimeout(function () { pollIdeas(id, n + 1); }, 1500);
+      }).catch(function () { done('<div class="flash flash--error">Lost touch with the dashboard.</div>'); });
+    };
+    sBtn.addEventListener('click', function () {
+      var l = lens();
+      var body = new URLSearchParams({ lens: l });
+      if (l === 'agent') body.set('agent', start.querySelector('select[name=agent]').value);
+      else {
+        var v = start.querySelector('textarea[name=' + l + ']').value.trim();
+        if (!v) { start.querySelector('textarea[name=' + l + ']').focus(); return; }
+        body.set('text', v);
+      }
+      sBtn.disabled = true;
+      sBtn.innerHTML = window.suaWorking ? window.suaWorking({ text: 'Thinking\u2026' }) : 'Thinking\u2026';
+      result.innerHTML = '';
+      fetch('/tools/ideas', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { if (!d.ok) return done('<div class="flash flash--error">' + esc(d.error) + '</div>'); pollIdeas(d.id, 0); })
+        .catch(function () { done('<div class="flash flash--error">Lost touch with the dashboard.</div>'); });
+    });
+  }
   function fail(msg) {
     btn.disabled = false;
     btn.textContent = 'Draft it';
