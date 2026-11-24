@@ -52,6 +52,8 @@ export function checkUserToolYaml(yamlText: string, store?: Pick<ToolStore, 'get
         : 'A tool you add runs a command (implementation type: shell) or a prompt (type: llm-prompt).',
     );
   }
+  if (tool.implementation.type === 'shell' && !(tool.implementation.command ?? '').trim()) errors.push('The command is empty.');
+  if (tool.implementation.type !== 'shell' && isUserRunTool(tool) && !(tool.implementation.prompt ?? '').trim()) errors.push('The prompt is empty.');
   if (getBuiltinTool(tool.id)) errors.push(`"${tool.id}" is the id of a built-in tool. Choose another id.`);
   if (store?.getTool(tool.id) && store.getToolServerId(tool.id)) {
     errors.push(`"${tool.id}" is a tool imported from an MCP server. Choose another id.`);

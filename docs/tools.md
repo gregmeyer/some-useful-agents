@@ -55,7 +55,7 @@ Tools imported from an MCP server. See [`tools/mcp.md`](tools/mcp.md) for the ty
 
 ## Tools you add
 
-A tool you add is a **command** or a **prompt** with named inputs. Write it as YAML and add it with `sua tool add <file>` (run it again to update; `sua tool validate <file>` only checks; `sua tool remove <id>` removes it). Design notes: [ADR-0102](adr/0102-tools-you-add.md).
+A tool you add is a **command** or a **prompt** with named inputs. Write it in the dashboard (**Tools → + New tool**, where **Try it** runs it once before you save; see [the New tool page](dashboard.md#toolsnew--new-tool)), or as YAML added with `sua tool add <file>` (run it again to update; `sua tool validate <file>` only checks; `sua tool remove <id>` removes it). Design notes: [ADR-0102](adr/0102-tools-you-add.md).
 
 ```yaml
 id: word-count

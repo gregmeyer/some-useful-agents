@@ -5,8 +5,29 @@ import {
   listMcpTools,
   parseMcpServersBlob,
   toolDefinitionSchema,
+  checkUserToolYaml,
+  saveUserTool,
+  removeUserTool,
+  agentsUsingTool,
+  isUserRunTool,
+  UserToolError,
+  executeAgentDag,
+  isAppleIntegrationEnabled,
+  type Agent,
   type McpServerConfig,
 } from '@some-useful-agents/core';
+import { randomUUID } from 'node:crypto';
+import { renderToolForm } from '../views/tool-form.js';
+import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
+import {
+  EMPTY_TOOL_FORM,
+  toolFormFromBody,
+  toolFormToYaml,
+  toolFormFromTool,
+  toolFormFromYaml,
+  parseSampleInputs,
+  type ToolFormValues,
+} from '../lib/tool-form.js';
 import { getContext } from '../context.js';
 import { buildMcpServersPanel, buildIntegrationsPanel } from './settings.js';
 import { computeProviderUsage } from '../lib/provider-usage.js';
@@ -244,6 +265,169 @@ toolsRouter.post('/tools/mcp/import', async (req: Request, res: Response) => {
   res.type('html').send(renderMcpImportResult({ created, skipped, serversCreated }));
 });
 
+// --- Tools you add: New tool, Edit, Remove, Try it (docs/tools.md) ---
+
+/** What the posted form describes: its fields, the YAML to save, and which view it was in. */
+function postedTool(body: Record<string, unknown>): { values: ToolFormValues; yaml: string; view: 'fields' | 'yaml'; error?: string } {
+  const view = body.view === 'yaml' ? 'yaml' : 'fields';
+  if (view === 'yaml') {
+    const yaml = typeof body.yaml === 'string' ? body.yaml.replace(/\r\n/g, '\n') : '';
+    const parsed = toolFormFromYaml(yaml);
+    if ('error' in parsed) return { values: EMPTY_TOOL_FORM, yaml, view, error: parsed.error };
+    return { values: parsed, yaml, view };
+  }
+  const values = toolFormFromBody(body);
+  return { values, yaml: toolFormToYaml(values), view };
+}
+
+function handleToolForm(req: Request, res: Response, mode: 'new' | 'edit', editId?: string): void {
+  const ctx = getContext(req.app.locals);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const action = typeof body.action === 'string' ? body.action : 'save';
+  const sample = typeof body.sample === 'string' ? body.sample : undefined;
+  const posted = postedTool(body);
+  const page = (extra: Partial<Parameters<typeof renderToolForm>[0]>) =>
+    res.type('html').send(renderToolForm({ mode, values: posted.values, view: posted.view, yaml: posted.yaml, sample, ...extra }));
+
+  // Switching between the fields and the YAML keeps what you wrote.
+  if (action === 'to_yaml') { page({ view: 'yaml', yaml: toolFormToYaml(posted.values) }); return; }
+  if (action === 'to_fields') {
+    if (posted.error) { page({ errors: [posted.error] }); return; }
+    page({ view: 'fields' });
+    return;
+  }
+  if (posted.error) { page({ errors: [posted.error] }); return; }
+  if (!ctx.toolStore) { page({ errors: ["The tool store isn't available here."] }); return; }
+  if (mode === 'edit' && posted.values.id !== editId) {
+    page({ errors: [`A tool's id can't change here (it's "${editId}"). Save a new tool instead.`] });
+    return;
+  }
+  if (mode === 'new' && ctx.toolStore.getTool(posted.values.id)) {
+    page({ errors: [`There's already a tool "${posted.values.id}". Choose another id, or edit that one.`] });
+    return;
+  }
+  const checked = checkUserToolYaml(posted.yaml, ctx.toolStore);
+  if (!checked.tool) { page({ errors: checked.errors }); return; }
+  if (checked.warnings.length && action !== 'save_anyway') { page({ warnings: checked.warnings }); return; }
+  try {
+    const { tool, created } = saveUserTool(ctx.toolStore, posted.yaml);
+    res.redirect(303, `/tools/${encodeURIComponent(tool.id)}?flash=${encodeURIComponent(created ? 'Saved. Use it in a step with tool: ' + tool.id + '.' : 'Saved your changes.')}`);
+  } catch (err) {
+    page({ errors: err instanceof UserToolError ? err.errors : [(err as Error).message] });
+  }
+}
+
+toolsRouter.get('/tools/new', (_req: Request, res: Response) => {
+  res.type('html').send(renderToolForm({ mode: 'new', values: EMPTY_TOOL_FORM, view: 'fields' }));
+});
+
+toolsRouter.post('/tools/new', (req: Request, res: Response) => handleToolForm(req, res, 'new'));
+
+/** A trial gets two minutes (a prompt tool waits on a model). */
+const TOOL_TRIAL_MS = 120_000;
+const TOOL_TRIAL_RESULT_CHARS = 4000;
+
+/**
+ * POST /tools/try (the form's fields) → { ok, runId } or { ok: false, errors }.
+ * Runs the unsaved tool once as a one-step trial run, with the sample inputs.
+ */
+toolsRouter.post('/tools/try', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const posted = postedTool(body);
+  if (posted.error) { res.json({ ok: false, errors: [posted.error] }); return; }
+  const checked = checkUserToolYaml(posted.yaml, ctx.toolStore);
+  if (!checked.tool) { res.json({ ok: false, errors: checked.errors }); return; }
+  const sample = parseSampleInputs(typeof body.sample === 'string' ? body.sample : '');
+  if ('error' in sample) { res.json({ ok: false, errors: [sample.error] }); return; }
+  const tool = checked.tool;
+  const isPrompt = tool.implementation.type !== 'shell';
+  const agent: Agent = {
+    id: `try-${tool.id}`,
+    name: `Try ${tool.name}`,
+    status: 'active',
+    source: 'local',
+    mcp: false,
+    version: 1,
+    nodes: [{ id: 'try', type: isPrompt ? 'llm-prompt' : 'shell', tool: tool.id, toolInputs: sample, ...(isPrompt ? { prompt: tool.implementation.prompt } : {}) }],
+  };
+  const runId = randomUUID();
+  const abortController = new AbortController();
+  const timer = setTimeout(() => abortController.abort(), TOOL_TRIAL_MS);
+  ctx.activeRuns.set(runId, abortController);
+  executeAgentDag(
+    agent,
+    { triggeredBy: 'trial', signal: abortController.signal, runId, suppressNotify: true },
+    {
+      runStore: ctx.runStore,
+      secretsStore: ctx.secretsStore,
+      variablesStore: ctx.variablesStore,
+      integrationsStore: ctx.integrationsStore,
+      toolStore: ctx.toolStore,
+      draftTools: { [tool.id]: tool },
+      agentStore: ctx.agentStore,
+      allowUntrustedShell: ctx.allowUntrustedShell,
+      dataRoot: ctx.agentStore.dataRoot,
+      llmSettings: buildLlmSettingsSnapshot(ctx),
+      spawnNode: ctx.workflowSpawnNode,
+      experimentalApple: isAppleIntegrationEnabled(),
+    },
+  )
+    .catch(() => { /* surfaced on the run row */ })
+    .finally(() => { clearTimeout(timer); ctx.activeRuns.delete(runId); });
+  res.json({ ok: true, runId });
+});
+
+/** GET /tools/try/:runId → the trial's status and, when done, what the tool gave back. */
+toolsRouter.get('/tools/try/:runId', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const runId = String(req.params.runId);
+  const run = ctx.runStore.getRun(runId);
+  if (!run || run.triggeredBy !== 'trial') { res.status(404).json({ ok: false, error: 'No such trial.' }); return; }
+  const done = run.status !== 'running' && run.status !== 'pending';
+  if (!done) { res.json({ ok: true, done: false }); return; }
+  const node = ctx.runStore.listNodeExecutions(runId).find((n) => n.nodeId === 'try');
+  let outputs: Record<string, unknown> | undefined;
+  try {
+    const parsed = node?.outputsJson ? JSON.parse(node.outputsJson) as Record<string, unknown> : undefined;
+    if (parsed) { const { result: _r, ...rest } = parsed; outputs = rest; }
+  } catch { /* not JSON */ }
+  const result = node?.result ?? run.result ?? '';
+  res.json({
+    ok: true,
+    done: true,
+    status: run.status,
+    url: `/runs/${runId}`,
+    result: result.length > TOOL_TRIAL_RESULT_CHARS ? `${result.slice(0, TOOL_TRIAL_RESULT_CHARS)}…` : result,
+    outputs,
+    exitCode: node?.exitCode,
+    error: node?.error ?? run.error,
+    durationMs: run.completedAt ? Date.parse(run.completedAt) - Date.parse(run.startedAt) : undefined,
+  });
+});
+
+toolsRouter.get('/tools/:id/edit', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = String(req.params.id);
+  const tool = ctx.toolStore?.getTool(id);
+  if (!tool || !isUserRunTool(tool) || ctx.toolStore?.getToolServerId(id)) { res.redirect(303, `/tools/${encodeURIComponent(id)}`); return; }
+  res.type('html').send(renderToolForm({ mode: 'edit', values: toolFormFromTool(tool), view: 'fields' }));
+});
+
+toolsRouter.post('/tools/:id/edit', (req: Request, res: Response) => handleToolForm(req, res, 'edit', String(req.params.id)));
+
+toolsRouter.post('/tools/:id/remove', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = String(req.params.id);
+  try {
+    if (!ctx.toolStore) throw new UserToolError(["The tool store isn't available here."]);
+    removeUserTool(ctx.toolStore, id);
+    res.redirect(303, `/tools?flash=${encodeURIComponent(`Removed ${id}.`)}`);
+  } catch (err) {
+    res.redirect(303, `/tools/${encodeURIComponent(id)}?error=${encodeURIComponent(err instanceof UserToolError ? err.message : (err as Error).message)}`);
+  }
+});
+
 toolsRouter.get('/tools/:id', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -255,8 +439,11 @@ toolsRouter.get('/tools/:id', (req: Request, res: Response) => {
   // workload that would warrant an index.
   const usedByAgents = (() => {
     try {
-      return ctx.agentStore.listAgents()
-        .filter((a) => a.capabilities?.tools_used.includes(id))
+      const agents = ctx.agentStore.listAgents();
+      // A step's tool:, and (for a tool a model may call) a step's tools: list.
+      const viaTools = new Set(agentsUsingTool(agents, id));
+      return agents
+        .filter((a) => a.capabilities?.tools_used.includes(id) || viaTools.has(a.id))
         .map((a) => ({ id: a.id, name: a.name, status: a.status }));
     } catch {
       return [];
@@ -274,7 +461,10 @@ toolsRouter.get('/tools/:id', (req: Request, res: Response) => {
       const tool = ctx.toolStore.getTool(id);
       if (tool) {
         const serverId = ctx.toolStore.getToolServerId(id);
-        res.type('html').send(renderToolDetail({ tool, mcpServerId: serverId, usedByAgents }));
+        const flash = typeof req.query.error === 'string'
+          ? { kind: 'error' as const, message: req.query.error }
+          : typeof req.query.flash === 'string' ? { kind: 'ok' as const, message: req.query.flash } : undefined;
+        res.type('html').send(renderToolDetail({ tool, mcpServerId: serverId, usedByAgents, editable: !serverId && isUserRunTool(tool), flash }));
         return;
       }
     }

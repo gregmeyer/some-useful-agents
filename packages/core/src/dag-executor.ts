@@ -55,7 +55,8 @@ import { resolveBehaviorsForRun } from './behavior-conditioning/index.js';
 import { loadSkills, SkillStore, buildSkillsPreamble, type LoadSkillsResult } from './skills.js';
 import { type SpawnResult, type SpawnNodeFn, type SpawnProgress, spawnNodeReal } from './node-spawner.js';
 import { resolveToolId, resolveToolInputs } from './tool-dispatch.js';
-import { nodeRunsShell, resolveToolCallInputs, commandToolEnv, substituteToolPrompt, ToolInputError } from './user-tool-inputs.js';
+import { nodeRunsShell, resolveToolCallInputs, commandToolEnv, substituteToolPrompt, ToolInputError, type ToolLookup } from './user-tool-inputs.js';
+import type { ToolDefinition } from './tool-types.js';
 import { dispatchNotify, type NotifyLogger } from './notify-dispatcher.js';
 import {
   executeControlFlowNode,
@@ -95,6 +96,11 @@ export interface DagExecutorDeps {
    * — if absent, only built-in tools are available.
    */
   toolStore?: ToolStore;
+  /**
+   * Unsaved tools, looked up before the store: the dashboard's Try it runs a
+   * tool you're writing without saving it.
+   */
+  draftTools?: Record<string, ToolDefinition>;
   /** Agent memory store; defaults to one on the run store's database (see memory-store.ts). */
   memoryStore?: MemoryStore;
   /**
@@ -374,6 +380,10 @@ export async function executeAgentDag(
 ): Promise<Run> {
   const runId = options.runId ?? randomUUID();
   const startedAt = new Date().toISOString();
+  // Stored tools, with any unsaved drafts (Try it) in front of them.
+  const toolLookup: ToolLookup = {
+    getTool: (id) => deps.draftTools?.[id] ?? deps.toolStore?.getTool(id),
+  };
 
   // Resume mode (B2): when asked to resume an existing run, reuse its row +
   // completed node executions instead of creating a fresh run. Falls back to a
@@ -1228,7 +1238,7 @@ export async function executeAgentDag(
     // tool is shell-exec or a command tool you added (whatever its `type:`),
     // or a model step that may call one of those from its `tools:` list.
     if (agent.source === 'community' && !(deps.allowUntrustedShell?.has(agent.id))
-      && nodeRunsShell(node, deps.toolStore)) {
+      && nodeRunsShell(node, toolLookup)) {
       const err = new UntrustedCommunityShellError(agent.id);
       deps.runStore.createNodeExecution({
         runId,
@@ -1416,8 +1426,8 @@ export async function executeAgentDag(
         structuredOutput = builtinOut;
         const stdout = structuredOutput.result ?? '';
         result = { result: stdout, exitCode: (structuredOutput as Record<string, unknown>).exit_code as number ?? 0 };
-      } else if (toolId && deps.toolStore) {
-        const userTool = deps.toolStore.getTool(toolId);
+      } else if (toolId && (deps.toolStore || deps.draftTools)) {
+        const userTool = toolLookup.getTool(toolId);
         if (!userTool) {
           throw new Error(
             `Tool "${toolId}" did not resolve — not a built-in, a generated integration tool, or a stored tool. ` +
@@ -1429,9 +1439,9 @@ export async function executeAgentDag(
           // Server-level enable gate: if the tool was imported from an MCP
           // server (has mcp_server_id) and that server is disabled, fail
           // with a clear message rather than trying to connect.
-          const serverId = deps.toolStore.getToolServerId(toolId);
+          const serverId = deps.toolStore?.getToolServerId(toolId);
           if (serverId) {
-            const server = deps.toolStore.getMcpServer(serverId);
+            const server = deps.toolStore?.getMcpServer(serverId);
             if (server && !server.enabled) {
               throw new Error(`MCP server "${serverId}" is disabled. Re-enable it under Tools \u2192 Servers.`);
             }
