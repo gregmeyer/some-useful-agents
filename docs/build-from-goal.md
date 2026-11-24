@@ -94,6 +94,8 @@ committed sequentially as its own `agent_versions` row. Unresolved critic
 warnings can be overridden with **Commit anyway**. Each new agent is run once
 straight away; the **Done** summary links to that first run.
 
+For a tool rather than an agent, describe it on **Tools → + New tool** instead: the same idea (a sentence in, a checked draft out, Try it before you keep it) for one command or prompt ([tools.md](tools.md#tools-you-add)).
+
 ## The critic
 
 `critiquePlan` runs structural checks against catalog reality before a draft is

@@ -148,6 +148,19 @@ export function toolFormFromYaml(yamlText: string): ToolFormValues | { error: st
 /** Sample inputs for Try it, written as `name: value` lines (YAML). */
 export function parseSampleInputs(text: string): Record<string, unknown> | { error: string } {
   if (!text.trim()) return {};
+  // Plain `name: value` lines, read by their first colon, so a value can
+  // have colons of its own ("title: Don't Panic: A Guide"). Anything else
+  // (a block of YAML, a list) is read as YAML.
+  const lines = text.split('\n').filter((l) => l.trim());
+  const plain = lines.map((l) => /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s?(.*)$/.exec(l));
+  if (plain.every(Boolean) && !plain.some((m) => /^[|>[{]/.test(m![2].trim()))) {
+    const out: Record<string, unknown> = {};
+    for (const m of plain) {
+      const v = m![2].trim();
+      out[m![1]] = /^"(.*)"$|^'(.*)'$/.test(v) ? v.slice(1, -1) : v;
+    }
+    return out;
+  }
   let raw: unknown;
   try { raw = parseYaml(text); } catch (err) { return { error: `The sample inputs don't parse: ${(err as Error).message.split('\n')[0]}` }; }
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { error: 'Write the sample inputs as name: value, one per line.' };

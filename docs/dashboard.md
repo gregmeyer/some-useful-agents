@@ -233,7 +233,9 @@ See [Tools](tools.md) for the full catalog.
 
 ## `/tools/new` — New tool
 
-Write a tool of your own: an id, a name, what it does (a model reads this to decide when to call it), whether it runs **a command** or **a prompt**, the command or prompt itself, its inputs (name, type, required or optional, default, description) and, optionally, the output fields of the JSON line it prints. **Edit as YAML** shows the same tool as the file `sua tool add` takes, and **Edit as fields** goes back.
+Two tabs. **Describe it** (the default): say what the tool should do and **Draft it**; sua drafts it, checks it, and opens it in **Write it** filled in, with a note that sua drafted it (see [Describe it](tools.md#tools-you-add)).
+
+**Write it**: write a tool of your own: an id, a name, what it does (a model reads this to decide when to call it), whether it runs **a command** or **a prompt**, the command or prompt itself, its inputs (name, type, required or optional, default, description) and, optionally, the output fields of the JSON line it prints. **Edit as YAML** shows the same tool as the file `sua tool add` takes, and **Edit as fields** goes back.
 
 - **Try it** runs the tool once with the sample inputs you write (`name: value`, one per line) without saving it: whether it ran, its exit code and time, the output fields, what it printed, and a link to the whole run (a trial run, which never reaches the inbox).
 - **Save tool** checks it first. What stops it saving (an id that's taken or a built-in's, an input name the environment uses, an empty command) is listed above the form, with what you wrote kept. Things worth a second look (an unquoted `$input`, `eval`, `rm -rf`, curl on an input URL) are listed too, and the button becomes **Save anyway**.

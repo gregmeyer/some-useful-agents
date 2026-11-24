@@ -55,7 +55,9 @@ describe('the form and its YAML', () => {
 
   it('drops empty rows and reads sample inputs', () => {
     expect(toolFormFromBody({ ...WORD_COUNT, in_name: ['text', ''], in_type: ['string', 'string'], in_required: ['yes', 'no'], in_default: ['', ''], in_description: ['', ''] }).inputs).toHaveLength(1);
-    expect(parseSampleInputs('text: hi\nn: 2')).toEqual({ text: 'hi', n: 2 });
+    expect(parseSampleInputs('text: hi\nn: 2')).toEqual({ text: 'hi', n: '2' });
+    expect(parseSampleInputs("title: Don't Panic: The Café")).toEqual({ title: "Don't Panic: The Café" });
+    expect(parseSampleInputs('items: [1, 2]')).toEqual({ items: [1, 2] });
     expect('error' in parseSampleInputs('- a')).toBe(true);
   });
 });
@@ -170,5 +172,90 @@ describe('Try it', () => {
     const missing = await post(app, '/tools/try', { ...WORD_COUNT, in_name: 'PATH' });
     expect(missing.body.ok).toBe(false);
     expect(missing.body.errors.join()).toMatch(/input name/);
+  });
+});
+
+describe('Describe it', () => {
+  const GOOD = `Here it is.
+<tool>
+  id: shout
+  name: Shout
+  description: Says the text in capitals.
+  inputs:
+    text: { type: string, required: true }
+  outputs:
+    loud: { type: string }
+  implementation:
+    type: shell
+    command: |
+      python3 -c 'import json,os; print(json.dumps({"loud": os.environ["text"].upper()}))'
+</tool>
+<samples>
+text: hello there
+</samples>
+<why>Upper-cases text; no network.</why>`;
+
+  async function drafted(app: Parameters<typeof request>[0], description: string) {
+    const start = await post(app, '/tools/draft', { description });
+    expect(start.body.ok).toBe(true);
+    let d = await get(app, `/tools/draft/${start.body.id}`);
+    for (let i = 0; i < 100 && d.body.status === 'working'; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+      d = await get(app, `/tools/draft/${start.body.id}`);
+    }
+    return d.body as { status: string; tries: number; url?: string; error?: string };
+  }
+
+  it('opens on Describe it, with Write it a tab away', async () => {
+    const app = await makeApp();
+    const res = await get(app, '/tools/new');
+    expect(res.text).toContain('Describe the tool you want');
+    expect(res.text).not.toContain('data-tool-form');
+    const write = await get(app, '/tools/new?tab=write');
+    expect(write.text).toContain('data-tool-form');
+  });
+
+  it('drafts a tool and opens it in the form, filled in, without running it', async () => {
+    const app = await makeApp();
+    const seen: Array<Record<string, string>> = [];
+    t!.ctx.toolDrafterRun = async (inputs) => { seen.push(inputs); return GOOD; };
+    const d = await drafted(app, 'say some text loudly, in capitals');
+    expect(d).toMatchObject({ status: 'ready', tries: 1 });
+    expect(seen[0].DESCRIPTION).toBe('say some text loudly, in capitals');
+    expect(seen[0].TOOLS).toMatch(/- http-get:/);
+    const page = await get(app, d.url!);
+    expect(page.text).toContain('sua drafted this');
+    expect(page.text).toContain('value="shout"');
+    expect(page.text).toContain('text: hello there');
+    expect(t!.ctx.toolStore!.getTool('shout')).toBeUndefined();
+    expect(t!.ctx.runStore.listRuns({ limit: 5 })).toHaveLength(0);
+  });
+
+  it('tries again, told what was wrong, then gives up after three', async () => {
+    const app = await makeApp();
+    const fixes: string[] = [];
+    t!.ctx.toolDrafterRun = async (inputs) => {
+      fixes.push(inputs.FIX);
+      return fixes.length < 2 ? GOOD.replace('os.environ["text"]', '"x"') : GOOD;
+    };
+    const d = await drafted(app, 'say some text loudly, in capitals');
+    expect(d).toMatchObject({ status: 'ready', tries: 2 });
+    expect(fixes[1]).toMatch(/never uses: text/);
+
+    t!.ctx.toolDrafterRun = async () => 'no tool here';
+    const bad = await drafted(app, 'something it cannot draft at all');
+    expect(bad).toMatchObject({ status: 'failed', tries: 3 });
+    expect(bad.error).toMatch(/no <tool> block/);
+  });
+
+  it('refuses a draft with a key written into it, or an id that exists', async () => {
+    const { parseToolDraft } = await import('../lib/tool-drafter.js');
+    expect(parseToolDraft(GOOD.replace('import json,os', 'import json,os # sk-abcdefghijklmnopqrstuv'))).toMatchObject({ error: expect.stringMatching(/key written/) });
+    const app = await makeApp();
+    void app;
+    await post(app, '/tools/new', { ...WORD_COUNT, id: 'shout', action: 'save' });
+    expect(parseToolDraft(GOOD, t!.ctx.toolStore)).toMatchObject({ error: expect.stringMatching(/already a tool "shout"/) });
+    const ok = parseToolDraft(GOOD);
+    expect('error' in ok ? ok.error : ok.tool.id).toBe('shout');
   });
 });
