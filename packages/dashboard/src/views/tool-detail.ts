@@ -21,8 +21,24 @@ export function renderToolDetail(args: {
    * between "loaded but empty" and "the section never rendered."
    */
   usedByAgents?: ToolUsage[];
+  /** A tool you added: offer Edit and Remove, and show its YAML. */
+  editable?: boolean;
+  flash?: { kind: 'error' | 'ok'; message: string };
 }): string {
-  const { tool, mcpServerId, usedByAgents = [] } = args;
+  const { tool, mcpServerId, usedByAgents = [], editable = false } = args;
+  const idPath = encodeURIComponent(tool.id);
+  const actions = editable ? html`<div class="tool-detail__actions">
+      <a href="/tools/${idPath}/edit" class="btn btn--sm">Edit</a>
+      <details class="tool-detail__remove">
+        <summary class="btn btn--sm btn--ghost">Remove</summary>
+        <form method="POST" action="/tools/${idPath}/remove" class="tool-detail__remove-panel">
+          <p>${usedByAgents.length
+            ? html`${usedByAgents.length === 1 ? 'An agent uses' : `${usedByAgents.length} agents use`} it (${usedByAgents.map((a) => a.id).join(', ')}). Their steps that call it will fail once it's gone.`
+            : html`No agent uses it.`} Removing it can't be undone.</p>
+          <button type="submit" class="btn btn--sm btn--err">Remove ${tool.id}</button>
+        </form>
+      </details>
+    </div>` : undefined;
 
   const sourceBadge = tool.source === 'builtin'
     ? html`<span class="badge badge--muted">builtin</span>`
@@ -60,6 +76,7 @@ export function renderToolDetail(args: {
       meta: [sourceBadge, implBadge],
       description: tool.description ?? undefined,
       back: { href: '/tools', label: 'Back to tools' },
+      cta: actions,
     })}
 
     ${Object.keys(tool.inputs).length > 0 ? html`
@@ -83,7 +100,7 @@ export function renderToolDetail(args: {
     ` : html`<p class="dim">No outputs declared.</p>`}
 
     <section class="mt-6">
-      <h2>Implementation</h2>
+      <h2>What it runs</h2>
       <div class="card">
         <dl class="kv">
           <dt>Type</dt><dd>${tool.implementation.type}</dd>
@@ -118,6 +135,14 @@ export function renderToolDetail(args: {
       </div>
     </section>
 
+    ${editable && tool.yamlText ? html`
+      <section class="mt-6">
+        <h2>As YAML</h2>
+        <pre class="tool-detail__yaml mono">${tool.yamlText}</pre>
+        <p class="dim">The same file <code>sua tool add</code> takes.</p>
+      </section>
+    ` : unsafeHtml('')}
+
     <section class="mt-6">
       <h2>Used by</h2>
       ${usedByAgents.length === 0
@@ -138,5 +163,5 @@ export function renderToolDetail(args: {
     </section>
   `;
 
-  return render(layout({ title: `Tool: ${tool.id}`, activeNav: 'tools' }, body));
+  return render(layout({ title: `Tool: ${tool.id}`, activeNav: 'tools', flash: args.flash }, body));
 }

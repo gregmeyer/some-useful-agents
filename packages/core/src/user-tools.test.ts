@@ -139,6 +139,7 @@ describe('checkUserToolYaml / saveUserTool / removeUserTool', () => {
     expect(checkUserToolYaml('id: m\nname: M\nimplementation: { type: mcp, mcpToolName: x, mcpCommand: y }\n').errors.join()).toMatch(/Import/);
     expect(checkUserToolYaml(WORD_COUNT_YAML.replace('  unit:', '  PATH:')).errors.join()).toMatch(/environment already uses/);
     expect(checkUserToolYaml('id: [').errors[0]).toMatch(/doesn't parse/);
+    expect(checkUserToolYaml('id: e\nname: E\nimplementation: { type: shell, command: "  \\n" }\n').errors.join()).toMatch(/command is empty/);
   });
 
   it('forces source local', () => {

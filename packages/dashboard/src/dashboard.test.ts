@@ -2423,7 +2423,7 @@ describe('Tools owns what agents can call (ADR-0034)', () => {
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
-    for (const label of ['Imported', 'Built-in', 'Servers', 'Integrations']) {
+    for (const label of ['Your tools', 'Built-in', 'Servers', 'Integrations']) {
       expect(res.text).toContain(`>${label} <span class="dim">`);
     }
   });

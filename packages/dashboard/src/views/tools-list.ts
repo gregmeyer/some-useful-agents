@@ -71,7 +71,7 @@ export function renderToolsList(args: {
 
   const tabStrip = html`
     <nav style="display: flex; gap: var(--space-4); border-bottom: 1px solid var(--color-border); margin-bottom: var(--space-4);">
-      ${tabLink('user', 'Imported', filteredUserTools.length)}
+      ${tabLink('user', 'Your tools', filteredUserTools.length)}
       ${tabLink('builtin', 'Built-in', filteredBuiltins.length)}
       ${tabLink('servers', 'Servers', args.serverCount ?? 0)}
       ${tabLink('integrations', 'Integrations', args.integrationCount ?? 0)}
@@ -98,17 +98,17 @@ export function renderToolsList(args: {
 
   const emptyState = html`
     <div class="settings-empty">
-      <h3 style="margin-top: 0;">${tab === 'user' ? 'No user tools' : 'No built-in tools match'}</h3>
+      <h3 style="margin-top: 0;">${tab === 'user' ? 'No tools of your own yet' : 'No built-in tools match'}</h3>
       <p class="dim">
         ${f.q || f.type
           ? 'No tools match your filters.'
           : tab === 'user'
-            ? 'User tools come from MCP imports or custom definitions. Import from an MCP server to populate this list.'
+            ? 'Write a tool of your own (a command or a prompt with named inputs), or import the tools an MCP server offers.'
             : 'Built-in tools ship with the runtime.'}
       </p>
       ${f.q || f.type
         ? html`<a href="${toolBuildUrl({}, limit, 0, tab)}" class="btn btn--sm">Reset filters</a>`
-        : tab === 'user' ? html`<a href="/tools/mcp/import" class="btn btn--sm">Import from MCP server</a>` : html``}
+        : tab === 'user' ? html`<a href="/tools/new" class="btn btn--sm btn--primary">+ New tool</a> <a href="/tools/mcp/import" class="btn btn--sm">Import from MCP server</a>` : html``}
     </div>
   `;
 
@@ -121,7 +121,7 @@ export function renderToolsList(args: {
       </div>
       ${toolPager(f, tab, limit, offset, total)}
       <footer style="margin-top: var(--space-8); text-align: center;">
-        <p class="dim">${String(total)} ${tab === 'user' ? 'imported' : 'built-in'} tool${total === 1 ? '' : 's'} ${f.q || f.type ? 'matching' : 'available'}</p>
+        <p class="dim">${String(total)} ${tab === 'user' ? '' : 'built-in '}tool${total === 1 ? '' : 's'} ${f.q || f.type ? 'matching' : tab === 'user' ? 'of yours' : 'available'}</p>
       </footer>
     `}
   `;
@@ -129,9 +129,9 @@ export function renderToolsList(args: {
   const body = html`
     ${pageHeader({
       title: 'Tools',
-      description: 'Everything your agents can call — the tools that ship with sua, the ones you imported, '
+      description: 'Everything your agents can call — the tools that ship with sua, the ones you wrote or imported, '
         + 'where those imports came from, and your saved connections to outside systems.',
-      cta: html`<a href="/tools/mcp/import" class="btn btn--sm">Import from MCP server</a>`,
+      cta: html`<a href="/tools/new" class="btn btn--sm btn--primary">+ New tool</a> <a href="/tools/mcp/import" class="btn btn--sm">Import from MCP server</a>`,
     })}
 
     ${sectionTabs('tools')}
