@@ -233,7 +233,7 @@ See [Tools](tools.md) for the full catalog.
 
 ## `/tools/new` — New tool
 
-Two tabs. **Describe it** (the default): ideas from your agents (a fetch or command several of them repeat; **Use this** fills the box), then say what the tool should do and **Draft it**. `?from=<agent>/<step>` (a step's **Make a tool**) starts it with that step; sua drafts it, checks it, and opens it in **Write it** filled in, with a note that sua drafted it (see [Describe it](tools.md#tools-you-add)).
+Two tabs. **Describe it** (the default): ideas from your agents (a fetch or command several of them repeat; **Use this** fills the box), **Or start from…** an agent, an input or an outcome (sua suggests up to four), then say what the tool should do and **Draft it**. `?from=<agent>/<step>` (a step's **Make a tool**) starts it with that step; sua drafts it, checks it, and opens it in **Write it** filled in, with a note that sua drafted it (see [Describe it](tools.md#tools-you-add)).
 
 **Write it**: write a tool of your own: an id, a name, what it does (a model reads this to decide when to call it), whether it runs **a command** or **a prompt**, the command or prompt itself, its inputs (name, type, required or optional, default, description) and, optionally, the output fields of the JSON line it prints. **Edit as YAML** shows the same tool as the file `sua tool add` takes, and **Edit as fields** goes back.
 

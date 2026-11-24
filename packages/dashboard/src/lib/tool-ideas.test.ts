@@ -75,3 +75,14 @@ describe('toolIdeasFromAgents — one idea per family of fetches', () => {
     expect(ideas[0].from).toBe('4 of your agents fetch this: “a”, “b”, “c” and 1 more.');
   });
 });
+
+describe('parseToolIdeas', () => {
+  it('keeps up to four with a label and a sentence, without repeats', async () => {
+    const { parseToolIdeas } = await import('./tool-ideas.js');
+    const many = Array.from({ length: 6 }, (_, i) => ({ label: `Idea ${i}`, text: `Do thing ${i}`, why: 'because' }));
+    expect(parseToolIdeas(`<ideas>${JSON.stringify(many)}</ideas>`)).toHaveLength(4);
+    expect(parseToolIdeas('<ideas>[{"label": "", "text": "x"}]</ideas>')).toEqual([]);
+    expect(parseToolIdeas('<ideas>not json</ideas>')).toEqual([]);
+    expect(parseToolIdeas('<ideas>[{"label": "A", "text": "t", "why": "w"}]</ideas>')[0]).toMatchObject({ label: 'A', text: 't', from: 'w' });
+  });
+});

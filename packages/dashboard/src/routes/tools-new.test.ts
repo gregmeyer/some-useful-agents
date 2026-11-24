@@ -287,3 +287,64 @@ describe('ideas from your agents', () => {
     expect(page.text).toMatch(/No ideas from your agents yet/);
   });
 });
+
+describe('Or start from… an agent, an input, an outcome', () => {
+  const IDEAS = `<ideas>[{"label": "Parse a bank CSV", "text": "Take csv (a bank statement's text) and give back date, payee, amount for each row.", "why": "Turns your export into fields."}, {"label": "Parse a bank CSV", "text": "dup", "why": "x"}]</ideas>`;
+
+  async function ideas(app: Parameters<typeof request>[0], body: Record<string, unknown>) {
+    const start = await post(app, '/tools/ideas', body);
+    if (!start.body.ok) return start.body;
+    let d = await get(app, `/tools/ideas/${start.body.id}`);
+    for (let i = 0; i < 100 && d.body.status === 'working'; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+      d = await get(app, `/tools/ideas/${start.body.id}`);
+    }
+    return { ...d.body, id: start.body.id };
+  }
+
+  it('offers the three ways in, with your agents to pick from', async () => {
+    const app = await makeApp();
+    t!.ctx.agentStore.createAgent({ id: 'news', name: 'News', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'f', type: 'shell', command: 'curl -s https://api.stories.test/v1/top' }] }, 'cli');
+    const page = await get(app, '/tools/new');
+    expect(page.text).toContain('Or start from');
+    expect(page.text).toMatch(/value="agent"[\s\S]*value="input"[\s\S]*value="outcome"/);
+    expect(page.text).toContain('<option value="news">News</option>');
+    // Use this fills the Describe it box, not the first text box on the panel.
+    expect(page.text).toContain("root.querySelector('textarea[name=description]')");
+  });
+
+  it('sends each lens its context and shows the ideas as cards', async () => {
+    const app = await makeApp();
+    t!.ctx.agentStore.createAgent({ id: 'news', name: 'News', description: 'Top stories', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'f', type: 'shell', command: 'curl -s https://api.stories.test/v1/top' }] }, 'cli');
+    const seen: Array<Record<string, string>> = [];
+    t!.ctx.toolSuggesterRun = async (inputs) => { seen.push(inputs); return IDEAS; };
+
+    const fromAgent = await ideas(app, { lens: 'agent', agent: 'news' });
+    expect(fromAgent.status).toBe('ready');
+    expect(seen[0]).toMatchObject({ LENS: 'agent' });
+    expect(seen[0].CONTEXT).toMatch(/Agent "News": Top stories[\s\S]*- f \(shell\): curl -s https:\/\/api\.stories\.test/);
+    expect(seen[0].TOOLS).toMatch(/- http-get:/);
+    expect(fromAgent.html).toContain('Parse a bank CSV');
+    expect(fromAgent.html.match(/data-use-idea/g)).toHaveLength(1);
+
+    await ideas(app, { lens: 'input', text: 'date,payee,amount\n2026-11-01,Grocer,42.10' });
+    expect(seen[1]).toMatchObject({ LENS: 'input', CONTEXT: 'date,payee,amount\n2026-11-01,Grocer,42.10' });
+    await ideas(app, { lens: 'outcome', text: 'a weekly summary of what changed in my repos' });
+    expect(seen[2]).toMatchObject({ LENS: 'outcome' });
+
+    // The same ask within the hour reuses its ideas.
+    const again = await ideas(app, { lens: 'outcome', text: 'a weekly summary of what changed in my repos' });
+    expect(again.status).toBe('ready');
+    expect(seen).toHaveLength(3);
+  });
+
+  it('says what is missing, and when the reply has no usable ideas', async () => {
+    const app = await makeApp();
+    expect((await ideas(app, { lens: 'agent', agent: 'nope' })).error).toMatch(/Choose one of your agents/);
+    expect((await ideas(app, { lens: 'input', text: '' })).error).toMatch(/Paste or describe/);
+    t!.ctx.toolSuggesterRun = async () => 'no ideas here';
+    const bad = await ideas(app, { lens: 'outcome', text: 'something else entirely' });
+    expect(bad.status).toBe('failed');
+    expect(bad.error).toMatch(/didn.t come back with ideas/);
+  });
+});

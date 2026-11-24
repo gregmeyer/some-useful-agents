@@ -1914,3 +1914,9 @@
 .tool-ideas__label { margin: 0; font-family: var(--font-mono); font-weight: var(--weight-semibold); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
 .tool-ideas__from { margin: 0; font-size: var(--font-size-xs); }
 .tool-ideas__none { margin: var(--space-2) 0 var(--space-6); font-size: var(--font-size-sm); }
+.tool-start { margin: 0 0 var(--space-6); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); }
+.tool-start__summary { cursor: pointer; font-weight: var(--weight-semibold); font-size: var(--font-size-sm); }
+.tool-start__body { margin-top: var(--space-3); }
+.tool-start__lenses { display: flex; gap: var(--space-6); margin-bottom: var(--space-3); font-size: var(--font-size-sm); }
+.tool-start__body select.form-field__input, .tool-start__body textarea { width: 100%; box-sizing: border-box; }
+.tool-start__result .tool-ideas { margin-bottom: 0; }

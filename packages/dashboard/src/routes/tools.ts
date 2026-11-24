@@ -19,7 +19,10 @@ import {
 import { randomUUID } from 'node:crypto';
 import { renderToolForm } from '../views/tool-form.js';
 import { startToolDraft, readToolDraft } from '../lib/tool-drafter.js';
-import { toolIdeasFromAgents, toolIdeaFromStep, type ToolIdea } from '../lib/tool-ideas.js';
+import { toolIdeasFromAgents, toolIdeaFromStep, agentForIdeas, readToolIdeaJob, type ToolIdea, type ToolIdeaLens } from '../lib/tool-ideas.js';
+import { startToolIdeas } from '../lib/tool-ideas-run.js';
+import { ideaCards } from '../views/tool-form.js';
+import { render } from '../views/html.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import {
   EMPTY_TOOL_FORM,
@@ -344,10 +347,52 @@ toolsRouter.get('/tools/new', (req: Request, res: Response) => {
   }
   const tab = req.query.tab === 'write' && !prefill ? 'write' : 'describe';
   let ideas: ToolIdea[] = [];
+  let agents: Array<{ id: string; name: string }> = [];
   if (tab === 'describe' && !prefill) {
-    try { ideas = toolIdeasFromAgents(ctx.agentStore.listAgents(), ctx.toolStore?.listTools() ?? []); } catch { /* no ideas */ }
+    try {
+      const all = ctx.agentStore.listAgents();
+      ideas = toolIdeasFromAgents(all, ctx.toolStore?.listTools() ?? []);
+      // Your agents first, then the examples; active before drafts; by name.
+      agents = all
+        .filter((a) => a.status !== 'archived' && (a.source === 'local' || a.status === 'active'))
+        .sort((a, b) => (a.source === 'local' ? 0 : 1) - (b.source === 'local' ? 0 : 1)
+          || (a.status === 'active' ? 0 : 1) - (b.status === 'active' ? 0 : 1)
+          || (a.name || a.id).localeCompare(b.name || b.id))
+        .map((a) => ({ id: a.id, name: a.source === 'local' ? (a.name || a.id) : `${a.name || a.id} (example)` }));
+    } catch { /* no ideas */ }
   }
-  res.type('html').send(renderToolForm({ mode: 'new', tab, values: EMPTY_TOOL_FORM, view: 'fields', ideas, prefill }));
+  res.type('html').send(renderToolForm({ mode: 'new', tab, values: EMPTY_TOOL_FORM, view: 'fields', ideas, prefill, agents }));
+});
+
+/** POST /tools/ideas { lens, agent? , text? } → { ok, id }: sua suggests tools from an agent, an input or an outcome. */
+toolsRouter.post('/tools/ideas', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const lens: ToolIdeaLens | undefined = body.lens === 'agent' || body.lens === 'input' || body.lens === 'outcome' ? body.lens : undefined;
+  if (!lens) { res.json({ ok: false, error: 'Choose an agent, an input or an outcome.' }); return; }
+  let context: string;
+  if (lens === 'agent') {
+    const agent = typeof body.agent === 'string' ? ctx.agentStore.getAgent(body.agent) : undefined;
+    if (!agent) { res.json({ ok: false, error: 'Choose one of your agents.' }); return; }
+    context = agentForIdeas(agent);
+  } else {
+    const text = typeof body.text === 'string' ? body.text.replace(/\r\n/g, '\n').trim() : '';
+    if (text.length < 4) { res.json({ ok: false, error: lens === 'input' ? 'Paste or describe what you have.' : 'Say what you want to end up with.' }); return; }
+    context = text.slice(0, lens === 'input' ? 4000 : 1000);
+  }
+  const started = startToolIdeas(ctx, lens, context);
+  if ('error' in started) { res.json({ ok: false, error: started.error }); return; }
+  res.json({ ok: true, id: started.id });
+});
+
+/** GET /tools/ideas/:id → status; when ready, the idea cards as HTML. */
+toolsRouter.get('/tools/ideas/:id', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const job = readToolIdeaJob(ctx, String(req.params.id));
+  if (!job) { res.status(404).json({ ok: false, error: 'Those ideas are gone (they are kept for an hour). Ask again.' }); return; }
+  if (job.status === 'ready') { res.json({ ok: true, status: 'ready', html: render(ideaCards(job.ideas, 'Ideas sua suggests')) }); return; }
+  if (job.status === 'failed') { res.json({ ok: true, status: 'failed', error: job.error }); return; }
+  res.json({ ok: true, status: 'working' });
 });
 
 /** POST /tools/draft { description } → { ok, id }: sua drafts a tool in the background. */

@@ -376,6 +376,10 @@ export interface DashboardContext {
   toolDrafts?: Map<string, import('./lib/tool-drafter.js').ToolDraft>;
   /** Tests: stand in for the tool-drafter agent; gets its inputs, returns its reply. */
   toolDrafterRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Tools → New tool → Or start from…: ideas being made or ready, by id (lib/tool-ideas.ts). */
+  toolIdeaJobs?: Map<string, import('./lib/tool-ideas.js').ToolIdeaJob>;
+  /** Tests: stand in for the tool-suggester agent; gets its inputs, returns its reply. */
+  toolSuggesterRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /**
    * Message ids the operator has explicitly STOPPED (clicked Cancel/Stop).
    * While present, `maybeRefireTriage` will not auto-fire a follow-up triage

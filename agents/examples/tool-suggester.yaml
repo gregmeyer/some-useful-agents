@@ -1,0 +1,77 @@
+# Tool Suggester — ideas for tools to make (docs/tools.md "Describe it").
+# Route-dispatched only, by Tools → New tool → Describe it → Or start from…
+# (dashboard lib/tool-ideas.ts); never proposed in triage. It only suggests:
+# an idea fills the Describe it box, and nothing is drafted, run or saved
+# until the person asks.
+
+id: tool-suggester
+name: Tool Suggester
+description: >
+  Suggests tools worth making, starting from one of your agents, something
+  you have (an input), or something you want (an outcome).
+status: active
+source: examples
+
+inputs:
+  LENS:
+    type: string
+    required: true
+    description: "agent, input or outcome: what CONTEXT is."
+  CONTEXT:
+    type: string
+    required: true
+    description: The agent's steps, the input they have, or the outcome they want.
+  TOOLS:
+    type: string
+    required: true
+    description: The tools that already exist, one per line (id and what it does).
+
+nodes:
+  - id: suggest
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 120
+    outputContract:
+      mustMatch: '<ideas>[\s\S]*?</ideas>'
+      description: an <ideas> JSON block
+    prompt: |
+      You suggest tools for sua, a local agent runner. A tool is one small,
+      reusable thing with named inputs that an agent's step (or a model)
+      calls: either a shell command (bash, curl, jq, python3) or a prompt for
+      a model. Good tools take away something repeated or hard-coded, turn a
+      messy input into clean fields, or produce one thing someone wants.
+
+      They're starting from {{inputs.LENS}}:
+      - agent: one of their agents, its steps below. Suggest tools that would
+        make it simpler or reusable: a fetch it hard-codes, a transform it
+        does inline, a judgement its prompt makes that other agents could use.
+      - input: something they have (a sample, a URL, a kind of file or text).
+        Suggest tools that take it in and give back what's useful in it.
+      - outcome: something they want to end up with. Suggest the tools that
+        would produce it, one step each.
+
+      What they gave:
+      {{inputs.CONTEXT}}
+
+      Tools that already exist (built-in and theirs):
+      {{inputs.TOOLS}}
+
+      Rules:
+      - Suggest up to FOUR, the most useful first. Each one tool, not an agent.
+      - A key or token is never an input: the tool reads it from an
+        environment variable that the step calling it declares as a secret
+        (say which, e.g. "reads GITHUB_TOKEN").
+      - Don't suggest what an existing tool already does. If one already
+        covers part of it, say so in "why" ("http-get already fetches; this
+        adds the parsing").
+      - "label": 2–6 words for a card ("Parse a bank CSV").
+      - "text": the sentence to draft it from, specific: its inputs by name,
+        what it does, and what it gives back (the field names). Use the real
+        details they gave (the URL, the columns, the format).
+      - "why": one short sentence on how it helps with this agent, input or
+        outcome.
+
+      Reply with only this, as valid JSON:
+      <ideas>
+      [{"label": "", "text": "", "why": ""}]
+      </ideas>
