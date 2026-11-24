@@ -1,9 +1,10 @@
 # LLM providers
 
 `llm-prompt` nodes (the canonical LLM node type; `claude-code` is a legacy
-alias) don't call a hardcoded model. Each run resolves an ordered **provider
-waterfall**: the primary provider is tried first, and on a *classified* failure
-the runtime walks the rest of the chain until one succeeds. Manage it all at
+alias) don't call a hardcoded model. Each run follows an ordered list of
+providers, the **provider order**: the primary provider is tried first, and on
+a *classified* failure the node moves on to the next provider until one
+succeeds. Manage it all at
 **Settings → LLM** (`/settings/llm`).
 
 ## First run: Connect a model
@@ -18,7 +19,7 @@ resolves before it shows you the home page. If none does, `GET /` redirects to
    needed.
 
 Either route saves a custom provider **and promotes it to the front of the
-waterfall**, so the next `llm-prompt` run uses it immediately. The endpoint is
+provider order**, so the next `llm-prompt` run uses it immediately. The endpoint is
 probed first (`GET {apiBase}/models`); on a failure the page offers **Save
 anyway**, for a server you haven't started yet. **Skip for now** dismisses the
 gate (a cookie) — shell agents still run, `llm-prompt` agents will fail until a
@@ -30,13 +31,13 @@ fires.
 
 > **Why a probe and not a config read?** The settings store returns
 > `providers: ['claude']` even when no settings file exists, and the runtime
-> falls back to the literal `claude` when the chain is empty. A machine with no
+> falls back to the literal `claude` when the provider order is empty. A machine with no
 > `claude` binary therefore *looks* configured and then fails at spawn time.
 > Readiness is only truthful when it's probed.
 
 ## Providers
 
-Two kinds of provider can sit in the waterfall:
+Two kinds of provider can sit in the provider order:
 
 **Built-in CLI providers** — spawn a local CLI binary:
 
@@ -58,7 +59,7 @@ The **Model** line on the codex and claude rows in **Settings → LLM** picks th
 
 Leave it on **its own default** to use the CLI's own setting (`model` in `~/.codex/config.toml`, or in `~/.claude/settings.json`). An agent's or step's own `model:` still wins. The agent Settings page suggests models from the same lists.
 
-**When a model is retired.** A model a provider no longer offers fails every attempt with `model_unavailable` (Codex: "The 'x' model is not supported…"; Claude: "There's an issue with the selected model (x)…"), and the waterfall moves on to the next provider. Runs still finish, so nothing failed, but nothing runs on that provider and each node pays for a failed attempt first. So sua watches for it:
+**When a model is retired.** A model a provider no longer offers fails every attempt with `model_unavailable` (Codex: "The 'x' model is not supported…"; Claude: "There's an issue with the selected model (x)…"), and the node moves on to the next provider. Runs still finish, so nothing failed, but nothing runs on that provider and each node pays for a failed attempt first. So sua watches for it:
 - the provider's row warns when its model (picked, or the CLI's own default) is no longer offered;
 - every 10 minutes, and when the dashboard starts, sua checks every place a Codex or Claude model is chosen (the setting, the CLI's default, agents and steps that pin `provider: codex` or `provider: claude` with a `model:`) against that provider's list, and against models a run was refused (the runtime records each refusal in the settings file as `unavailableModels`);
 - for each retired model it posts one **System health** thread to sua's inbox, naming where it's used and what the provider offers now. The thread resolves itself once nothing uses that model.
@@ -68,7 +69,7 @@ endpoint. This is how you run a **local or self-hosted model** (llama.cpp,
 LM Studio, Ollama, vLLM, a gateway, …) as a first-class provider. Each one is a
 named entry with an `apiBase`, an optional `apiKey`, and a `model`. Set `"vision": true` on one whose model can read images, so tools' pictures ([web-screenshot](tools/web-screenshot.md)) are sent to it; it's off by default, since a text-only model would reject them.
 
-## The waterfall
+## Provider order
 
 - `providers[0]` is the **primary** — every `llm-prompt` node calls it by
   default.
@@ -82,7 +83,7 @@ named entry with an `apiBase`, an optional `apiKey`, and a `model`. Set `"vision
   your usage. The same provider first tries its **fallback model** once (Settings →
   LLM, **If it's busy** on each provider; `fallbackModels` in `llm-settings.json`,
   keyed by provider id or a custom provider's name). Claude without one tries
-  Sonnet; the others go straight on. If the fallback is busy too, the waterfall
+  Sonnet; the others go straight on. If the fallback is busy too, the node
   moves on to the next provider.
 - **An answer in the wrong shape gets one more try on the same provider.**
   When a node declares an output contract (`outputContract`, such as a
@@ -93,19 +94,7 @@ named entry with an `apiBase`, an optional `apiKey`, and a `model`. Set `"vision
   attempts count toward the node's tokens and cost.
 - **A provider that's down stays skipped for a while.** Out of quota or credit,
   not installed or not reachable, signed out, or rate limited: the next nodes
-  don't try it again until its cooldown ends. The cooldown runs until the reset
-  time the error states ("try again at Nov 18th, 2026 12:28 PM", "retry after
-  30 seconds"), else 30 minutes for quota or credit, 5 minutes for a missing CLI,
-  an unreachable endpoint or a sign-in, and 1 minute for a rate limit. A skipped
-  provider shows on the node's "ran on" trail ("Skipped: it failed
-  (quota_exceeded) 4 min ago; tried again after 12:28 PM.") and in the log as
-  `[llm-fallback] …: skipping codex (quota_exceeded) until …`. When it works
-  again it's back at once. When every provider is cooling down, the chain is
-  tried as configured. Cooldowns are shared by every sua process through
-  `data/provider-cooldowns.json` and survive a restart (see "Skipped for
-  now" below). Before this, an out-of-quota
-  provider and a local model that wasn't running cost every node about 16
-  seconds.
+  don't try it again until its cooldown ends. See [Skipped for now](#skipped-for-now).
 - When every attempt fails, the node's error says what each one ran into, in
   words ("Every model it tried failed: Codex (OpenAI) on gpt-6-sol is busy: …;
   then Claude needs you to sign in again."), before the last provider's own
@@ -137,13 +126,14 @@ Endpoints are defined in exactly one place: **Connect a model**
    and (for hosted) a key. The provider slug is derived from the model id.
 2. The endpoint is probed (`GET {apiBase}/models`) *before* it is written. On a
    failure you get **Save anyway**.
-3. It's saved **and promoted to the front of the waterfall**, so the next run
+3. It's saved **and promoted to the front of the provider order**, so the next run
    uses it. Reorder or demote it afterwards on **Settings → LLM**.
 
-Settings → LLM owns the other half of the lifecycle: chain order, enable /
-disable, remove, probe-all, and fallback telemetry. Splitting it this way means
-"saved" and "usable" are never two different states — the old add-then-add-to-
-chain flow could leave a defined endpoint sitting outside the waterfall.
+Settings → LLM owns the other half of the lifecycle: the provider order,
+enable / disable, remove, probe-all, and fallback telemetry. Splitting it this
+way means "saved" and "usable" are never two different states — the old
+add-then-add-to-the-order flow could leave a defined endpoint that no node
+would ever try.
 
 The endpoint is stored in your local LLM settings; the API key is masked in the
 UI and never re-rendered into a form field.
@@ -181,13 +171,13 @@ page; stopping it frees the memory, and agents use your other providers meanwhil
 Any server works (`ollama serve`, `vllm serve …`, LM Studio's `lms server start`).
 `--jinja` matters for llama-server: it applies the model's chat template, which
 tool calling (`tools:` on a node) relies on. The first start with `-hf` downloads
-the model, so status reads `loading model` for a while; the provider falls
-through the waterfall as unreachable until it's ready.
+the model, so status reads `loading model` for a while; nodes skip it as
+unreachable and move on to the next provider until it's ready.
 
 ## Enable / disable a provider
 
-Each waterfall row has a **Disable** switch. Disabling keeps the provider in the
-chain (slot + config preserved) but **skips it at runtime** — flip `claude` and
+Each provider's row has a **Disable** switch. Disabling keeps the provider in
+the provider order (position + config preserved) but **skips it at runtime** — flip `claude` and
 `codex` off to run **local-only**, then flip them back on any time. The store
 keeps at least one provider enabled, and "Primary" is always the first *enabled*
 provider.
@@ -218,7 +208,7 @@ a pin to a *globally disabled* provider is neutralized, as above.)
 ## Where it's stored
 
 Provider settings live in your local LLM settings file (not the repo). Custom
-providers, the waterfall order, and the disabled set all persist there and take
+providers, the provider order, and the disabled set all persist there and take
 effect on the next run — no daemon restart needed. There's no CLI for LLM
 settings today; manage them from **Settings → LLM**.
 
@@ -232,11 +222,11 @@ When a hop fires, `/settings/llm` records the last fallback (`from → to`,
 reason, agent/node). Each run's node execution also stores `usedProvider` (which
 provider actually produced the output) and the full `attemptedProviders` trail,
 visible on the run-detail page: every llm node shows which provider it ran on,
-plus the failed hops when the waterfall fell through.
+plus the providers that failed before it.
 
 ### How each provider did lately
 
-The waterfall hides a provider that never works, because its nodes still succeed on the next one. To make that visible, sua reads the last 7 days of node records:
+A provider that never works is easy to miss, because its nodes still succeed on the next one. To make that visible, sua reads the last 7 days of node records:
 - **Settings → LLM** shows a line under each provider: *answered N · failed M (mostly out of quota) · last answered 2 hours ago*. It also says how many nodes went to a later provider, and what they cost.
 - **`sua doctor`** has a *Model providers (last 7 days)* check. It fails only for a provider that has never answered, which is a setup problem: not started, not installed, or the wrong URL.
 - **When the dashboard starts**, it logs a `[providers]` line for an enabled provider that never answered (5 or more tries), or that failed at least half of 10 or more tries.
@@ -245,13 +235,17 @@ Passing over a provider while it cools down after a failure isn't counted as a t
 
 ### Skipped for now
 
-A provider that fails in a way that will keep failing is skipped by every node until its cooldown ends, instead of being tried and failing again each time. That covers running out of quota or credit, a CLI or server that isn't there, being signed out, and being rate limited. The cooldown lasts until the time the error gives, or until the default for that kind of failure (30 minutes for quota, 5 for an unreachable provider). A success clears it.
+A provider that fails in a way that will keep failing is skipped by every node until its cooldown ends, instead of being tried and failing again each time. That covers running out of quota or credit, a CLI or server that isn't there, being signed out, and being rate limited.
+
+- **How long:** until the reset time the error states ("try again at Nov 18th, 2026 12:28 PM", "retry after 30 seconds"). Otherwise 30 minutes for quota or credit; 5 minutes for a missing CLI, an unreachable endpoint or a sign-in; 1 minute for a rate limit. A success clears it at once.
+- **Where it shows:** on the node's "ran on" trail ("Skipped: it failed (quota_exceeded) 4 min ago; tried again after 12:28 PM.") and in the log as `[llm-fallback] …: skipping codex (quota_exceeded) until …`.
+- **When every provider is cooling down,** they're tried in order anyway.
 
 Cooldowns are shared through `data/provider-cooldowns.json`, so the dashboard, the worker and the scheduler learn about a failure once between them, and a cooldown survives a restart. Settings → LLM shows each provider that's being skipped, with why and until when, and a **Try it now** button that clears the cooldown.
 
 ### A daily cap on fallback spend
 
-When your first provider runs out of quota, every node's next stop may be a paid one. Set **Daily cap on fallbacks** in Settings → LLM (USD a day, local time) to put a limit on that. Once the day's fallback spend reaches the cap, a node stops instead of falling back to a paid provider, and its error says so. A paid fallback that still has room is held to what's left; Claude gets it as `--max-budget-usd`.
+When your first provider runs out of quota, every node's next stop may be a paid one. Set **Daily cap on fallbacks** in Settings → LLM (USD a day, local time; stored as `fallbackCapUsd` in the LLM settings file) to put a limit on that. Once the day's fallback spend reaches the cap, a node stops instead of falling back to a paid provider, and its error says so. A paid fallback that still has room is held to what's left; Claude gets it as `--max-budget-usd`.
 
 - **Paid** means Claude, or any provider with a price in Pricing. A free fallback, such as a local model or a CLI with no price, is never held back.
 - **A node whose first provider answers** is never held back.
@@ -326,7 +320,7 @@ Declare it beside `web-fetch` so the model can find pages, then read them:
 in `allowedTools` also gets codex's search when codex answers. That way is only a
 request, though: it never skips a provider.
 
-A skipped provider records `tool_unavailable` and the waterfall moves on, so a node
+A skipped provider records `tool_unavailable` and the node moves on to the next provider, so a node
 never "succeeds" without the tools it declared.
 
 **Search results for other agents (`web-search-links`).** An agent that needs a list of

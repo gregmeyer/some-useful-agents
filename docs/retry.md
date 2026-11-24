@@ -5,13 +5,17 @@ When a run fails — flaky API, transient network glitch, race condition — you
 | Tool | When | Effect |
 |---|---|---|
 | **Retry** (this page) | The whole run failed; you want to redo it from scratch | Creates a new run with the same agent-level inputs, links back via `retryOfRunId`. Each retry is a fresh top-to-bottom execution. |
-| **Replay from node** ([replay docs](../packages/dashboard/src/routes/run-mutations.ts)) | A specific node failed mid-DAG; upstream completed fine | Re-runs from a chosen node, reusing stored upstream outputs and the inputs the original run had. |
+| **Replay from node** ([run detail](dashboard.md#runsid--run-detail)) | A specific node failed mid-DAG; upstream completed fine | Re-runs from a chosen node, reusing stored upstream outputs and the inputs the original run had. |
 
 Replay is for "node 4 broke; reuse the work from nodes 1–3." Retry is for "the whole thing failed transiently; just do it again."
 
 A replay starts with the original run's inputs. From the CLI you can change some of them: `sua workflow replay <runId> --from <nodeId> --input LIMIT=3`. Every run saves its inputs; for a run from before that, replay reads the agent's declared inputs back from the run's node logs (a redacted value stays unset).
 
 A node that runs out of turns isn't a failure to retry: it answers from what it had read (see [agents.md](agents.md#when-an-llm-prompt-node-runs-out-of-turns)).
+
+Some retries happen inside a node, before the run fails:
+- **An answer in the wrong shape** (a node with an `outputContract` whose answer misses it) is asked for once more on the same provider, then the node moves on to the next provider. See [llm-providers.md](llm-providers.md#provider-order).
+- **A provider that's down** is skipped and the next one answers; the run only fails when every provider did.
 
 ## Manual retry (one click)
 
@@ -29,7 +33,7 @@ Clicking it:
 2. Creates a new run with `attempt: N+1` and `retryOfRunId` pointing at the head of the chain.
 3. Redirects to the new run's page.
 
-Only **failed** runs are retryable. Cancelled runs (deliberately stopped) and completed runs are not — use **Run now** for those.
+Only **failed** runs are retryable. Cancelled runs and completed runs are not — use **Run now** for those. A run ends **cancelled** when it was stopped from outside: **Cancel**, Ctrl+C on `sua agent run`, or the dashboard shutting down while it ran. A run that hit a timeout (a node's `timeout:` or the agent's `timeoutSec`) ends **failed**, with category `timeout`, so a retry policy can retry it.
 
 ## Retry chain semantics
 
@@ -49,7 +53,7 @@ The run-detail page shows an **attempt N** badge in the header on any retry, plu
 
 ## What does not get retried
 
-- **`cancelled`** runs (a deliberate stop).
+- **`cancelled`** runs (stopped from outside: Cancel, Ctrl+C, or a dashboard shutdown).
 - **`completed`** runs (use Run now to re-execute with fresh inputs).
 - The whole agent — only the run gets recreated; the agent definition isn't touched.
 

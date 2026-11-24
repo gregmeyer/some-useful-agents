@@ -55,7 +55,7 @@ Tools imported from an MCP server. See [`tools/mcp.md`](tools/mcp.md) for the ty
 
 ## User tools
 
-Declare your own in a YAML file under `tools/` (or via the dashboard). Schema:
+A tool file declares a tool of your own. There's no way to add one to the tool list yet: the list holds the built-ins and the tools you import from an MCP server. Until then, run your own command from a `shell` node's `command:`. A tool file looks like this, and `sua tool validate <file>` checks one:
 
 ```yaml
 id: my-tool
@@ -78,7 +78,6 @@ implementation:
     curl -m "$timeout" -w "%{http_code}" "$url"
 ```
 
-Import with `sua tool import <file>` or via the dashboard.
 
 ## Input / output mapping
 

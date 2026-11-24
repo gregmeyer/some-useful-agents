@@ -260,9 +260,9 @@ Per-node execution table with stdout, exit codes, errors, timings. For `llm-prom
 
 Resolved variables panel shows what values the run actually saw (inputs after defaults, vars after substitution).
 
-**Cancel + abandoned errors.** A **Cancel** button appears while the run is `running` or `pending`. The cancel route SIGTERMs the node's process group (the spawned child and everything it started) and escalates to SIGKILL after 5s if anything in it is still running, then finalizes both the run row and any still-`running` `node_executions` rows to `cancelled` with a flash banner. A separate `errorCategory: 'abandoned'` appears on rows the orphan reaper finalized on a later dashboard boot (i.e. a daemon restart killed the parent process mid-run); the run-level error names the cause inline. See [Security model § Orphan process reaper](SECURITY.md) for the mechanism.
+**Cancel + abandoned errors.** A **Cancel** button appears while the run is `running` or `pending`. The cancel route SIGTERMs the node's process group (the spawned child and everything it started) and escalates to SIGKILL after 5s if anything in it is still running, then finalizes both the run row and any still-`running` `node_executions` rows to `cancelled` with a flash banner. A separate `errorCategory: 'abandoned'` appears on rows the orphan reaper finalized on a later dashboard boot (the dashboard died mid-run without a clean shutdown: a crash, OOM or SIGKILL); the run-level error names the cause inline. See [Security model § Orphan process reaper](SECURITY.md) for the mechanism.
 
-**When the dashboard stops.** On SIGTERM (`sua daemon stop`/`restart`, or a live update) the dashboard stops taking requests, lets in-flight runs and background work finish for up to 10 seconds, then stops what's still going. Those runs end `cancelled` with "Stopped because the dashboard shut down." instead of being reaped as abandoned on the next boot. `sua daemon restart` waits up to 20 seconds for the old services to exit before starting the new ones, so the new dashboard's reaper only finds true orphans; `sua dashboard start --replace` does the same, then SIGKILLs a dashboard still holding the port. Each node runs in its own process group, so stopping a node (Cancel, a timeout, or the shutdown) also stops whatever its shell started; a stopped run ends `cancelled`, not `failed`.
+**When the dashboard stops.** On SIGTERM (`sua daemon stop`/`restart`, or a live update) the dashboard stops taking requests, lets in-flight runs and background work finish for up to 10 seconds, then stops what's still going. Those runs end `cancelled` with "Stopped because the dashboard shut down." instead of being reaped as abandoned on the next boot. `sua daemon restart` waits up to 20 seconds for the old services to exit before starting the new ones, so the new dashboard's reaper only finds true orphans; `sua dashboard start --replace` does the same, then SIGKILLs a dashboard still holding the port. Each node runs in its own process group, so stopping a node (Cancel, a timeout, or the shutdown) also stops whatever its shell started. A run stopped from outside (Cancel, Ctrl+C, the shutdown) ends `cancelled`, not `failed`; a run that hit a timeout still ends `failed`.
 
 ## `/pulse` — today's edition, and the board
 
@@ -349,7 +349,7 @@ Global plain-text values. CRUD with values visible. Referenced as `$NAME` / `{{v
 sua as an MCP server for Claude Desktop and other clients: the config to paste, and token rotation. See [MCP](mcp.md).
 
 ### LLM
-The provider waterfall: reorder and enable/disable providers (add an OpenAI-compatible endpoint with **Connect a model**). Codex and Claude each have a **Model** line listing what that CLI offers your account now; a retired model in use gets a System health thread. See [LLM providers](llm-providers.md#the-codex-and-claude-models).
+The provider order: reorder and enable/disable providers (add an OpenAI-compatible endpoint with **Connect a model**). Under each provider, how it did over the last 7 days, and while it's being skipped after a failure, **Skipped until…** with why and a **Try it now** button. **Daily cap on fallbacks** limits what's spent when an earlier provider fails. See [LLM providers](llm-providers.md#how-each-provider-did-lately). Codex and Claude each have a **Model** line listing what that CLI offers your account now; a retired model in use gets a System health thread. See [LLM providers](llm-providers.md#the-codex-and-claude-models).
 
 ### LLM → Pricing
 Prices (USD per million tokens) for providers that report tokens but not cost (codex, OpenAI-compatible endpoints), per provider or per `provider/model`. See [cost.md](cost.md).
@@ -368,6 +368,12 @@ The **Brand** theme (a preset, then your colours, fonts, corner radius and tile 
 
 ### General
 Data paths, retention, scheduler heartbeat.
+
+**Keeping the data small.** Everything lives in the data directory (`data/` in a checkout).
+- **Runs** older than `runRetentionDays` (default 30, in `sua.config.json`) are deleted when the dashboard starts.
+- **`sua db compact`** rewrites older run rows so large repeated inputs (an agent's prompt, the agent list) are stored once, then shrinks the file. Run it when nothing is running; it's safe to run again. `--no-vacuum` skips the shrink.
+- **Agent state directories:** `sua state list` shows their sizes, `sua state du <agent>` what's in one, and `sua state prune <agent>` clears one.
+- **Backups:** an install that runs from a checkout and updates with `scripts/live-update.sh` gets a backup of each database at every update. The script prunes them with `sua backups prune`; see [CONTRIBUTING.md](../CONTRIBUTING.md#updating-an-install-that-runs-from-a-checkout).
 
 ## `/help`
 

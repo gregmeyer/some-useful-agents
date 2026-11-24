@@ -283,6 +283,20 @@ A cancellation or a budget limit still stops the run. Use it for independent sou
 
 In the dashboard, set it on the step's **Edit** page: tick **Keep going if this step fails** under *If it fails*. The box shows only on a step that another step depends on, and never on a control-flow step.
 
+**`outputContract`: what an `llm-prompt` node's answer must contain.** An answer that misses it counts as a failure (category `invalid_output`), even though the model exited cleanly:
+
+```yaml
+- id: plan
+  type: llm-prompt
+  prompt: "…end with your plan inside <plan>…</plan>."
+  outputContract:
+    mustMatch: "<plan>[\\s\\S]+</plan>"   # a regular expression the answer must match
+    minChars: 200                          # at least this many non-space characters
+    description: "a <plan> block"          # how the error names what was missing
+```
+
+The same provider is asked once more, told what was missing; if that answer misses too, the node moves on to the next provider ([llm-providers.md](llm-providers.md#provider-order)). All three fields are optional.
+
 
 See [flows.md → onlyIf](flows.md#onlyif-edges) for the full predicate grammar.
 
@@ -346,18 +360,18 @@ Two layers protect a run from burning unbounded time / tokens:
 
 | Layer | Field | Default | Where it lives | What it does |
 |---|---|---|---|---|
-| Per-node | `nodes[*].timeout:` | 300s | each node | Soft cap for a single node. If the child process is still running at the deadline, `spawnProcess` sends SIGTERM, then SIGKILL after 5s if the child hasn't exited. The node ends with `exitCode=124` and `errorCategory='timeout'`; downstream nodes still run. |
+| Per-node | `nodes[*].timeout:` | 300s | each node | Soft cap for a single node. If the node is still running at the deadline, its process and everything it started (a node's shell and the commands it runs) get SIGTERM, then SIGKILL after 5s if any are still running. The node ends with `exitCode=124` and `errorCategory='timeout'`; downstream nodes still run. |
 | Agent-level | `timeoutSec:` (top level) | unset | this file | Hard wall-clock ceiling for the entire DAG run. Catches the "10-node DAG legitimately runs 10 minutes" case that no single per-node `timeout:` can see. |
 
 A `goal` node has its own time limit (`budget.timeoutSec`, default 600s) on top of these; see [goal-agents.md](goal-agents.md).
 
 > `timeoutSec` (and `runOn`) were silently dropped when an agent was loaded from YAML or saved, before v0.28, so the cap never applied. It does now.
 
-When `timeoutSec` trips, the executor's internal `AbortController` fires, the in-flight node's spawn receives the same SIGTERM-then-SIGKILL escalation as per-node timeout, every remaining not-yet-started node is written as `cancelled` (category `cancelled`, not `timeout`), and the run's `error` field names the cap directly: `Agent wall-clock timeout (60s) exceeded.` Set `timeoutSec: 0` (or omit) to disable.
+When `timeoutSec` trips (the run ends **failed**; only a stop from outside, such as Cancel or a dashboard shutdown, ends it **cancelled**), the executor's internal `AbortController` fires, the in-flight node's process and everything it started get the same SIGTERM-then-SIGKILL as a per-node timeout, every remaining not-yet-started node is written as `cancelled` (category `cancelled`, not `timeout`), and the run's `error` field names the cap directly: `Agent wall-clock timeout (60s) exceeded.` Set `timeoutSec: 0` (or omit) to disable.
 
 Recommended sizing: pick something like 2–3× the agent's expected runtime. The bundled `layout-planner` ships with `timeoutSec: 60` against a normal runtime of ~20s — generous enough not to flag slow happy-path runs, tight enough to catch the orphaned-CLI burning tokens case.
 
-**Orphan reaper relationship.** Both timeout layers live as in-process timers — if the dashboard itself dies mid-run (`daemon restart`, crash, OOM), they die with it. A separate on-boot reaper handles that case by reading `runs.status IN ('running','pending')`, persisting `childPid` + `childStartedAtMs` on `node_executions`, and SIGKILL'ing the orphan after a `ps`-based start-time cross-check. See [Security model § Orphan process reaper](SECURITY.md).
+**Orphan reaper relationship.** Both timeout layers live as in-process timers. When the dashboard shuts down cleanly (`daemon restart`, Ctrl+C) it stops its runs first and marks them cancelled ([dashboard.md](dashboard.md#runsid--run-detail)). If it dies without that (a crash, OOM, SIGKILL), an on-boot reaper reads `runs.status IN ('running','pending')`, checks each persisted `childPid` + `childStartedAtMs` against `ps`, and SIGKILLs the orphan's process group. See [Security model § Orphan process reaper](SECURITY.md).
 
 ## `pulseVisible`
 
