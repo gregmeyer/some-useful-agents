@@ -21,6 +21,9 @@ export async function renderAgentNodes(args: AgentDetailArgs): Promise<string> {
         <td class="dim">${body}</td>
         <td style="white-space: nowrap;">
           <a class="btn btn--sm" href="/agents/${agent.id}/nodes/${n.id}/edit">Edit</a>
+          ${(n.type === 'shell' && n.command && !n.tool) || ((n.type === 'llm-prompt' || n.type === 'claude-code') && n.prompt && !n.tool)
+            ? html`<a class="btn btn--sm btn--ghost" href="/tools/new?from=${encodeURIComponent(agent.id)}/${encodeURIComponent(n.id)}" title="Draft a reusable tool from this step">Make a tool</a>`
+            : html``}
           <form method="POST" action="/agents/${agent.id}/nodes/${n.id}/delete" style="display: inline; margin: 0;"
                 data-confirm="Delete node '${n.id}'?">
             <button type="submit" class="btn btn--sm btn--ghost" style="color: var(--color-err);">Delete</button>

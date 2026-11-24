@@ -19,6 +19,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { renderToolForm } from '../views/tool-form.js';
 import { startToolDraft, readToolDraft } from '../lib/tool-drafter.js';
+import { toolIdeasFromAgents, toolIdeaFromStep, type ToolIdea } from '../lib/tool-ideas.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import {
   EMPTY_TOOL_FORM,
@@ -333,8 +334,20 @@ toolsRouter.get('/tools/new', (req: Request, res: Response) => {
       return;
     }
   }
-  const tab = req.query.tab === 'write' ? 'write' : 'describe';
-  res.type('html').send(renderToolForm({ mode: 'new', tab, values: EMPTY_TOOL_FORM, view: 'fields' }));
+  // Make a tool from this step: ?from=<agent>/<step> starts Describe it with that step.
+  let prefill: string | undefined;
+  if (typeof req.query.from === 'string' && req.query.from.includes('/')) {
+    const [agentId, nodeId] = req.query.from.split('/', 2);
+    const agent = ctx.agentStore.getAgent(agentId);
+    const node = agent?.nodes.find((n) => n.id === nodeId);
+    if (agent && node) prefill = toolIdeaFromStep(agent, node);
+  }
+  const tab = req.query.tab === 'write' && !prefill ? 'write' : 'describe';
+  let ideas: ToolIdea[] = [];
+  if (tab === 'describe' && !prefill) {
+    try { ideas = toolIdeasFromAgents(ctx.agentStore.listAgents(), ctx.toolStore?.listTools() ?? []); } catch { /* no ideas */ }
+  }
+  res.type('html').send(renderToolForm({ mode: 'new', tab, values: EMPTY_TOOL_FORM, view: 'fields', ideas, prefill }));
 });
 
 /** POST /tools/draft { description } → { ok, id }: sua drafts a tool in the background. */

@@ -7,6 +7,7 @@ import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { TOOL_FIELD_TYPES, type ToolFormValues, type ToolFormInput, type ToolFormOutput } from '../lib/tool-form.js';
+import type { ToolIdea } from '../lib/tool-ideas.js';
 
 export interface ToolFormPage {
   /** 'new' saves a new tool; 'edit' replaces the tool `values.id`. */
@@ -23,6 +24,10 @@ export interface ToolFormPage {
   tab?: 'describe' | 'write';
   /** The form was filled by sua's drafter from this description. */
   drafted?: { said: string; why?: string };
+  /** Describe it: ideas from your agents, as cards. */
+  ideas?: ToolIdea[];
+  /** Describe it: the box starts with this (Make a tool from this step). */
+  prefill?: string;
 }
 
 const typeOptions = (selected: string): SafeHtml[] =>
@@ -52,13 +57,30 @@ function sampleFor(v: ToolFormValues): string {
   return v.inputs.filter((i) => i.name).map((i) => `${i.name}: ${i.default || ''}`).join('\n');
 }
 
-function describePanel(): SafeHtml {
+function ideaCards(ideas: readonly ToolIdea[]): SafeHtml {
+  if (!ideas.length) {
+    return html`<p class="dim tool-ideas__none">No ideas from your agents yet: none of them repeats a fetch or a command another one has. Describe one below, or open a step of an agent and choose <strong>Make a tool from this step</strong>.</p>`;
+  }
+  return html`<ul class="tool-ideas" aria-label="Ideas from your agents">
+    ${ideas.map((i) => html`<li class="tool-ideas__card">
+      <p class="tool-ideas__label">${i.label}</p>
+      <p class="tool-ideas__from dim">${i.from}</p>
+      <button type="button" class="btn btn--sm" data-use-idea>Use this</button>
+      <textarea hidden data-idea-text>${i.text}</textarea>
+    </li>`)}
+  </ul>`;
+}
+
+function describePanel(ideas: readonly ToolIdea[], prefill?: string): SafeHtml {
   return html`
     <section class="tool-form__describe" data-tool-describe>
+      ${prefill ? html`` : html`<h2 class="tool-ideas__title">Ideas from your agents</h2>
+      <p class="form-field__hint">Things your agents keep doing in their own way, that one tool could do for all of them.</p>
+      ${ideaCards(ideas)}`}
       <label class="form-field">
         <span class="form-field__label">Describe the tool you want</span>
-        <textarea class="form-field__textarea tool-form__describe-box" name="description" rows="3" maxlength="1000"
-          placeholder="Look up a word on dictionaryapi.dev and give back its first definition"></textarea>
+        <textarea class="form-field__textarea tool-form__describe-box" name="description" rows="${prefill ? '10' : '3'}" maxlength="2000"
+          placeholder="Look up a word on dictionaryapi.dev and give back its first definition">${prefill ?? ''}</textarea>
         <span class="form-field__hint">sua drafts it and opens it in the form, filled in, for you to read and try. Nothing runs until you press Try it.</span>
       </label>
       <div class="tool-form__actions">
@@ -162,7 +184,7 @@ export function renderToolForm(p: ToolFormPage): string {
     })}
 
     ${p.mode === 'new' ? newToolTabs(tab) : html``}
-    ${tab === 'describe' ? describePanel() : html`
+    ${tab === 'describe' ? describePanel(p.ideas ?? [], p.prefill) : html`
     ${p.drafted ? html`<div class="flash flash--info tool-form__drafted" role="status">
       <strong>sua drafted this</strong> from “${p.drafted.said}”.${p.drafted.why ? html` ${p.drafted.why}` : html``}
       Read the ${v.kind === 'command' ? 'command' : 'prompt'} before you try it.
@@ -284,6 +306,14 @@ const DESCRIBE_JS = `<script>
   var box = root.querySelector('textarea');
   var btn = root.querySelector('[data-draft]');
   var status = root.querySelector('[data-draft-status]');
+  root.addEventListener('click', function (e) {
+    var use = e.target.closest('[data-use-idea]');
+    if (!use) return;
+    box.value = use.parentNode.querySelector('[data-idea-text]').value;
+    box.rows = 6;
+    box.focus();
+    btn.scrollIntoView({ block: 'nearest' });
+  });
   function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
   function fail(msg) {
     btn.disabled = false;

@@ -91,7 +91,8 @@ export function readToolDraft(ctx: Ctx, id: string): ToolDraft | undefined {
 
 /** Start drafting a tool in the background; its id, or undefined when the drafter isn't available. */
 export function startToolDraft(ctx: Ctx, description: string): string | undefined {
-  const said = description.replace(/\s+/g, ' ').trim().slice(0, 1000);
+  // Keep line breaks: a step's command pasted in (Make a tool from this step) needs them.
+  const said = description.replace(/\r\n/g, '\n').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, 2000);
   const fake = ctx.toolDrafterRun;
   if (!fake && !ensureSystemAgentCurrent(ctx, TOOL_DRAFTER_ID, 'drafting tools')) return undefined;
   const drafter = fake ? undefined : ctx.agentStore.getAgent(TOOL_DRAFTER_ID);

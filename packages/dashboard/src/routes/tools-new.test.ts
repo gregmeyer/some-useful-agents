@@ -259,3 +259,31 @@ text: hello there
     expect('error' in ok ? ok.error : ok.tool.id).toBe('shout');
   });
 });
+
+describe('ideas from your agents', () => {
+  const curl = (n: number) => `curl -s "https://api.stories.test/v1/top?limit=${n}" | jq '.items[] | {title: .title}'`;
+
+  it('shows ideas on Describe it, and Make a tool from a step', async () => {
+    const app = await makeApp();
+    const { agentStore } = t!.ctx;
+    agentStore.createAgent({ id: 'top-three', name: 'Top three', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'fetch', type: 'shell', command: curl(3) }] }, 'cli');
+    agentStore.createAgent({ id: 'top-ten', name: 'Top ten', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'fetch', type: 'shell', command: curl(10) }] }, 'cli');
+    const page = await get(app, '/tools/new');
+    expect(page.text).toContain('Ideas from your agents');
+    expect(page.text).toContain('Fetch from api.stories.test');
+    expect(page.text).toContain('data-use-idea');
+
+    const fromStep = await get(app, '/tools/new?from=top-three/fetch');
+    expect(fromStep.text).toMatch(/the &quot;fetch&quot; step of my agent &quot;Top three&quot;|the "fetch" step of my agent "Top three"/);
+    expect(fromStep.text).not.toContain('Ideas from your agents');
+
+    const nodes = await get(app, '/agents/top-three/nodes');
+    expect(nodes.text).toContain('/tools/new?from=top-three/fetch');
+  });
+
+  it('says so when there are none', async () => {
+    const app = await makeApp();
+    const page = await get(app, '/tools/new');
+    expect(page.text).toMatch(/No ideas from your agents yet/);
+  });
+});
