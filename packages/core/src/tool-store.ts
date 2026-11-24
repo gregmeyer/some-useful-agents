@@ -251,6 +251,7 @@ function rowToTool(row: ToolRow): ToolDefinition {
     inputs: JSON.parse(row.inputs_json),
     outputs: JSON.parse(row.outputs_json),
     implementation: JSON.parse(row.implementation_json),
+    ...(row.yaml_text ? { yamlText: row.yaml_text } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -14,7 +14,7 @@ import { claudeConfigModel } from './claude-models.js';
 import { claudeUsage, codexUsage, codexDefaultModel, priceUsage, totalUsage, localProviderNames, formatUsd, type LlmUsage, type NodeUsage, type PriceTable } from './usage.js';
 import { MEMORY_TOOL_IDS } from './memory-store.js';
 import type { SpendLimits } from './spend-limits.js';
-import type { BuiltinToolContext } from './tool-types.js';
+import type { BuiltinToolContext, ToolDefinition, ToolOutput } from './tool-types.js';
 import type { AgentCallContext, AgentCallInfo } from './agent-tool.js';
 import { capToolText, TOOL_CALL_ARGS_CAP, TOOL_CALL_RESULT_PREVIEW_CAP, type ToolCallRecord } from './tool-call-record.js';
 import type { ChildProcess } from 'node:child_process';
@@ -39,6 +39,8 @@ import type { VariablesStore } from './variables-store.js';
 import type { PolicyDocument } from './policy-store.js';
 import type { SecretsStore } from './secrets-store.js';
 import { noteProviderFailure, clearProviderCooldown, withoutCoolingProviders } from './provider-cooldown.js';
+import { buildToolOutput } from './output-framing.js';
+import { commandToolEnv } from './user-tool-inputs.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -1477,6 +1479,8 @@ function buildAttemptToolSurface(
 ): { tools: OpenAiTool[]; execute: ToolCallExecutor } | undefined {
   if (!toolCtx || candidateIds.length === 0) return undefined;
   const { tools, idByFunctionName, exposedToolIds } = resolveExposedToolDefs(candidateIds, {
+    // Present so command tools you added are offered; the executor below runs them.
+    runCommandTool: async () => ({ result: '' }),
     toolStore: toolCtx.toolStore,
     integrationsStore: toolCtx.integrationsStore,
     secretsStore: toolCtx.secretsStore,
@@ -1486,6 +1490,7 @@ function buildAttemptToolSurface(
   });
   if (exposedToolIds.length === 0) return undefined;
   const execute = buildToolExecutor({
+    runCommandTool: (def, values, callSignal) => runCommandToolForModel(def, values, node, childEnv, callSignal ?? signal),
     exposedToolIds,
     idByFunctionName,
     agentId: toolCtx.agentId,
@@ -1509,6 +1514,32 @@ function buildAttemptToolSurface(
     askHuman: toolCtx.askHuman,
   });
   return { tools, execute };
+}
+
+/**
+ * A command tool you added, called by the model mid-step: the step's own
+ * environment (its secrets included) plus the tool's checked inputs, run the
+ * way a shell step runs. ADR-0102.
+ */
+async function runCommandToolForModel(
+  def: ToolDefinition,
+  values: Record<string, string>,
+  node: AgentNode,
+  childEnv: Record<string, string>,
+  signal: AbortSignal | undefined,
+): Promise<ToolOutput> {
+  const env = commandToolEnv(def, childEnv, values, node.secrets ?? []);
+  const r = await spawnProcess('bash', ['-c', def.implementation.command ?? ''], {
+    cwd: node.workingDirectory,
+    env: withShellHelpers(env),
+    timeoutSec: node.timeout ?? 300,
+    signal,
+  });
+  const out = buildToolOutput(r.result);
+  if (r.exitCode !== 0) {
+    return { ...out, isError: true, result: `${r.error ?? `exited with ${r.exitCode}`}${r.result ? `\n${r.result}` : ''}` };
+  }
+  return out;
 }
 
 /**

@@ -1,13 +1,22 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import Table from 'cli-table3';
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, statSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { createInterface } from 'node:readline/promises';
 import { parse as parseYaml } from 'yaml';
 import {
   listBuiltinTools,
   getBuiltinTool,
   toolDefinitionSchema,
   ToolStore,
+  AgentStore,
+  saveUserTool,
+  removeUserTool,
+  assertRemovableUserTool,
+  agentsUsingTool,
+  UserToolError,
   type ToolDefinition,
 } from '@some-useful-agents/core';
 import { loadConfig, getDbPath } from '../config.js';
@@ -136,12 +145,99 @@ toolCommand
     }
   });
 
+toolCommand
+  .command('add')
+  .description('Add a tool you made (a command or a prompt) from a YAML file, or update it')
+  .argument('<file>', 'Path to a tool YAML file')
+  .action((file: string) => {
+    if (!existsSync(file) || statSync(file).isDirectory()) {
+      ui.fail(`Not a file: ${file}`);
+      process.exit(1);
+    }
+    const dbPath = getDbPath(loadConfig());
+    mkdirSync(dirname(dbPath), { recursive: true });
+    const store = new ToolStore(dbPath);
+    try {
+      const { tool, created, warnings } = saveUserTool(store, readFileSync(file, 'utf-8'));
+      ui.ok(`${created ? 'Added' : 'Updated'} tool "${tool.id}".`);
+      for (const w of warnings) console.log(`  ${chalk.yellow('!')} ${w}`);
+      console.log(ui.dim(`  Use it in a step with \`tool: ${tool.id}\`${tool.implementation.type === 'shell' ? `, or let a model call it with \`tools: [${tool.id}]\`` : ''}.`));
+    } catch (err) {
+      if (err instanceof UserToolError) {
+        ui.fail(`Can't add ${file}:`);
+        for (const e of err.errors) console.log(`  ${chalk.red('✖')} ${e}`);
+        process.exit(1);
+      }
+      throw err;
+    } finally {
+      store.close();
+    }
+  });
+
+toolCommand
+  .command('remove')
+  .description('Remove a tool you added')
+  .argument('<id>', 'Tool id')
+  .option('-y, --yes', 'Remove it even when agents use it, without asking')
+  .action(async (id: string, opts: { yes?: boolean }) => {
+    const dbPath = getDbPath(loadConfig());
+    const store = new ToolStore(dbPath);
+    try {
+      assertRemovableUserTool(store, id);
+    } catch (err) {
+      store.close();
+      if (err instanceof UserToolError) {
+        ui.fail(err.message);
+        process.exit(1);
+      }
+      throw err;
+    }
+    let users: string[] = [];
+    try {
+      const db = new DatabaseSync(dbPath, { readOnly: true });
+      try { users = agentsUsingTool(AgentStore.fromHandle(db).listAgents(), id); } finally { db.close(); }
+    } catch { /* no agents yet */ }
+    if (users.length > 0 && !opts.yes) {
+      console.log(`${chalk.yellow('!')} ${users.length === 1 ? 'This agent uses' : 'These agents use'} "${id}": ${users.join(', ')}. Their steps that call it will fail.`);
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      const answer = (await rl.question('Remove it anyway? [y/N] ')).trim().toLowerCase();
+      rl.close();
+      if (answer !== 'y' && answer !== 'yes') {
+        console.log('Kept.');
+        store.close();
+        return;
+      }
+    }
+    try {
+      removeUserTool(store, id);
+      ui.ok(`Removed tool "${id}".`);
+    } catch (err) {
+      if (err instanceof UserToolError) {
+        ui.fail(err.message);
+        process.exit(1);
+      }
+      throw err;
+    } finally {
+      store.close();
+    }
+  });
+
 function printToolDetail(tool: ToolDefinition): void {
   ui.section(tool.name);
   ui.kv('Id', tool.id);
   ui.kv('Source', tool.source);
   ui.kv('Description', tool.description ?? ui.dim('none'));
   ui.kv('Implementation', tool.implementation.type);
+  if (tool.implementation.command) {
+    console.log('');
+    ui.section('Command');
+    console.log(tool.implementation.command);
+  }
+  if (tool.implementation.prompt) {
+    console.log('');
+    ui.section('Prompt');
+    console.log(tool.implementation.prompt);
+  }
 
   if (Object.keys(tool.inputs).length > 0) {
     console.log('');
