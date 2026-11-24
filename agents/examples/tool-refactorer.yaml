@@ -1,0 +1,106 @@
+# Tool Refactorer — drafts ONE tool several agents can share (docs/tools.md
+# "Ask sua to share a tool"). Route-dispatched only, by sua's tool-refactor
+# action in a conversation (dashboard lib/tool-refactor-draft.ts); never
+# proposed in triage. Its tool is checked like any tool you write and shown
+# on one card with each agent's change; nothing is saved until approved.
+
+id: tool-refactorer
+name: Tool Refactorer
+description: >
+  Drafts one shared tool for what several of your agents each do in their own
+  way (a fetch they repeat), or names a tool of yours that already does it.
+status: active
+source: examples
+
+inputs:
+  ASK:
+    type: string
+    required: true
+    description: What the person asked for, in their words.
+  STEPS:
+    type: string
+    required: true
+    description: The agents' steps that do the shared job (agent, step id, command).
+  TOOLS:
+    type: string
+    required: true
+    description: The tools that already exist, one per line (id and what it does).
+  FIX:
+    type: string
+    required: false
+    default: ""
+    description: Why the previous draft couldn't be used, to fix this time.
+
+nodes:
+  - id: draft
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 240
+    outputContract:
+      mustMatch: '<(tool|reuse)>[\s\S]*?</(tool|reuse)>'
+      description: a <tool> YAML block or a <reuse> tool id
+    prompt: |
+      Several of someone's agents each do the same job in their own way.
+      Write ONE tool they can all call instead, for sua (a local agent
+      runner). A tool is a shell command with named inputs that prints one
+      JSON line at the end.
+
+      What they asked: {{inputs.ASK}}
+
+      The steps that do the job now:
+      {{inputs.STEPS}}
+
+      Tools that already exist:
+      {{inputs.TOOLS}}
+
+      Fix this from your last draft (may be empty): {{inputs.FIX}}
+
+      If one of THEIR tools (not a built-in) already does this job for every
+      step above, reply only <reuse>its-id</reuse> and <why>one sentence</why>.
+
+      Otherwise write the tool:
+      - It must cover every step above. What differs between them (which
+        company, which board or service, a search query, how many) becomes
+        an input with a sensible default; what they all do the same way is
+        built in. Several services doing the same job (e.g. job boards) can
+        be one tool with an input that picks the service.
+      - Give back EVERY field any of the steps above reads or passes on (a
+        description or summary text, dates, ids, counts), as clean JSON, so
+        each agent can get exactly what it has now from the tool. Read each
+        step to the end before deciding: a field used once still counts.
+        An input can turn a costly field on (e.g. include_descriptions) when
+        only some steps need it.
+      - Keep what the steps do to be reliable: if one retries a request or
+        waits longer, the tool does too (an input for it is fine).
+      - Make the same requests the steps make, with the same URL options and
+        query parameters (e.g. ?content=true, &limit=, ?mode=json): an API
+        often leaves fields out without them. Only an input may turn one
+        off, never a default.
+      - Inputs arrive as environment variables named as declared; quote them
+        ("$company"). Names: letters, digits, _; never PATH, HOME, USER,
+        SHELL, TMPDIR, *_proxy, UPSTREAM_*, SUA_*.
+      - For several requests, or JSON work, use python3 with the standard
+        library (urllib, json, concurrent.futures), reading inputs with
+        os.environ: python3 - <<'PY' … PY. Set a timeout on every request and
+        say per source what failed instead of failing the whole tool.
+      - Keys and tokens are never inputs: read them from an environment
+        variable the calling step declares as a secret, and say which in the
+        description.
+      - No sudo, no rm -rf, nothing that installs software or writes files.
+      - The id is lowercase words joined by - and isn't one listed above.
+
+      Reply with exactly:
+      <tool>
+      id: …
+      name: …
+      description: … (one sentence a model can choose it by; name any secret it reads)
+      inputs:
+        name: { type: string, required: true, description: … }
+      outputs:
+        field: { type: array, description: … }
+      implementation:
+        type: shell
+        command: |
+          …
+      </tool>
+      <why>One sentence: what it does for these agents.</why>

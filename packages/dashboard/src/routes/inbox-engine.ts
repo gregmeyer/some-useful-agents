@@ -17,6 +17,7 @@ import { forkForNotebook } from '../lib/agent-fork.js';
 import { proposedSkillsJson, checkCardSkills, saveCardSkills } from '../lib/skill-proposals.js';
 import { parseAgentEdit, prepareAgentEdit, applyAgentEdit, preservedNote } from '../lib/agent-edit.js';
 import { TOOL_REFACTOR_APPLY, readToolRefactorInputs, applyToolRefactor } from '../lib/tool-refactor.js';
+import { startToolRefactor } from '../lib/tool-refactor-draft.js';
 import { rerunNotebook, createNotebookFrom, type NewNotebookSetup } from '../lib/notebook-create.js';
 import { experimentsForTriage, experimentsLinked } from '../lib/experiment-notebook.js';
 import { previewNotebookLayout, executeNotebookLayout } from '../lib/notebook-layout-action.js';
@@ -180,6 +181,8 @@ const TRIAGE_AUTO_APPROVE_AGENTS: ReadonlySet<string> = new Set([
   'notebook-add',
   // Only works out what a correction changes; applying it is its own card.
   'notebook-correct',
+  // Only drafts a shared tool and the agents' changes; saving them is its own card.
+  'tool-refactor',
 ]);
 
 /**
@@ -232,7 +235,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'board-build', 'view-redesign', 'edition-ask', TOOL_REFACTOR_APPLY]);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'board-build', 'view-redesign', 'edition-ask', TOOL_REFACTOR_APPLY, 'tool-refactor']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -447,7 +450,7 @@ export async function runProposedAction(
     // A notebook step runs in the background and posts how it went itself; a
     // follow-up turn now would only guess ("still running…") and go stale.
     // A correction posts its own card (or question), and its rewrite says how it went.
-    if (meta.agentId !== 'notebook-step' && meta.agentId !== 'notebook-correct' && meta.agentId !== 'notebook-correct-apply') maybeRefireTriage(ctx, messageId);
+    if (meta.agentId !== 'notebook-step' && meta.agentId !== 'notebook-correct' && meta.agentId !== 'notebook-correct-apply' && meta.agentId !== 'tool-refactor') maybeRefireTriage(ctx, messageId);
     return;
   }
 
@@ -970,6 +973,10 @@ async function executeRouteHandledAgent(
   }
   if (meta.agentId === 'notebook-correct-apply') {
     return applyNotebookCorrection(ctx, messageId, meta);
+  }
+  if (meta.agentId === 'tool-refactor') {
+    // Works out a shared tool and each agent's change; posts the card itself.
+    return startToolRefactor(ctx, messageId, meta);
   }
   if (meta.agentId === TOOL_REFACTOR_APPLY) {
     // A shared tool and the agents that then call it: all saved, or none.
@@ -2945,7 +2952,7 @@ export async function runTriageAgent(
     );
     // agent-settings is route-handled too: a settings request needs no runnable agents.
     const planHasSettings = rawActionList.some(
-      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct'].includes(String((a as { type?: unknown }).type)),
+      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'tool-refactor'].includes(String((a as { type?: unknown }).type)),
     );
     // The proposed actions are checked BEFORE the reply is posted: when every one
     // is refused and a recovery turn will run anyway, the reply (which described a

@@ -109,6 +109,7 @@ This directory captures the **why** behind architectural choices in
 | [0100](0100-pulses-today-tab-is-always-there.md) | Pulse's Today tab is always there | Accepted |
 | [0101](0101-the-edition-offers-an-agent-for-a-gap.md) | The edition offers an agent for a gap | Accepted |
 | [0102](0102-tools-you-add.md) | Tools you add: inputs as environment variables, gated as the shell they run | Accepted |
+| [0103](0103-a-shared-tool-on-one-card.md) | A shared tool and the agents that call it, on one card | Accepted |
 
 ## Template
 

@@ -281,6 +281,28 @@ WRONG: \`url: YouTube watch URL\` (description in the type slot — schema rejec
 5. SOURCE FIELD. Always set source: local on new agents (the importer overrides anyway, but it's the convention).
 6. FAIL FAST. When a step's primary purpose returns no data (HTTP non-200, empty array, null lookup, missing required field), exit with a non-zero status so downstream nodes skip cleanly via the executor's upstream_failed cascade. Don't return {x: null, y: null} and trust downstream to notice — they won't, and you'll get cryptic jq parse errors three nodes later. Pattern for shell: \`if [ "$LAT" = "null" ] || [ -z "$LAT" ]; then echo '{"error":"city not found"}' >&2; exit 1; fi\`. Pattern for tool calls: check the exit code and bail.`.trim();
 
+/**
+ * The tools the operator added or imported (not the built-ins, which the node
+ * types section covers), so a built or fixed agent calls one instead of
+ * writing the same fetch again: a step `type: shell` with `tool: <id>` and
+ * `toolInputs`, or a model step's `tools: [<id>]` for a command tool.
+ */
+export function buildYourToolsSection(tools: readonly ToolDefinition[] = []): string {
+  const mine = tools.filter((t) => t.source !== 'builtin').slice(0, 40);
+  if (!mine.length) return '';
+  const lines = mine.map((t) => {
+    const inputs = Object.entries(t.inputs ?? {}).map(([k, v]) => `${k}${v.required ? '' : '?'}: ${v.type}`).join(', ');
+    const outputs = Object.keys(t.outputs ?? {}).join(', ');
+    const kind = t.implementation.type === 'shell' ? 'command' : t.implementation.type === 'mcp' ? 'MCP' : 'prompt';
+    return `- ${t.id} (${kind}): ${(t.description ?? t.name).replace(/\s+/g, ' ').slice(0, 160)}${inputs ? ` Inputs: ${inputs}.` : ''}${outputs ? ` Gives back: ${outputs}.` : ''}`;
+  });
+  return `## THEIR TOOLS
+
+Tools this operator has (beyond the built-ins). When a step would do what one of these does, call it instead of writing the command again: \`type: shell\`, \`tool: <id>\`, \`toolInputs: { <input>: "<value or {{inputs.X}} / {{upstream.step.field}}>" }\`. A command tool can also go in a model step's \`tools:\` list.
+
+${lines.join('\n')}`;
+}
+
 export function buildDiscoveryCatalog(opts: DiscoveryCatalogOptions): string {
   const sections: string[] = [
     buildNodeTypesSection(),
@@ -292,6 +314,8 @@ export function buildDiscoveryCatalog(opts: DiscoveryCatalogOptions): string {
   if (opts.dashboards) sections.push(buildDashboardsSection(opts.dashboards));
   if (opts.packs) sections.push(buildPacksSection(opts.packs));
   if (opts.skills) sections.push(buildSkillsSection(opts.skills));
+  const toolsSection = buildYourToolsSection(opts.tools);
+  if (toolsSection) sections.push(toolsSection);
   sections.push(PATTERNS, WIDGET_GUIDANCE, DESIGN_DISCIPLINE);
 
   return sections.join('\n\n');

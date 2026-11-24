@@ -153,3 +153,17 @@ describe('the shared-tool card', () => {
     expect(page).toContain('saved together, or nothing is');
   });
 });
+
+describe('reading a tool step\'s result whole', () => {
+  it('refuses a step that reads it from the cut-off environment variable', async () => {
+    const { readsToolResultCutShort } = await import('../lib/tool-refactor.js');
+    const nodes = (cmd: string) => ({ nodes: [
+      { id: 'fetch-tool', type: 'shell' as const, tool: 'stories' },
+      { id: 'fetch', type: 'shell' as const, command: cmd, dependsOn: ['fetch-tool'] },
+    ] });
+    expect(readsToolResultCutShort(nodes('python3 -c "import json,os; json.loads(os.environ[\'UPSTREAM_FETCH_TOOL_RESULT\'])"'), 'stories'))
+      .toEqual({ step: 'fetch', toolStep: 'fetch-tool', name: 'UPSTREAM_FETCH_TOOL_RESULT' });
+    expect(readsToolResultCutShort(nodes('jq .stories "$UPSTREAM_FETCH_TOOL_RESULT_FILE"'), 'stories')).toBeUndefined();
+    expect(readsToolResultCutShort(nodes('python3 - <<\'PY\'\nfrom sua_helpers import upstream_json\nd = upstream_json("fetch-tool", {})\nPY'), 'stories')).toBeUndefined();
+  });
+});
