@@ -1372,6 +1372,12 @@ export interface NewNotebook {
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,59}$/;
 
+/** The tables that hold a notebook's own rows, by `notebook_id` (exportRows / importRows). */
+export const NOTEBOOK_ROW_TABLES = ['notebook_entries', 'notebook_sightings', 'notebook_searches', 'notebook_passes', 'notebook_photos', 'notebook_about_photos', 'notebook_attachments'] as const;
+
+/** A notebook's raw rows, per table. */
+export type NotebookRows = Partial<Record<'notebooks' | typeof NOTEBOOK_ROW_TABLES[number], Array<Record<string, unknown>>>>;
+
 /** "Buy a used car" → "buy-a-used-car" (unique-ified by the store). */
 export function notebookSlug(title: string): string {
   const s = title.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
@@ -3283,6 +3289,57 @@ export class NotebookStore {
    * passes, kept photos). Its conversation and the runs that fed it stay.
    * Returns how many entries went with it, or undefined if there was none.
    */
+/**
+   * Everything a notebook keeps, as raw rows per table (notebook-bundle.ts sends
+   * it to another sua). Blobs are Uint8Arrays. The conversation it was talked
+   * about in, runs it skipped and the undo histories belong to this machine
+   * and aren't included.
+   */
+  exportRows(id: string): NotebookRows | undefined {
+    const row = this.db.prepare('SELECT * FROM notebooks WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    if (!row) return undefined;
+    const rows: NotebookRows = { notebooks: [row] };
+    for (const table of NOTEBOOK_ROW_TABLES) {
+      rows[table] = this.db.prepare(`SELECT * FROM ${table} WHERE notebook_id = ?`).all(id) as Array<Record<string, unknown>>;
+    }
+    return rows;
+  }
+
+  /**
+   * Write a notebook's rows (from exportRows, maybe from another machine) in
+   * one transaction. Only the columns this database has are written, so a
+   * newer or older sua's extra columns don't stop it. The rows must already
+   * carry the ids they're to have here (notebook-bundle.ts remaps them).
+   */
+  importRows(rows: NotebookRows): void {
+    const columnsOf = (table: string): Set<string> =>
+      new Set((this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name));
+    this.db.exec('BEGIN');
+    try {
+      for (const table of ['notebooks', ...NOTEBOOK_ROW_TABLES] as const) {
+        const list = rows[table] ?? [];
+        if (!list.length) continue;
+        const have = columnsOf(table);
+        for (const r of list) {
+          const cols = Object.keys(r).filter((c) => have.has(c));
+          if (!cols.length) continue;
+          this.db.prepare(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)
+            .run(...cols.map((c) => r[c] as never));
+        }
+      }
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+
+  /** Whether any of these entry or pass ids is taken here. */
+  idsTaken(entryIds: readonly string[], passIds: readonly string[]): boolean {
+    const has = (table: string, id: string) => !!this.db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(id);
+    return entryIds.some((id) => has('notebook_entries', id)) || passIds.some((id) => has('notebook_passes', id));
+  }
+
   delete(id: string): { entries: number } | undefined {
     if (!this.get(id)) return undefined;
     const entries = (this.db.prepare('SELECT COUNT(*) AS n FROM notebook_entries WHERE notebook_id = ?').get(id) as { n: number }).n;

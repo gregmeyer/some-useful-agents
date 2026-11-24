@@ -114,3 +114,13 @@ export function agentsUsingTool(
   }
   return out;
 }
+
+/** Tool ids an agent's steps use (`tool:` and `tools:`), without `agent:` calls. Pure. */
+export function toolIdsUsed(agent: { nodes: ReadonlyArray<{ tool?: string; tools?: readonly string[] }> }): string[] {
+  const ids = new Set<string>();
+  for (const n of agent.nodes) {
+    if (n.tool) ids.add(n.tool);
+    for (const t of n.tools ?? []) if (!t.startsWith('agent:')) ids.add(t);
+  }
+  return [...ids];
+}

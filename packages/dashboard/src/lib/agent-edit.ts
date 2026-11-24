@@ -19,6 +19,7 @@ import {
   getBuiltinTool,
   getGeneratedTool,
   isAppleIntegrationEnabled,
+  toolIdsUsed,
   type Agent,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
@@ -39,15 +40,8 @@ export function repairEditYaml(yaml: string): string {
   return autoFixYaml(yaml.replace(/\{ \{/g, '{{'));
 }
 
-/** Tool ids the agent's steps use (`tool:` and `tools:`), without `agent:` calls. Pure. */
-export function toolIdsUsed(agent: Pick<Agent, 'nodes'>): string[] {
-  const ids = new Set<string>();
-  for (const n of agent.nodes) {
-    if (n.tool) ids.add(n.tool);
-    for (const t of n.tools ?? []) if (!t.startsWith('agent:')) ids.add(t);
-  }
-  return [...ids];
-}
+/** Tool ids the agent's steps use (now in core; kept here for the callers that import it from this module). */
+export { toolIdsUsed };
 
 function toolExists(ctx: Ctx, id: string): boolean {
   if (getBuiltinTool(id)) return true;
