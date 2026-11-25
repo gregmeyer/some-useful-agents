@@ -3467,3 +3467,9 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 .ib-answers { margin: var(--space-2) 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
 .ib-answers__label { font-family: var(--font-mono); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-subtle); margin-right: var(--space-2); }
 .ib-answers__status { color: var(--color-text-subtle); }
+
+/* Home's lead: Ask a question (the pitch, in a box). */
+.home-ask-card--lead { margin-bottom: var(--space-6); padding: var(--space-6); border-color: var(--color-border-strong); }
+.home-question__title { margin: 0; font-family: var(--font-display); font-size: var(--font-size-xl, 1.375rem); }
+.home-question__lede { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-md); }
+@media (max-width: 640px) { .home-ask-card--lead { padding: var(--space-4); } }

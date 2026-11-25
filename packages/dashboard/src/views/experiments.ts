@@ -254,7 +254,7 @@ export function renderExperimentNew(args: {
           <p class="form-field__hint" data-exp-find-none${on(args.agents.length > 0, 'hidden')}>${args.agents.length ? 'No agent matches that.' : 'You have no agents of your own yet. Build or install one first.'}</p>
           </div>
           <div data-exp-group>
-          <p class="exp-field__label">Your notebooks, the latest first</p>
+          <p class="exp-field__label">Your answers, the latest first</p>
           <p class="form-field__hint">A fresh copy of the notebook is made for every run and taken through its steps with nobody pressing Continue. It stops before the step where you decide. Your notebook itself is not touched.</p>
           <div class="exp-findlist" data-exp-findlist data-first="4">
             ${list(notebooks.map((n) => html`<label class="exp-choice" data-exp-findable data-text="${`${n.title} ${n.id} ${n.statement}`.toLowerCase()}">

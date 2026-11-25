@@ -21,15 +21,18 @@ export function sectionTabs(active: AgentsSection): SafeHtml {
   const tab = (id: AgentsSection, href: string, label: string): SafeHtml => html`
     <a href="${href}" class="${active === id ? 'is-active' : ''}">${label}</a>
   `;
+  // Agents, Runs and Scheduled are what you open most; the building blocks are under More (it shows which one you're on).
+  const more: Array<[AgentsSection, string, string]> = [['start', '/start', 'Start here'], ['behaviors', '/behaviors', 'Behaviors'], ['tools', '/tools', 'Tools'], ['packs', '/packs', 'Packs']];
+  const on = more.find(([id]) => id === active);
   return html`
     <nav class="tab-strip" aria-label="Agents section">
-      ${tab('start', '/start', 'Start here')}
       ${tab('agents', '/agents', 'Agents')}
-      ${tab('behaviors', '/behaviors', 'Behaviors')}
-      ${tab('tools', '/tools', 'Tools')}
       ${tab('runs', '/runs', 'Runs')}
-      ${tab('packs', '/packs', 'Packs')}
       ${tab('scheduled', '/scheduled', 'Scheduled')}
+      <details class="tab-strip__more" data-tab-more>
+        <summary class="${on ? 'is-active' : ''}">${on ? on[2] : 'More'}</summary>
+        <div class="tab-strip__more-panel">${more.map(([id, href, label]) => tab(id, href, label)) as unknown as SafeHtml[]}</div>
+      </details>
     </nav>
   `;
 }

@@ -32,7 +32,7 @@ The footer shows a **build stamp** (`sua vX · <sha>`) so you can tell which bui
 
 ## Navigation
 
-The top bar: `sua · Answers · Agents · Experiments · Pulse · Settings · Help` (**Answers** is the notebooks list, at `/notebooks`; `/answers` goes there too). The `sua` brand is Home (`/`). **Agents** groups the building blocks; its pages share an in-page tab strip (**Start here · Agents · Behaviors · Tools · Runs · Packs · Scheduled**) under the page header. On the right, **N need you** (every page) counts what Today lists as waiting for you, and **Ask sua** (or **Cmd/Ctrl+K**) starts a conversation with sua from anywhere.
+The top bar: `sua · Answers · Settings · More`. The `sua` brand is Home. **Answers** is the notebooks list, at `/notebooks` (`/answers` goes there too). **More** opens a short menu of **Agents**, **Experiments**, **Pulse** and **Help**, and on any of those pages it reads `More · Agents` (or whichever), so you can see where you are. The Agents tabs are **Agents · Runs · Scheduled · More** (**Start here**, **Behaviors**, **Tools** and **Packs** under More; it shows the one you're on). On the right, **N need you** (every page) counts what Today lists as waiting for you, and **Ask sua** (or **Cmd/Ctrl+K**) starts a conversation with sua from anywhere.
 
 ### The conversation panel
 
@@ -51,7 +51,7 @@ On Home the same inbox fills the page instead (below), so it's one inbox at two 
 
 ![Home: what needs you, today's reads and your recent notebooks](images/home.png)
 
-Home is what needs you and what to do next, on one page, in two columns (one on a narrow screen). **Adjust Home** can move any of its parts within its column or hide it ("hide Next up", "put Ask sua first"); a hidden part is named at the foot with **Show**. See [Home's page parts](surfaces.md#homes-page-parts).
+Home leads with **Ask a question**: the one-line pitch, a box, and three example questions to start from. Sending it opens the conversation in the panel, and sua starts the answer from there. Below it is what needs you and your answers, in two columns (one on a narrow screen). A new Home shows only **Today** and **Your answers**. The other parts (Today's brief, Next up, Ask sua's starters, Housekeeping, Today's reads) are named at the foot with **Show**. A Home you've already arranged keeps its own parts. **Adjust Home** can move any part within its column or hide it ("hide Next up", "put Ask sua first"); a hidden part is named at the foot with **Show**. See [Home's page parts](surfaces.md#homes-page-parts).
 
 - **The header** is the same as every page's: the breadcrumb, then how things stand ("2 need you", or "Nothing needs you") beside the title. On the right: **Autonomy** (Full / Approve first / Off), **Adjust Home** (ask sua to change what Home shows, and **What changed**) and **Full inbox**.
 - **Today**, on the left, when something needs you or is happening: drawn from Home's surface (what needs you, what's happening, and whether everything else is fine) and ordered by your rules. See [surfaces](surfaces.md#homes-today-tab). Clicking a row opens it in the sua panel beside the page: a conversation as its thread, anything else (a failing agent, a draft) with its actions and why it's there. Row menus (pin, move, hide, dismiss) work here as in the panel. Today redraws itself as things change.When nothing needs you it says **All clear**. On a quiet day Today is one line ("All good: running 8 scheduled agents"): the header already says nothing needs you.

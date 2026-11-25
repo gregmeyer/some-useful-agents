@@ -146,7 +146,9 @@ sua sees Home as it is (goal, sections, rules, pins, hidden items, and the items
 
 ## Home's page parts
 
-Home's page has seven parts: **Today**, **Today's brief**, **Next up**, **Ask sua** and **Housekeeping** in the main column, **Today's reads** and **Your notebooks** in the side column. (Today's own sections, Needs you / Happening now / All good, are the surface's regions.)
+Home's page has seven parts: **Today**, **Today's brief**, **Next up**, **Ask sua** and **Housekeeping** in the main column, **Today's reads** and **Your answers** in the side column. (Today's own sections, Needs you / Happening now / All good, are the surface's regions.) The **Ask a question** box above them isn't a part: it's always first.
+
+A new Home shows **Today** and **Your answers**; the others start hidden, each named at the foot with **Show**. A Home that already has its parts arranged (you moved or hid one) keeps them as they are.
 
 Ask for a change with **Adjust Home**: "put Ask sua first", "hide Next up", "I don't need Today's reads", "bring Next up back". sua shows a card with the change; nothing moves until you press **Apply**, and **What changed** lists it with an undo like any other change.
 

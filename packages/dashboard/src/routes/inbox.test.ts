@@ -130,7 +130,11 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     const t = inboxStore.list({ limit: 1 })[0];
     inboxStore.addResponse(t.id, 'triage', 'Blue or green?');
     inboxStore.updateStatus(t.id, 'awaiting_user');
+    // Every part shown (a new Home shows Today and your answers under the question box).
+    await request(app).post('/surfaces/home/ops').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).send({ ops: (['brief', 'next-up', 'ask', 'housekeeping', 'reads'] as const).map((part) => ({ op: 'showPart', part })) });
     const home = await request(app).get('/').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    // It leads with the question box.
+    expect(home.text.indexOf('home-ask-card--lead')).toBeLessThan(home.text.indexOf('data-home-today'));
     expect(home.status).toBe(200);
     expect(home.text).not.toContain('data-inbox-split');
     expect(home.text).toContain('data-home-today');
@@ -201,6 +205,9 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     const get = () => request(app).get('/').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     const ops = (list: unknown[]) => request(app).post('/surfaces/home/ops').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).send({ ops: list });
     const order = (t: string) => ['data-home-today-section', 'data-home-next', 'class="home-ask-card"', 'data-home-tidy'].map((k) => [k, t.indexOf(k)] as const).filter(([, i]) => i >= 0).sort((a, b) => a[1] - b[1]).map(([k]) => k);
+    // A new Home: Today and your answers; the rest named at the foot with Show.
+    expect(order((await get()).text)).toEqual(['data-home-today-section']);
+    expect((await ops((['brief', 'next-up', 'ask', 'housekeeping', 'reads'] as const).map((part) => ({ op: 'showPart', part })))).status).toBe(200);
     expect(order((await get()).text)).toEqual(['data-home-today-section', 'data-home-next', 'class="home-ask-card"', 'data-home-tidy']);
     // Ask sua first.
     expect((await ops([{ op: 'movePart', part: 'ask', index: 0 }])).status).toBe(200);

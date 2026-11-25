@@ -2436,7 +2436,8 @@ describe('Tools owns what agents can call (ADR-0034)', () => {
     const strip = /aria-label="Agents section">([\s\S]*?)<\/nav>/.exec(res.text);
     expect(strip).not.toBeNull();
     const labels = [...strip![1].matchAll(/>([^<>]+)<\/a>/g)].map((m) => m[1].trim());
-    expect(labels).toEqual(['Start here', 'Agents', 'Behaviors', 'Tools', 'Runs', 'Packs', 'Scheduled']);
+    // Agents, Runs, Scheduled; the rest under More.
+    expect(labels).toEqual(['Agents', 'Runs', 'Scheduled', 'Start here', 'Behaviors', 'Tools', 'Packs']);
   });
 
   it('renames the Settings MCP tab and removes the two that moved', async () => {

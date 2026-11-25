@@ -76,6 +76,38 @@ function renderAskCard(starters: readonly AskStarters[], offered: ReadonlySet<st
     </section>`;
 }
 
+/** Questions that show what sua does, one tap to put in the box. */
+const EXAMPLE_QUESTIONS: ReadonlyArray<{ label: string; text: string }> = [
+  { label: 'Headphones for flights', text: 'Which noise-cancelling headphones under $300 are best for long flights?' },
+  { label: 'Before a meeting', text: 'Prepare me for a meeting with ' },
+  { label: 'How do I…', text: 'How do I back up my laptop automatically every night?' },
+];
+
+/**
+ * Home's lead: ask a question, get back a researched answer you can check.
+ * Sending opens the conversation in the panel, like the bar at the top; sua
+ * starts the answer from there. An example fills the box for you to finish.
+ */
+export function renderQuestionBox(): SafeHtml {
+  return html`
+    <section class="home-ask-card home-ask-card--lead" aria-labelledby="home-question-title">
+      <h2 class="home-question__title" id="home-question-title">Ask a question</h2>
+      <p class="home-question__lede">Get back a researched answer you can check, laid out the same clear way every time.</p>
+      <form class="home-ask-card__form" method="POST" action="/inbox/new" data-home-ask data-attach>
+        <textarea class="home-ask-card__input" name="body" rows="2" data-home-ask-input data-no-draft
+          placeholder="What do you want to find out?" aria-label="Ask a question" title="Enter sends · Shift+Enter for a new line"></textarea>
+        ${attachPick()}
+        <button type="submit" class="btn btn--primary btn--sm" data-home-ask-send>Ask ↵</button>
+      </form>
+      <div class="home-ask-card__starters" data-ask-starters hidden>
+        <div class="home-ask-card__row">
+          <span class="home-ask-card__verb">For example</span>
+          <div class="ask-pills" role="group" aria-label="Example questions">${EXAMPLE_QUESTIONS.map((q) => html`<button type="button" class="ask-pill" data-ask-fill="${q.text}" title="${q.text}">${q.label}</button>`) as unknown as SafeHtml[]}</div>
+        </div>
+      </div>
+    </section>`;
+}
+
 export function renderHomePage(opts: {
   autonomyMode: AutonomyMode;
   today?: HomeSurface;
@@ -133,10 +165,11 @@ export function renderHomePage(opts: {
       </header>
       ${pageIntro({
         key: 'home',
-        text: 'Your agents run on this machine. Home shows what needs you; ask sua anything in the bar above.',
+        text: 'Ask a question and sua researches it on this machine: every answer lists its sources, each with the quote it rests on. Home also shows what needs you.',
         learnMore: { href: '/help', label: 'What is sua?' },
         actions: [{ href: '/start', label: 'Start here', primary: true }],
       })}
+      ${renderQuestionBox()}
       <div class="home-grid">
         <div class="home-main" data-ask-scope>
           ${main.map((p) => part[p.id]) as unknown as SafeHtml[]}

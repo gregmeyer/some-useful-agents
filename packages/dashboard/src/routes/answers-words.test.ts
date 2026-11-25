@@ -85,3 +85,31 @@ describe("an answer's header and its conversation", () => {
     S.stepsReply = undefined;
   });
 });
+
+// The top bar: Answers and Settings, the rest under More; Home leads with a question box.
+describe('the top bar and Home', () => {
+  it('has Answers, Settings and More (Agents, Experiments, Pulse, Help); More shows the page you are on', async () => {
+    const { topbarNav } = await import('../views/layout.js');
+    const plain = String(topbarNav('notebooks'));
+    expect([...plain.matchAll(/<a href="([^"]+)"/g)].map((m) => m[1])).toEqual(['/notebooks', '/settings', '/agents', '/experiments', '/pulse', '/help']);
+    expect(plain).toContain('<a href="/notebooks" class="is-active">Answers</a>');
+    expect(plain).toMatch(/<summary class="">More<\/summary>/);
+    const onAgents = String(topbarNav('runs'));
+    expect(onAgents).toContain('<summary class="is-active">More<span class="topbar__more-now"> · Agents</span></summary>');
+    expect(onAgents).toContain('href="/agents" class="is-active" aria-current="page"');
+  });
+
+  it('Home leads with Ask a question, three examples to start from, and your answers', async () => {
+    const app = await makeApp();
+    const home = (await request(app).get('/').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    // With no agents yet, Home is onboarding; with one, it's the question box.
+    if (home.includes('No agents yet')) {
+      S.agentStore.createAgent({ id: 'weather', name: 'Weather', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }] } as never, 'cli');
+    }
+    const page = (await request(app).get('/').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    expect(page).toContain('<h2 class="home-question__title" id="home-question-title">Ask a question</h2>');
+    expect(page).toContain('Get back a researched answer you can check, laid out the same clear way every time.');
+    expect(page.match(/class="ask-pill" data-ask-fill=/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(page.indexOf('home-question-title')).toBeLessThan(page.indexOf('data-home-today'));
+  });
+});
