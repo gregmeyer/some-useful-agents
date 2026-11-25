@@ -94,12 +94,12 @@ describe('a profile step', () => {
 
     // Edit offers the Meeting briefing look, as a picture to pick.
     const edit = (await get(`/notebooks/${nb.id}/edit?tab=looks`)).text;
-    expect(edit).toContain('aria-label="Look like: Meeting briefing"');
+    expect(edit).toContain('aria-label="Look like: Meeting brief"');
     await post(`/notebooks/${nb.id}/edit/look`, { look: 'dossier' });
     await post(`/notebooks/${nb.id}/edit/save`);
     // A ready-made page you picked: sua still composes it around what's written, so it's "picked", not yours.
     expect(store.get(nb.id)).toMatchObject({ layoutBy: 'picked', layout: { preset: 'dossier' } });
-    expect((await get(`/notebooks/${nb.id}/edit?tab=looks`)).text).toContain('aria-label="Meeting briefing, how it looks"');
+    expect((await get(`/notebooks/${nb.id}/edit?tab=looks`)).text).toContain('aria-label="Meeting brief, how it looks"');
   });
 
   it('decides its page again once its first step is done, unless you changed the page', async () => {
@@ -462,7 +462,7 @@ describe('a drawn page\'s brief', () => {
     store.setLayout(nb.id, 'dossier', 'you');
     const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     const brief = (await get(`/notebooks/${nb.id}/brief.html`)).text;
-    expect(brief).toContain('Meeting briefing · ');
+    expect(brief).toContain('Meeting brief · ');
     expect(brief).toContain('class="profile profile--cover"');
     expect(brief).toContain(`src="/notebooks/${nb.id}/about/person/photo"`);
     expect(brief).toContain('Photo: <a href="https://northwind.example/team">northwind.example</a>');
@@ -505,7 +505,7 @@ describe('a drawn page\'s header', () => {
       { id: 'note', component: 'Callout', label: 'The page', text: { path: '/notebook/title' } },
     ] });
     html = (await get()).text;
-    expect(html).toContain('<p class="nb-hero__subtitle">Meeting briefing</p>');
+    expect(html).toContain('<p class="nb-hero__subtitle">Meeting brief</p>');
     expect(html).not.toContain('<p class="nb-hero__statement">What matters to Dana before we talk</p>');
     // Nothing running: one chip per step.
     expect(html).toContain('<div class="nb-chips" role="list" aria-label="Steps">');
@@ -1134,7 +1134,7 @@ describe('editing a notebook on its own page', () => {
     // The header's Edit is a link to the page.
     expect((await get(`/notebooks/${nb.id}`)).text).toContain(`<a class="btn btn--sm btn--ghost nb-edit" href="/notebooks/${nb.id}/edit">Edit</a>`);
     const page = (await get(`/notebooks/${nb.id}/edit?tab=prompt`)).text;
-    expect(page).toContain('Edit this notebook');
+    expect(page).toContain('Edit this answer');
     expect(page).toContain('data-nbd-editor');
     expect(page).toContain('<input name="params" value="within 30 miles"');
     expect(page).toMatch(/is-met" aria-hidden="true">☑<\/span><textarea name="criteria"[^>]*>Three listings/);
@@ -1145,7 +1145,7 @@ describe('editing a notebook on its own page', () => {
     expect(page).toContain('<option value="" selected>when I ask</option>');
     expect(page).toContain('>Seller<button');
     // Tags and Manage sit in a rail beside the editing, not under every tab.
-    expect(page).toMatch(/<aside class="nbe-rail" aria-label="This notebook">[\s\S]*id="nbe-tags"[\s\S]*<h2 class="nbe-card__h" id="nbe-manage-h">Manage<\/h2>/);
+    expect(page).toMatch(/<aside class="nbe-rail" aria-label="This answer">[\s\S]*id="nbe-tags"[\s\S]*<h2 class="nbe-card__h" id="nbe-manage-h">Manage<\/h2>/);
     expect(page.indexOf('<aside class="nbe-rail"')).toBeGreaterThan(page.indexOf('class="nbe-work"'));
     // Each starter carries what can finish it for this notebook, shown when it's picked.
     const talkTab = (await get(`/notebooks/${nb.id}/edit`)).text;

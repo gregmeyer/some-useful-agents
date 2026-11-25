@@ -138,7 +138,7 @@ export function notebookLooks(notebookId: string, choice: LookChoice): SafeHtml 
     ${choice.working ? html`<p class="nbe-looks__working" role="status"><span class="working__spin" aria-hidden="true"></span>sua is working on a change. The preview opens when it's done.</p>` : html``}
     <p class="look-section__lede">Pick one to see it in the preview; nothing changes until you save. To change one part ("put who they are at the top"), say it in Talk.</p>
     <ul class="look-gallery nbe-looks__gallery">
-      ${own.map((l) => card(same(l, choice.now) ? 'now' : 'changed', 'Made for this notebook', `${l.about ? `${l.about.charAt(0).toUpperCase()}${l.about.slice(1)}.` : 'sua drew it for what this notebook is for.'}${same(l, choice.now) && choice.by === 'you' ? ' As you asked: sua leaves it be.' : ''}`, lookThumb(l.components), l)) as unknown as SafeHtml[]}
+      ${own.map((l) => card(same(l, choice.now) ? 'now' : 'changed', 'Made for this answer', `${l.about ? `${l.about.charAt(0).toUpperCase()}${l.about.slice(1)}.` : 'sua drew it for what this notebook is for.'}${same(l, choice.now) && choice.by === 'you' ? ' As you asked: sua leaves it be.' : ''}`, lookThumb(l.components), l)) as unknown as SafeHtml[]}
       ${NOTEBOOK_LAYOUT_PRESETS.map((p) => card(p.id, p.label, `${LOOK_FOR[p.id] ?? p.when}${COMPOSES[p.id] ? ` ${COMPOSES[p.id]}` : ''}`, lookThumb(p.layout.components), p.id === 'shortlist' ? undefined : p.layout)) as unknown as SafeHtml[]}
       ${card('pick', 'Let sua pick', 'sua reads what it\'s for, what it notes and its steps, and draws a page that fits.', html`<span class="lk-thumb lk-thumb--pick" aria-hidden="true"><b>✦</b></span>`, 'pick')}
     </ul>

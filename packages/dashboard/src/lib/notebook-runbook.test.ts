@@ -16,7 +16,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 describe('the Runbook page (a template, not a new kind of notebook)', () => {
   it('is a layout like the answer; the writer is told it writes a runbook; the brief prints every part of each step and what to copy', () => {
     const preset = layoutPreset('runbook')!;
-    expect(preset.label).toBe('Runbook');
+    expect(preset.label).toBe('How-to');
     expect(checkNotebookLayout(preset.layout.components).ok).toBe(true);
 
     dir = mkdtempSync(join(tmpdir(), 'sua-runbook-'));

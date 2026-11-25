@@ -129,7 +129,7 @@ export function nextCandidates(d: NextData): NextItem[] {
     if (now - t.at > 14 * DAY) continue;
     // A conversation about a notebook you've put away isn't something to pick back up.
     if (t.notebookId && archivedNb.has(t.notebookId)) continue;
-    add({ id: `next:reply:${t.id}`, kind: 'reply', title: clip(t.title.replace(/^Notebook:\s*/, ''), 70), why: `sua asked ${ago(t.at, now)}: “${clip(t.question, 110)}”`, facts: [`conversation: ${t.title}`, `sua asked, ${ago(t.at, now)}: ${clip(t.question, 200)}`], action: { label: 'Open it', thread: t.id }, score: 80 - Math.min(20, Math.floor((now - t.at) / DAY) * 2) });
+    add({ id: `next:reply:${t.id}`, kind: 'reply', title: clip(t.title.replace(/^(?:Notebook|Answer):\s*/, ''), 70), why: `sua asked ${ago(t.at, now)}: “${clip(t.question, 110)}”`, facts: [`conversation: ${t.title}`, `sua asked, ${ago(t.at, now)}: ${clip(t.question, 200)}`], action: { label: 'Open it', thread: t.id }, score: 80 - Math.min(20, Math.floor((now - t.at) / DAY) * 2) });
   }
 
   // ── Start another of what you make: your templates, then the topic you keep coming back to.

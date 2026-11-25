@@ -12,7 +12,7 @@ import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
 import { meetingWhenWords } from '../lib/notebook-edit.js';
 import { printValue } from '../lib/a2ui-print-values.js';
 import { agentFunctionValue } from '../lib/a2ui-agent-functions.js';
-import { looksLikeRubric, notebookGivenLinks, resolveNotebookLayout, runbookPhases, resolvePointer, splitNotebookHeader, isRange, type Notebook, type NotebookEntry, type NotebookField, type ViewComponent, type NotebookViewOption } from '@some-useful-agents/core';
+import { kindLine, looksLikeRubric, notebookGivenLinks, resolveNotebookLayout, runbookPhases, resolvePointer, splitNotebookHeader, isRange, type Notebook, type NotebookEntry, type NotebookField, type ViewComponent, type NotebookViewOption } from '@some-useful-agents/core';
 import { formatFieldValue } from '../lib/field-format.js';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookLayoutFlags, notebookLayoutValues, notebookWidgetData, emptyPartsGo, drawnNotebookLayout, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
@@ -599,7 +599,7 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
   const cover = coverPanel ? node(p, byId.get(coverPanel)!.child as string) : undefined;
   const covered = !!cover && printsSomething(cover);
   if (covered) byId.set('root', { ...byId.get('root')!, children: kids(byId.get('root')!).filter((id) => id !== coverPanel) });
-  const subtitle = header && typeof header.subtitle === 'string' ? header.subtitle : nb.layout?.about?.split(':')[0];
+  const subtitle = header && typeof header.subtitle === 'string' ? kindLine(header.subtitle) : nb.layout?.about?.split(':')[0];
   const sideId = side?.[0]?.children ? (side[0].children as string[])[0] : undefined;
   const pic = args.pictures ?? ((o) => o.image);
   // What the latest run found that the one before didn't (a briefing): only when asked for (?new=1); a brief is the notebook as it stands.
@@ -831,7 +831,7 @@ ${TLDR_CSS}
 }
 `;
   const body = html`  ${briefHead({
-    line: `${subtitle ?? 'Notebook brief'}${args.full ? ' · extended' : ''} · ${fmtDate(now)}`,
+    line: `${subtitle ?? 'Answer'}${args.full ? ' · extended' : ''} · ${fmtDate(now)}`,
     title: nb.title,
     ...(nb.statement && !(header && header.statement === false) ? { statement: nb.statement } : {}),
     links: notebookGivenLinks(nb).map((u) => ({ url: u, label: linkWords(u) })),

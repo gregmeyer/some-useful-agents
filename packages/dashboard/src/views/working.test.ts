@@ -38,7 +38,7 @@ describe('starting a notebook', () => {
   it('a ready draft says so at its top, with Start there and in the bar that stays in view', () => {
     const draft = { title: 'CRM prices', statement: 'Find out what a 10-person team pays', params: [], criteria: [], fields: [], checks: [], stages: [], steps: [], pipeline: [] };
     const page = renderNotebookNew({ draft: { id: 'd1', state: { status: 'ready', text: 'x', at: 0, draft: draft as never }, agents: [] } });
-    expect(page).toMatch(/data-nbd-ready>[\s\S]*?Your notebook draft is ready\.[\s\S]*?Looks right, start it<\/button>/);
+    expect(page).toMatch(/data-nbd-ready>[\s\S]*?Your answer’s plan is ready\.[\s\S]*?Looks right, start it<\/button>/);
     expect(page.match(/Looks right, start it/g)).toHaveLength(2);
   });
 });

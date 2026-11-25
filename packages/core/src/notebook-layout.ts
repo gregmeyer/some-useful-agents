@@ -119,7 +119,10 @@ export interface NotebookLayout {
 
 export interface NotebookLayoutPreset {
   id: string;
+  /** Its kind's name, as the Answers shelf and Edit page show it ("Meeting brief"). */
   label: string;
+  /** Names it had before (an edit that names one still picks it). */
+  was?: readonly string[];
   /** When it fits, for sua and the Edit page. */
   when: string;
   layout: NotebookLayout;
@@ -516,31 +519,36 @@ export const NOTEBOOK_LAYOUT_PRESETS: readonly NotebookLayoutPreset[] = [
   },
   {
     id: 'dossier',
-    label: 'Meeting briefing',
+    label: 'Meeting brief',
+    was: ['Meeting briefing'],
     when: 'Getting ready to meet or work with someone (a person, or their company when you\'re meeting them): who they are, what\'s known, what they said, what to talk about.',
     layout: { preset: 'dossier', components: DOSSIER },
   },
   {
     id: 'company',
-    label: 'Company briefing',
+    label: 'Company brief',
+    was: ['Company briefing'],
     when: 'Getting to know a company on its own (a prospect, a partner, a competitor, an employer), with no meeting to prepare: who it is and its facts, its competitors, what the research found and how sure, then the sources.',
     layout: { preset: 'company', components: COMPANY },
   },
   {
     id: 'subject',
-    label: 'Subject briefing',
+    label: 'Topic brief',
+    was: ['Subject briefing'],
     when: 'Learning about one named thing with nothing to choose between and no meeting to prepare ("tell me about Acme", "what is roadschooling"): who or what it is, the briefing in parts (what it is, what it offers, how it works, what others say), what it rests on, then its sources with their pictures.',
     layout: { preset: 'subject', components: SUBJECT },
   },
   {
     id: 'answer',
-    label: 'Answer',
+    label: 'Explainer',
+    was: ['Answer'],
     when: 'Answering a question or finding something out (what\'s true, what\'s best practice, what it costs, how something works): the answer and how sure, the findings it rests on with their sources, what\'s still open, then the evidence.',
     layout: { preset: 'answer', components: ANSWER },
   },
   {
     id: 'runbook',
-    label: 'Runbook',
+    label: 'How-to',
+    was: ['Runbook'],
     when: 'Teaching or doing something step by step (a primer, a how-to, a lesson, "how do I…", "teach someone to…"): what you\'ll have at the end, what to have ready, each step with how to do it, what you\'ll see and what to do if not, what to copy, what goes wrong, then the guides it rests on.',
     layout: { preset: 'runbook', components: RUNBOOK },
   },
@@ -574,6 +582,19 @@ export function layoutWords(layout: NotebookLayout, f: (text: string) => string)
       return out;
     }),
   };
+}
+
+/**
+ * A page header's kind line as it reads now: the names the kinds had before
+ * ("Meeting briefing", "Runbook") read as their new ones, so a page drawn
+ * then says the same as one drawn now. Anything else is kept.
+ */
+export function kindLine(subtitle: string): string {
+  for (const p of NOTEBOOK_LAYOUT_PRESETS) for (const w of p.was ?? []) {
+    if (subtitle === w) return p.label;
+    if (subtitle.startsWith(`${w} ·`)) return `${p.label}${subtitle.slice(w.length)}`;
+  }
+  return subtitle;
 }
 
 export function layoutPreset(id: string): NotebookLayoutPreset | undefined {

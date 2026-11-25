@@ -70,7 +70,7 @@ export function renderNotebookLike(like: NotebookLike | undefined): SafeHtml {
       <div class="nbd-like__acts">
         <a class="btn btn--sm" href="/notebooks/${id}">Open it</a>
         <form method="POST" action="/notebooks/${id}/rerun"><button type="submit" class="btn btn--sm">Run it again</button></form>
-        <span class="nbd-like__note">Run it again starts a fresh notebook with the same setup${like.archived ? '' : ' and archives this one'}. Not it? Carry on below.</span>
+        <span class="nbd-like__note">Run it again starts a fresh answer with the same setup${like.archived ? '' : ' and archives this one'}. Not it? Carry on below.</span>
       </div>
     </section>`;
   }
@@ -82,7 +82,7 @@ export function renderNotebookLike(like: NotebookLike | undefined): SafeHtml {
       <label class="nbd-like__label" for="nbd-like-subject">Who or what is this one about?</label>
       <input id="nbd-like-subject" type="text" name="subject" required maxlength="80" class="form-field nbd-like__subject" placeholder="${like.subject ? `Instead of ${like.subject}` : 'A name'}" autocomplete="off">
       <button type="submit" class="btn btn--sm">Set it up like that</button>
-      <span class="nbd-like__note">A new, empty notebook with that one's steps, checks and page, the name swapped. That one stays as it is. Or carry on below for a fresh draft.</span>
+      <span class="nbd-like__note">A new, empty answer with that one's steps, checks and page, the name swapped. That one stays as it is. Or carry on below for a fresh draft.</span>
     </form>
   </section>`;
 }
@@ -103,12 +103,12 @@ function templateMenu(t: TemplateRow, archived: boolean): SafeHtml {
     <div class="nbd-tpl__menu">
       <form method="POST" action="/notebooks/templates/${encodeURIComponent(t.id)}/archive" class="nbd-tpl__menu-form">
         <input type="hidden" name="archived" value="${archived ? '0' : '1'}">
-        <button type="submit" class="nbd-tpl__menu-item" title="${archived ? 'Offer it again on New notebook and to sua' : "Keep it, but don't offer it on New notebook or to sua"}">${archived ? 'Restore' : 'Archive'}</button>
+        <button type="submit" class="nbd-tpl__menu-item" title="${archived ? 'Offer it again on Ask a question and to sua' : "Keep it, but don't offer it on Ask a question or to sua"}">${archived ? 'Restore' : 'Archive'}</button>
       </form>
       <details class="nbd-tpl__del">
         <summary class="nbd-tpl__menu-item">Delete…</summary>
         <form method="POST" action="/notebooks/templates/${encodeURIComponent(t.id)}/delete" class="nbd-tpl__menu-form nbd-tpl__confirm">
-          <span>Delete it? Notebooks made from it stay.</span>
+          <span>Delete it? Answers made from it stay.</span>
           <button type="submit" class="btn btn--sm">Delete</button>
         </form>
       </details>
@@ -171,11 +171,11 @@ export function renderNotebookNew(opts: {
   const result = !d ? html``
     : d.state.status === 'ready' ? renderDraftReview(d.id, d.state.draft, d.agents, d.state.error)
     : d.state.status === 'failed' ? html`<p class="flash flash--error">${d.state.error}</p>`
-    : working({ size: 'panel', title: 'sua is drafting your notebook', said: d.state.text, text: 'Working out what it\'s for, the facts each option notes, its steps and its page. Usually about a minute. You can leave this page: the draft is kept.', since: new Date(d.state.at).toISOString() });
-  return render(layout({ title: 'New notebook', activeNav: 'notebooks', flash: opts.flash }, html`
+    : working({ size: 'panel', title: 'sua is working out how to answer it', said: d.state.text, text: 'Working out what it\'s for, the facts each option notes, its steps and its page. Usually about a minute. You can leave this page: the draft is kept.', since: new Date(d.state.at).toISOString() });
+  return render(layout({ title: 'Ask a question', activeNav: 'notebooks', flash: opts.flash }, html`
     <div class="nbd" data-nbd${d ? html` data-nbd-id="${d.id}"` : html``}${d?.state.status === 'working' ? unsafeHtml(' data-nbd-resume') : unsafeHtml('')}>
-      <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a> › New</p>
-      <h1 class="nbd__title">Start a notebook</h1>
+      <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Answers</a> › New</p>
+      <h1 class="nbd__title">Ask a question</h1>
       ${renderDraftsStrip(opts.others ?? [], 'new')}
       <form class="nbd-ask" data-nbd-ask method="POST" action="/notebooks/draft">
         <label class="nbd-ask__label" for="nbd-text">Describe it like you'd tell a friend</label>
@@ -194,7 +194,7 @@ export function renderNotebookNew(opts: {
         <input type="hidden" name="statement" value="" data-nbd-skip-text>
         <button type="submit" class="nbd-skip__btn">Skip the draft: start it and talk it through with sua →</button>
       </form>
-      <p class="nbd-import"><a href="/notebooks/import">Have a notebook file from another sua? Import it →</a></p>
+      <p class="nbd-import"><a href="/notebooks/import">Have an answer file from another sua? Import it →</a></p>
     </div>
   `));
 }
@@ -323,7 +323,7 @@ export function notebookSetupEditor(v: SetupValues, agents: ReadonlyArray<{ id: 
               : editing
                 ? html`<p class="nbd-field__hint">You have no search agents yet. Ask sua to build one.</p>`
                 : v.steps?.length
-                  ? html`<p class="nbd-field__hint">The steps do the searching. Once they're done, a search here can keep the notebook fresh.</p>`
+                  ? html`<p class="nbd-field__hint">The steps do the searching. Once they're done, a search here can keep the answer fresh.</p>`
                   : html`<p class="nbd-field__hint">None of your agents search for this yet. Once it's started, ask sua to build one.</p>`}
             <label class="nbd-cadence">Search
               <select name="cadence">${cadence.map(([val, l]) => html`<option value="${val}"${val === v.cadence ? unsafeHtml(' selected') : unsafeHtml('')}>${l}</option>`) as unknown as SafeHtml[]}</select>
@@ -343,13 +343,13 @@ export function renderDraftReview(id: string, draft: NotebookDraft, agents: Read
       <input type="hidden" name="draft" value="${id}">
       <div class="nbd-draft__head" data-nbd-ready>
         <span class="nbd-draft__done" aria-hidden="true">✓</span>
-        <span class="nbd-draft__say"><strong class="nbd-draft__ready">Your notebook draft is ready.</strong> Change anything below, or start it now.${draft.why ? html` <span class="nbd-draft__why">${draft.why}</span>` : html``}</span>
+        <span class="nbd-draft__say"><strong class="nbd-draft__ready">Your answer’s plan is ready.</strong> Change anything below, or start it now.${draft.why ? html` <span class="nbd-draft__why">${draft.why}</span>` : html``}</span>
         <button type="submit" class="btn btn--primary btn--sm nbd-draft__go">Looks right, start it</button>
       </div>
       ${draft.needs?.length ? html`<div class="nbd-needs" data-nbd-needs>
         ${draft.needs.map((n) => html`
         <div class="nbd-needs__item">
-          <p class="nbd-needs__say"><strong>sua needs ${n.label}.</strong> ${n.link ? `It can't read ${needHost(n.link)}. ` : ''}${n.why ?? ''} Paste it here, or start the notebook and it will ask before it does anything.</p>
+          <p class="nbd-needs__say"><strong>sua needs ${n.label}.</strong> ${n.link ? `It can't read ${needHost(n.link)}. ` : ''}${n.why ?? ''} Paste it here, or start it and sua will ask before it does anything.</p>
           <label class="sr-only" for="nbd-need-${n.key}">${n.label}</label>
           <textarea id="nbd-need-${n.key}" name="need_${n.key}" rows="5" class="form-field" placeholder="Paste the text here, or choose a file below."></textarea>
           ${givenFilePick(`nbd-need-${n.key}`)}
@@ -364,7 +364,7 @@ export function renderDraftReview(id: string, draft: NotebookDraft, agents: Read
           <label class="nb-given__label" for="nbd-add-text">Its text</label>
           <textarea id="nbd-add-text" name="add_text" rows="5" class="form-field" placeholder="Paste the text here, or choose a file below."></textarea>
           ${givenFilePick('nbd-add-text', 'nbd-add-label')}
-          <span class="nbd-add__hint">Kept when you start the notebook. The file itself isn't kept.</span>
+          <span class="nbd-add__hint">Kept when you start it. The file itself isn't kept.</span>
         </div>
       </details>
       <div class="nbd-draft__foot">

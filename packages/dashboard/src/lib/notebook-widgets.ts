@@ -13,7 +13,7 @@
  *   Search log (coverage)          | Limits (disagreements flagged)
  */
 import { answerCover, answerDiagramView, type AnswerDiagramView } from './answer-art.js';
-import { readerPage, answerConfidence, findingStatus, type FindingTrace, answerSubjects, evidenceOrigin, evidenceQuote, sourceSpread, sourceSpreadCaution, SOURCE_KINDS, type SourceKind } from '@some-useful-agents/core';
+import { kindLine, readerPage, answerConfidence, findingStatus, type FindingTrace, answerSubjects, evidenceOrigin, evidenceQuote, sourceSpread, sourceSpreadCaution, SOURCE_KINDS, type SourceKind } from '@some-useful-agents/core';
 import { missingExperimentData, rankBy, rankOptions, isRange,
   notebookViewData, notebookLayoutOf, withTldrCardSlot, resolveNotebookLayout, splitNotebookHeader, resolvePointer, type NotebookLayout, type NotebookLayoutFlag, type NotebookLayoutValueKey, cleanData, fieldNumber, validateViewComponents, viewToMessages,
   type Notebook, type NotebookAffiliation, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
@@ -1162,7 +1162,7 @@ export function notebookHeaderView(nb: Notebook, entries: readonly NotebookEntry
   const raw = header.subtitle && typeof header.subtitle === 'object' && typeof (header.subtitle as { path?: unknown }).path === 'string'
     ? resolvePointer(data, (header.subtitle as { path: string }).path)
     : header.subtitle;
-  const subtitle = typeof raw === 'string' && raw.trim() ? raw.trim().slice(0, 140) : undefined;
+  const subtitle = typeof raw === 'string' && raw.trim() ? kindLine(raw.trim().slice(0, 140)) : undefined;
   const sideView = side ? validateViewComponents(side) : undefined;
   return {
     cover: header.cover === 'none' ? 'none' : 'lead',

@@ -201,7 +201,7 @@ describe('changing a notebook by saying what to change, or as a document', () =>
     page = (await get(`/notebooks/${nb.id}/edit?tab=prompt`)).text;
     expect(page).toContain('Added done when “Questions ready”');
     expect(page).toContain('Added step 1: Learn about Dana Reyes (profile; about Dana Reyes)');
-    expect(page).toContain('How it looks: Shortlist → Meeting briefing');
+    expect(page).toContain('How it looks: Shortlist → Meeting brief');
     const saved = await post(`/notebooks/${nb.id}/edit/save`, {});
     expect(decodeURIComponent(saved.headers.location)).toContain('Saved 3 changes.');
     const after = s.get(nb.id)!;
@@ -450,7 +450,7 @@ describe('"do it better", with nothing more said', () => {
       expect(S.pageAsked.at(-1)!.ASK).toContain('Draw the page that best fits what this notebook is for now');
       const page = (await get(`/notebooks/${nb.id}/edit`)).text;
       expect(page).toContain('Get ready for a 30-minute call with Dana Reyes about her team.');
-      expect(page).toContain('Meeting briefing');
+      expect(page).toContain('Meeting brief');
       // A request that says what to change is taken as it is.
       expect(['make it better for the launch', 'improve the talking points'].map((t) => VAGUE_IMPROVE.test(t))).toEqual([false, false]);
       expect(['do it better', 'redraw it and do it better', 'please improve it', 'clean it up'].every((t) => VAGUE_IMPROVE.test(t))).toBe(true);
@@ -482,9 +482,9 @@ describe('how a notebook looks, picked from pictures', () => {
     const picked = await post(`/notebooks/${nb.id}/edit/look`, { look: 'dossier' });
     expect(picked.headers.location).toContain('tab=looks&preview=1');
     page = (await get(`/notebooks/${nb.id}/edit?tab=looks`)).text;
-    expect(page).toMatch(/aria-label="Meeting briefing, how it looks">[\s\S]*?look-card__badge">In your changes</);
+    expect(page).toMatch(/aria-label="Meeting brief, how it looks">[\s\S]*?look-card__badge">In your changes</);
     expect(page).toMatch(/aria-label="Look like: Shortlist">[\s\S]*?look-card__badge">Saved</);
-    expect(page).toContain('How it looks: Shortlist → Meeting briefing');
+    expect(page).toContain('How it looks: Shortlist → Meeting brief');
     expect(s.get(nb.id)!.layout).toBeUndefined();
 
     // Back to the look it has: nothing to save about it.
@@ -500,7 +500,7 @@ describe('how a notebook looks, picked from pictures', () => {
     page = (await get(`/notebooks/${nb.id}/edit`)).text;
     expect(page).toContain('Let sua pick how it looks.');
     expect(page).toContain('It fits as a briefing before the call.');
-    expect(page).toContain('How it looks: Shortlist → Meeting briefing');
+    expect(page).toContain('How it looks: Shortlist → Meeting brief');
     S.pageReply = undefined;
     await post(`/notebooks/${nb.id}/edit/save`, {});
     // sua's own pick, saved: the notebook's, as at setup (decided again and composed as sua sees fit).

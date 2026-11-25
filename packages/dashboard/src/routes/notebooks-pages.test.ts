@@ -66,7 +66,7 @@ describe('notebooks pages', () => {
     store.archive(bike.id);
     for (const path of ['/notebooks', '/notebooks?status=all']) {
       const none = (await get(app, path)).text;
-      expect(none).toContain(path === '/notebooks' ? 'No active notebooks' : 'No notebooks in use');
+      expect(none).toContain(path === '/notebooks' ? 'No active answers' : 'No answers in use');
       expect(none).toContain('Yours are under <a href="/notebooks?status=archived">Archived (1)</a>.');
       expect(none.match(/class="nbl-empty__start"/g)).toHaveLength(3);
       expect(none).toContain('Meeting prep</a>');
@@ -148,7 +148,7 @@ describe('notebooks pages', () => {
     expect(menu).not.toContain('Which options?');
     expect(menu).not.toContain('In the running');
     // One row a thing to share, its forms as short links: the brief (open, PDF, HTML), the picture, every finding in full.
-    expect(menu).toContain('<span class="nb-share__what">The brief</span>');
+    expect(menu).toContain('<span class="nb-share__what">Print version</span>');
     expect(menu).toContain('<span class="nb-share__what">Every finding in full</span>');
     expect(menu).toContain(`href="/notebooks/${meet.id}/brief.pdf" download title="The brief as a PDF file named after the notebook, ready to send: its pictures inside it, page numbers, no print dialog" aria-label="Download the brief as PDF">PDF</a>`);
     expect(menu).toContain(`aria-label="Download the TL;DR picture as PNG">PNG</a>`);
@@ -176,7 +176,7 @@ describe('notebooks pages', () => {
     store.setSteps(ask.id, [{ title: 'Find 8 sources', kind: 'find', target: 8 }, { title: 'Write the answer', kind: 'write', shape: 'answer' }]);
     store.addEntry(ask.id, { kind: 'evidence', title: 'A describes it, B carries it', body: 'From the spec.', by: 'agent:x', source: 'https://a.example/spec' });
     const said = (await get(app, `/notebooks/${ask.id}`)).text.split('nb-csv__panel')[1].split('</details>')[0];
-    expect(said).toContain('<span class="nb-share__what">The brief</span>');
+    expect(said).toContain('<span class="nb-share__what">Print version</span>');
     expect(said).toContain('aria-label="Download the TL;DR picture as PNG">PNG</a>');
     // No options: no spreadsheet and no "in full" (they'd be empty).
     expect(said).not.toContain('shortlist.csv');
@@ -234,7 +234,7 @@ describe('notebooks pages', () => {
   it('starts a notebook, shows its cover, adds entries, ticks criteria, decides', async () => {
     const app = await makeApp();
     const empty = await get(app, '/notebooks');
-    expect(empty.text).toContain('+ New notebook');
+    expect(empty.text).toContain('+ Ask a question');
     expect(empty.text).toContain('class="btn btn--primary btn--sm nbl-new__btn" href="/notebooks/new"');
 
     const made = await post(app, '/notebooks', { title: 'Buy a used car', statement: 'Find a reliable SUV', params: 'AWD\nunder $26k', criteria: 'One fits\nClean history\nDecided' });

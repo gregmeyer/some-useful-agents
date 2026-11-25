@@ -62,7 +62,7 @@ const pause = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r,
 async function draftAsk(ctx: Ctx, ask: string, requestId?: string): Promise<{ text: string; draft: NotebookDraft; draftId: string } | { error: string }> {
   const draftId = startNotebookDraft(ctx, ask);
   if (typeof draftId !== 'string') return draftId;
-  if (requestId) requestsOf(ctx).update(requestId, { phase: 'drafting', detail: 'sua is drafting the notebook from the ask (about a minute)…' });
+  if (requestId) requestsOf(ctx).update(requestId, { phase: 'drafting', detail: 'sua is working out how to answer the ask (about a minute)…' });
   const until = Date.now() + DRAFT_WAIT_MS;
   for (let wait = 50; Date.now() < until; wait = Math.min(wait * 2, 2000)) {
     const d = readDraft(ctx, draftId);
@@ -85,7 +85,7 @@ async function make(ctx: Ctx, req: NotebookRequest): Promise<{ notebook: Noteboo
   if (!input.ask) return { error: 'It asked for neither a template nor anything to draft.' };
   const drafted = await draftAsk(ctx, input.ask, req.id);
   if ('error' in drafted) return drafted;
-  requestsOf(ctx).update(req.id, { phase: 'creating', detail: 'Making the notebook…' });
+  requestsOf(ctx).update(req.id, { phase: 'creating', detail: 'Making the answer…' });
   const nb = createNotebookFrom(ctx, setupFromDraft(ctx, drafted.text, drafted.draft, input.title));
   discardDraft(ctx, drafted.draftId);
   return { notebook: nb };
@@ -99,7 +99,7 @@ export async function runNotebookRequest(ctx: Ctx, requestId: string): Promise<v
   let out: { notebook: Notebook } | { error: string };
   try { out = await make(ctx, req); } catch (err) { out = { error: err instanceof Error ? err.message : String(err) }; }
   if ('error' in out) {
-    requests.update(requestId, { phase: 'failed', detail: 'The notebook wasn’t made.', error: out.error });
+    requests.update(requestId, { phase: 'failed', detail: 'The answer wasn’t made.', error: out.error });
     return;
   }
   const nb = out.notebook;
@@ -119,7 +119,7 @@ export async function runNotebookRequest(ctx: Ctx, requestId: string): Promise<v
     const msg = ctx.inboxStore?.add({
       priority: 'low',
       source: 'manual',
-      title: `A notebook was started for you: ${fresh.title}`,
+      title: `An answer was started for you: ${fresh.title}`,
       body: `An agent connected over MCP started [${fresh.title}](/notebooks/${encodeURIComponent(fresh.id)})${req.input.template ? ` from your template "${req.input.template}"` : ` from the ask "${req.input.ask ?? ''}"`}. ${detail}`,
       dedupeKey: `notebook-request:${requestId}`,
       contextJson: JSON.stringify({ kind: 'notebook-request', requestId, notebookId: fresh.id }),
@@ -152,7 +152,7 @@ export function watchQueuedNotebookRequests(ctx: Ctx, everyMs = 4000): () => voi
 export function failInterruptedNotebookRequests(ctx: Ctx): void {
   try {
     const requests = requestsOf(ctx);
-    for (const r of requests.unfinished()) requests.update(r.id, { phase: 'failed', detail: 'The notebook wasn’t made.', error: 'The dashboard restarted while it was being made. Ask again.' });
+    for (const r of requests.unfinished()) requests.update(r.id, { phase: 'failed', detail: 'The answer wasn’t made.', error: 'The dashboard restarted while it was being made. Ask again.' });
   } catch { /* no table yet */ }
 }
 

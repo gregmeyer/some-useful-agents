@@ -41,15 +41,15 @@ export function renderNotebookShelf(shelf: { cards: ShelfCard[]; total: number }
   return html`
     <section class="nbs" aria-labelledby="nbs-title">
       <div class="nbs__head">
-        <h2 class="nbs__title" id="nbs-title">${shelf.cards.length ? 'Recent notebooks' : 'Your notebooks'}</h2>
-        ${shelf.total ? html`<a class="nbs__all" href="/notebooks">All notebooks${shelf.total > shelf.cards.length ? ` (${String(shelf.total)})` : ''} →</a>` : html``}
+        <h2 class="nbs__title" id="nbs-title">${shelf.cards.length ? 'Recent answers' : 'Your answers'}</h2>
+        ${shelf.total ? html`<a class="nbs__all" href="/notebooks">All answers${shelf.total > shelf.cards.length ? ` (${String(shelf.total)})` : ''} →</a>` : html``}
       </div>
       <div class="nbs__row">
         ${shelf.cards.map(card) as unknown as SafeHtml[]}
         <a class="nbs-new${shelf.cards.length ? '' : ' nbs-new--alone'}" href="/notebooks/new">
           <span class="nbs-new__plus" aria-hidden="true">+</span>
-          <span class="nbs-new__title">New notebook</span>
-          <span class="nbs-new__hint">A goal you keep: a car to buy, a job to find, a trip to plan. sua searches and keeps track.</span>
+          <span class="nbs-new__title">Ask a question</span>
+          <span class="nbs-new__hint">Anything you want found out: a car to buy, a job to find, a trip to plan. sua researches it and shows where each answer came from.</span>
         </a>
       </div>
     </section>`;

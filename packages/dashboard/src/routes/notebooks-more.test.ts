@@ -1089,7 +1089,7 @@ describe('notebooks asked for over MCP (notebook-create)', () => {
     // Claimed once: running the queue again makes nothing more.
     expect(startQueuedNotebookRequests(ctx)).toHaveLength(0);
     // The person hears about it.
-    expect(ctx.inboxStore!.list({}).some((m) => m.title === `A notebook was started for you: ${nb.title}`)).toBe(true);
+    expect(ctx.inboxStore!.list({}).some((m) => m.title === `An answer was started for you: ${nb.title}`)).toBe(true);
 
     // An ask: drafted, then a briefing on what it names (its link as the site), and its first step started.
     const was = ctx.notebookDrafterRun;
