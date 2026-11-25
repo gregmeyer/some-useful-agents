@@ -10,7 +10,7 @@
  *   Where they sit (map, 2/3)      | How far they got (funnel, 1/3)
  *   Shortlist (cards / table)
  *   Before you decide (1/3)        | How we got here (timeline, 2/3)
- *   Where sua looked (coverage)    | Limits (disagreements flagged)
+ *   Search log (coverage)          | Limits (disagreements flagged)
  */
 import { answerCover, answerDiagramView, type AnswerDiagramView } from './answer-art.js';
 import { readerPage, answerConfidence, findingStatus, type FindingTrace, answerSubjects, evidenceOrigin, sourceSpread, sourceSpreadCaution, SOURCE_KINDS, type SourceKind } from '@some-useful-agents/core';
@@ -1071,8 +1071,11 @@ export function notebookWidgetComponents(nb: LayoutNotebook, layout: NotebookLay
  * A drawn page leaves out parts with nothing in them yet (core
  * resolveNotebookLayout); the shortlist keeps every part, as it always has.
  */
-export function emptyPartsGo(layout: NotebookLayout, data: unknown): { data?: unknown } {
-  return data !== undefined && layout.preset !== 'shortlist' ? { data } : {};
+export function emptyPartsGo(layout: NotebookLayout, data: unknown): { data?: unknown; sources?: boolean } {
+  // The shortlist keeps every part (it draws its own empty states), but still learns whether it has sources to list.
+  const sources = (data as { notebook?: { sources?: unknown[] } } | undefined)?.notebook?.sources;
+  const has = Array.isArray(sources) && sources.length > 0;
+  return data !== undefined && layout.preset !== 'shortlist' ? { data } : { sources: has };
 }
 
 /** The notebook's page as drawn for it now: its layout resolved, with the header (if it has one) taken out. */

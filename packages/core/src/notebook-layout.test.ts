@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { NotebookStore } from './notebooks.js';
-import { checkNotebookLayout, describeLayoutChange, notebookLayoutGuide, cleanLayout, looksLikeRubric, notebookLayoutOf, resolveNotebookLayout, splitNotebookHeader, pageRhythm, layoutPreset, DEFAULT_NOTEBOOK_LAYOUT, NOTEBOOK_LAYOUT_PRESETS } from './notebook-layout.js';
+import { checkNotebookLayout, describeLayoutChange, notebookLayoutGuide, cleanLayout, looksLikeRubric, notebookLayoutOf, resolveNotebookLayout, withSourcesList, splitNotebookHeader, pageRhythm, layoutPreset, DEFAULT_NOTEBOOK_LAYOUT, NOTEBOOK_LAYOUT_PRESETS } from './notebook-layout.js';
 import type { ViewComponent } from './a2ui/view.js';
 
 let dir: string | undefined;
@@ -413,5 +413,42 @@ describe("the list of who publishes an answer's sources", () => {
     const out = resolveNotebookLayout(saved, {}, {});
     expect(out.find((c) => c.id === 'sources')).toMatchObject({ title: 'By publisher' });
     expect(out.find((c) => c.id === 'talk')?.title).toBeUndefined();
+  });
+});
+
+describe('every page shows where its sources are from', () => {
+  const ids = (cs: readonly { id: string }[]) => cs.map((c) => c.id);
+  const data = (sources: unknown[]) => ({ notebook: { sources, sourceCautions: [], coverage: { sources: [{ name: 'web', status: 'found', found: 2 }], when: 'last search' } } });
+  const page = [
+    { id: 'root', component: 'Column', children: ['lede', 'more'] },
+    { id: 'lede', component: 'Text', text: 'Hello' },
+    { id: 'more', component: 'Columns', children: ['cov_d'] },
+    { id: 'cov_d', component: 'Disclosure', label: 'Where sua looked', child: 'coverage' },
+    { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' } },
+  ];
+
+  it('adds the sources list before the folded research, once it has learned from a page', () => {
+    const out = withSourcesList(page as never, true);
+    expect((out.find((c) => c.id === 'root')!.children as string[])).toEqual(['lede', 'sources_p', 'more']);
+    expect(out.find((c) => c.id === 'sources')).toMatchObject({ component: 'Agenda', points: { path: '/notebook/sources' } });
+    expect(out.find((c) => c.id === 'cov_d')).toMatchObject({ label: 'Search log' });
+    // Drawn for a notebook: there only when it has pages to name.
+    const one = [{ text: 'Example Co · its own pages · 2 pages', refs: [{ label: 'example.com', href: 'https://example.com/a' }] }];
+    expect(ids(resolveNotebookLayout(page as never, {}, {}, { data: data(one) }))).toContain('sources_p');
+    expect(ids(resolveNotebookLayout(page as never, {}, {}, { data: data([]) }))).not.toContain('sources_p');
+  });
+
+  it('leaves a page that already lists them, and takes a free id', () => {
+    const answer = layoutPreset('answer')!.layout.components;
+    expect(withSourcesList(answer).filter((c) => (c.points as { path?: string } | undefined)?.path === '/notebook/sources')).toHaveLength(1);
+    const taken = withSourcesList([...page, { id: 'sources', component: 'Text', text: 'x' }] as never);
+    expect(ids(taken)).toContain('sources_p2');
+    expect((taken.find((c) => c.id === 'root')!.children as string[])).toEqual(['lede', 'sources_p2', 'more']);
+  });
+
+  it('every ready-made page says Search log, not Where sua looked', () => {
+    for (const p of ['shortlist', 'dossier', 'company', 'subject', 'answer', 'runbook', 'plan', 'watch']) {
+      expect(JSON.stringify(layoutPreset(p)!.layout.components)).not.toContain('Where sua looked');
+    }
   });
 });

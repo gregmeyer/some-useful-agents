@@ -30,6 +30,43 @@ export const RUNBOOK_ROLES: readonly NotebookRunbookRole[] = ['ready', 'method',
 
 /** The title of the list of who publishes an answer's sources (the Agenda's own default, "Talking points", is wrong there). */
 const SOURCES_TITLE = 'By publisher';
+/** What sua searched and what each search found: not its sources (those are "Where its sources are from"). */
+const SEARCH_LOG = 'Search log';
+
+/**
+ * Every page shows where what it says comes from: a page without the sources
+ * list (a ready-made one other than Answer and Runbook, or one sua drew)
+ * gets it, before the part holding the search log (or last), once it has
+ * learned from any page (`add`). A page saved when the
+ * search log was called "Where sua looked" says Search log. Pure.
+ */
+export function withSourcesList(given: readonly ViewComponent[], add = true): ViewComponent[] {
+  const renamed = given.map((c) => ((c.label === 'Where sua looked' || c.title === 'Where sua looked') ? { ...c, ...(c.label === 'Where sua looked' ? { label: SEARCH_LOG } : {}), ...(c.title === 'Where sua looked' ? { title: SEARCH_LOG } : {}) } : c));
+  if (!add || renamed.some((c) => (c.points as { path?: unknown } | undefined)?.path === '/notebook/sources')) return renamed;
+  const root = renamed.find((c) => c.id === 'root');
+  if (!root || !Array.isArray(root.children)) return renamed;
+  const ids = new Set(renamed.map((c) => c.id));
+  let pid = 'sources_p'; let lid = 'sources';
+  for (let i = 2; ids.has(pid) || ids.has(lid); i++) { pid = `sources_p${String(i)}`; lid = `sources${String(i)}`; }
+  const kids = root.children as string[];
+  // Before the part of the page that holds the search log (folded research, "Search log"), else last.
+  const byId = new Map(renamed.map((c) => [c.id, c]));
+  const holds = (id: string, seen = new Set<string>()): boolean => {
+    const c = byId.get(id);
+    if (!c || seen.has(id)) return false;
+    seen.add(id);
+    if (c.component === 'Coverage') return true;
+    const under = [...(Array.isArray(c.children) ? c.children as string[] : []), ...(typeof c.child === 'string' ? [c.child] : [])];
+    return under.some((k) => holds(k, seen));
+  };
+  const at = kids.findIndex((k) => holds(k));
+  const children = at >= 0 ? [...kids.slice(0, at), pid, ...kids.slice(at)] : [...kids, pid];
+  return [
+    ...renamed.map((c) => (c === root ? { ...c, children } : c)),
+    panel(pid, 'Where its sources are from', lid, 'who publishes each page it learned from'),
+    { id: lid, component: 'Agenda', title: SOURCES_TITLE, points: { path: '/notebook/sources' }, questions: { path: '/notebook/sourceCautions' }, questionsLabel: 'To weigh', maxQuestions: 3, check: false },
+  ];
+}
 
 
 /** What `when` can test. */
@@ -159,7 +196,7 @@ const SHORTLIST: ViewComponent[] = [
   panel('time_panel', 'How we got here', 'timeline', 'newest first'),
   { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, maxItems: 8, filters: true, search: true },
   { id: 'ctx', component: 'Columns', children: ['cov_panel', 'lim_panel'], widths: [1, 1] },
-  panel('cov_panel', 'Where sua looked', 'coverage', { path: '/notebook/coverage/when' }),
+  panel('cov_panel', SEARCH_LOG, 'coverage', { path: '/notebook/coverage/when' }),
   { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' } },
   panel('lim_panel', 'Limits', 'limits', { path: '/notebook/limitsNote' }),
   { id: 'limits', component: 'ChipList', items: { path: '/notebook/limitChips' } },
@@ -223,7 +260,7 @@ const DOSSIER: ViewComponent[] = [
   { id: 'more', component: 'Columns', children: ['time_d', 'cov_d'], widths: [1, 1], align: 'start' },
   { id: 'time_d', component: 'Disclosure', label: 'Research activity', child: 'timeline' },
   { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, filters: true },
-  { id: 'cov_d', component: 'Disclosure', label: 'Where sua looked', child: 'coverage' },
+  { id: 'cov_d', component: 'Disclosure', label: SEARCH_LOG, child: 'coverage' },
   { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
 ];
 
@@ -261,7 +298,7 @@ const COMPANY: ViewComponent[] = [
   { id: 'more', component: 'Columns', children: ['time_d', 'cov_d'], widths: [1, 1], align: 'start' },
   { id: 'time_d', component: 'Disclosure', label: 'Research activity', child: 'timeline' },
   { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, filters: true },
-  { id: 'cov_d', component: 'Disclosure', label: 'Where sua looked', child: 'coverage' },
+  { id: 'cov_d', component: 'Disclosure', label: SEARCH_LOG, child: 'coverage' },
   { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
 ];
 
@@ -299,7 +336,7 @@ const ANSWER: ViewComponent[] = [
   { id: 'more', component: 'Columns', children: ['time_d', 'cov_d'], widths: [1, 1], align: 'start' },
   { id: 'time_d', component: 'Disclosure', label: 'Research activity', child: 'timeline' },
   { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, filters: true },
-  { id: 'cov_d', component: 'Disclosure', label: 'Where sua looked', child: 'coverage' },
+  { id: 'cov_d', component: 'Disclosure', label: SEARCH_LOG, child: 'coverage' },
   { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
 ];
 
@@ -328,7 +365,7 @@ const PLAN: ViewComponent[] = [
   { id: 'more', component: 'Columns', children: ['time_d', 'cov_d'], widths: [1, 1], align: 'start' },
   { id: 'time_d', component: 'Disclosure', label: 'Research activity', child: 'timeline' },
   { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, filters: true },
-  { id: 'cov_d', component: 'Disclosure', label: 'Where sua looked', child: 'coverage' },
+  { id: 'cov_d', component: 'Disclosure', label: SEARCH_LOG, child: 'coverage' },
   { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
 ];
 
@@ -358,7 +395,7 @@ const WATCH: ViewComponent[] = [
   { id: 'more', component: 'Columns', children: ['time_d', 'cov_d'], widths: [1, 1], align: 'start' },
   { id: 'time_d', component: 'Disclosure', label: 'Research activity', child: 'timeline' },
   { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, filters: true },
-  { id: 'cov_d', component: 'Disclosure', label: 'Where sua looked', child: 'coverage' },
+  { id: 'cov_d', component: 'Disclosure', label: SEARCH_LOG, child: 'coverage' },
   { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
 ];
 
@@ -402,7 +439,7 @@ const SUBJECT: ViewComponent[] = [
   { id: 'more', component: 'Columns', children: ['time_d', 'cov_d'], widths: [1, 1], align: 'start' },
   { id: 'time_d', component: 'Disclosure', label: 'Research activity', child: 'timeline' },
   { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, filters: true },
-  { id: 'cov_d', component: 'Disclosure', label: 'Where sua looked', child: 'coverage' },
+  { id: 'cov_d', component: 'Disclosure', label: SEARCH_LOG, child: 'coverage' },
   { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
 ];
 
@@ -466,7 +503,7 @@ const RUNBOOK: ViewComponent[] = [
   },
   { id: 'time_d', component: 'Disclosure', label: 'Research activity', child: 'timeline' },
   { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, filters: true },
-  { id: 'cov_d', component: 'Disclosure', label: 'Where sua looked', child: 'coverage' },
+  { id: 'cov_d', component: 'Disclosure', label: SEARCH_LOG, child: 'coverage' },
   { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
 ];
 
@@ -720,10 +757,13 @@ export function resolveNotebookLayout(
     pending?: boolean;
     /** Components this notebook can never fill (a QuoteList with nothing to quote): their panels go when empty, running or not. */
     cantFill?: ReadonlySet<string>;
+    /** It has learned from pages (`/notebook/sources` has some): a page without the sources list gets one. Defaults to what `data` says. */
+    sources?: boolean;
   } = {},
 ): ViewComponent[] {
   // A sources list saved before it had a title of its own (it read "Talking points", the Agenda's default) gets one.
-  const all = withAnswerSections(components).map((c) => (c.component === 'Agenda' && c.title === undefined && (c.points as { path?: unknown } | undefined)?.path === '/notebook/sources' ? { ...c, title: SOURCES_TITLE } : c));
+  const sources = (opts.data as { notebook?: { sources?: unknown } } | undefined)?.notebook?.sources;
+  const all = withAnswerSections(withSourcesList(components, opts.sources ?? (Array.isArray(sources) && sources.length > 0))).map((c) => (c.component === 'Agenda' && c.title === undefined && (c.points as { path?: unknown } | undefined)?.path === '/notebook/sources' ? { ...c, title: SOURCES_TITLE } : c));
   const byId = new Map(all.map((c) => [c.id, c]));
   const placed = placedSectionKeys(all);
   const placedRoles = new Set(all.flatMap((x) => (x.component === 'AnswerSections' && Array.isArray(x.roles) ? x.roles as string[] : [])));
