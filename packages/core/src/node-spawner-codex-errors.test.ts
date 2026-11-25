@@ -136,6 +136,53 @@ describe('the operator\'s model for a provider', () => {
   });
 });
 
+// ADR-0104: a node pinned to a Claude short name ("sonnet") means that tier on
+// Claude; codex doesn't know the name, so it runs the node on its own model.
+describe('a pinned Claude alias on another provider', () => {
+  let binDir: string;
+  beforeAll(() => {
+    binDir = mkdtempSync(join(tmpdir(), 'sua-fake-alias-'));
+    writeFileSync(join(binDir, 'codex'), [
+      '#!/bin/sh',
+      'cat >/dev/null',
+      'msg=$(printf "%s " "$@")',
+      `printf '%s\n' '${JSON.stringify({ type: 'thread.started', thread_id: 't' })}'`,
+      'printf \'{"type":"item.completed","item":{"type":"agent_message","text":"%s"}}\\n\' "$msg"',
+      `printf '%s\n' '${JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } })}'`,
+    ].join('\n'));
+    chmodSync(join(binDir, 'codex'), 0o755);
+  });
+  afterAll(() => rmSync(binDir, { recursive: true, force: true }));
+
+  const run = (model: string, models?: Record<string, string>) => {
+    const seen: unknown[] = [];
+    return spawnNodeReal(
+      { id: 'find', type: 'llm-prompt', prompt: 'hi', model },
+      { PATH: `${binDir}:${process.env.PATH ?? ''}` },
+      { agentId: 'a', agentSource: 'local', llmSettings: { providers: ['codex'], ...(models ? { models } : {}), onModelUnavailable: (e) => seen.push(e) } },
+    ).then((res) => ({ res, seen }));
+  };
+
+  it('runs codex on its own model, not "sonnet", and reports no unavailable model', async () => {
+    const { res, seen } = await run('sonnet', { codex: 'gpt-6-sol' });
+    expect(res.exitCode).toBe(0);
+    expect(res.result).toContain('-m gpt-6-sol');
+    expect(res.result).not.toContain('sonnet');
+    expect(seen).toEqual([]);
+  });
+
+  it('with no model set for codex, codex runs its default (no -m)', async () => {
+    const { res } = await run('haiku');
+    expect(res.exitCode).toBe(0);
+    expect(res.result).not.toMatch(/-m |haiku/);
+  });
+
+  it('a pinned model that is not a Claude alias still goes to codex as pinned', async () => {
+    const { res } = await run('gpt-6-luna', { codex: 'gpt-6-sol' });
+    expect(res.result).toContain('-m gpt-6-luna');
+  });
+});
+
 describe('model_busy — at capacity, not out of usage', () => {
   it('classifies busy wording as model_busy, which falls back', () => {
     for (const error of ['Selected model is at capacity. Please try a different model.', 'API Error: 529 {"type":"overloaded_error","message":"Overloaded"}', 'Our servers are busy right now']) {

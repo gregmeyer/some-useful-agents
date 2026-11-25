@@ -263,6 +263,10 @@ export interface DashboardContext {
   notebookStepsWait?: boolean;
   /** Sources aren't traced on their own after a step (tests that don't read pages); a Check step still traces them. */
   notebookTraceWait?: boolean;
+  /** When the question a notebook is working on began (a press, or its greeting): its budget counts the spend of its steps since then. In memory; after a restart, the last two hours. */
+  notebookQuestionFrom?: Map<string, string>;
+  /** Tests: what a notebook's question has spent, instead of summing its runs. */
+  notebookQuestionSpend?: (notebookId: string) => number;
   notebookPipelines?: Map<string, { agentId: string; step: number; of: number; startedAt: number; runId?: string; /** Runs going at once (a source step reads pages side by side): Stop cancels each. */ runIds?: Set<string>; stopped?: boolean; again?: boolean }>;
   /** Notebooks being set up (fields, stages) right now. */
   notebookSetups?: Set<string>;

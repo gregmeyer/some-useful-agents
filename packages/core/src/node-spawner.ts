@@ -10,7 +10,7 @@
 import { USE_PROCESS_GROUPS, stopGroup, trackGroup, untrackGroup } from './process-groups.js';
 import { fallbackCapMessage, isPaidProvider, type FallbackCap } from './fallback-spend.js';
 import { codexConfigModel, refusedModelId } from './codex-models.js';
-import { claudeConfigModel } from './claude-models.js';
+import { claudeConfigModel, isClaudeAlias } from './claude-models.js';
 import { claudeUsage, codexUsage, codexDefaultModel, priceUsage, totalUsage, localProviderNames, formatUsd, type LlmUsage, type NodeUsage, type PriceTable } from './usage.js';
 import { MEMORY_TOOL_IDS } from './memory-store.js';
 import type { SpendLimits } from './spend-limits.js';
@@ -1301,9 +1301,13 @@ export async function spawnNodeReal(
       attemptBudgetUsd = Math.min(attemptBudgetUsd ?? Infinity, left);
     }
     if (attemptedProviders.at(-1) !== provider) attemptedProviders.push(provider);
+    // A pinned Claude short name ("sonnet") is for Claude only: another provider runs the node on its own model, as if nothing were pinned (ADR-0104).
+    const pinned = node.model && !(provider !== 'claude' && isClaudeAlias(node.model)) ? node.model : undefined;
     // The operator's model for this provider applies only when the node pins none; a busy one's fallback over either.
-    const providerModel = busyRetry.get(provider) ?? (node.model ? undefined : _opts.llmSettings?.models?.[provider]);
-    const attemptNode: AgentNode = { ...node, ...(providerModel ? { model: providerModel } : {}), systemPrompt: resolvedSystem };
+    const providerModel = busyRetry.get(provider) ?? (pinned ? undefined : _opts.llmSettings?.models?.[provider]);
+    const { model: _pinnedModel, ...unpinned } = node;
+    const attemptModel = providerModel ?? pinned;
+    const attemptNode: AgentNode = { ...unpinned, ...(attemptModel ? { model: attemptModel } : {}), systemPrompt: resolvedSystem };
     const attemptPrompt = repairNote?.provider === provider ? `${resolvedPrompt}\n\n${repairNote.text}` : resolvedPrompt;
     repairNote = undefined;
     let result = await runLlmAttempt(provider, attemptNode, attemptPrompt, childEnv, onProgress, signal, onSpawn, onChildExit, _opts.llmSettings?.customProviders, {

@@ -339,7 +339,7 @@ export class LlmSettingsStore {
    */
   setSpendLimits(limits: SpendLimits): void {
     const clean: SpendLimits = {};
-    for (const key of ['perRunUsd', 'perDayUsd'] as const) {
+    for (const key of ['perRunUsd', 'perDayUsd', 'perQuestionUsd'] as const) {
       const v = limits[key];
       if (v === undefined || v === 0) continue;
       if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) throw new Error(`${key} must be a positive number of USD.`);
@@ -518,6 +518,7 @@ function sanitizeSpendLimits(raw: unknown): SpendLimits | undefined {
   const out: SpendLimits = {
     ...(ok(r.perRunUsd) ? { perRunUsd: r.perRunUsd } : {}),
     ...(ok(r.perDayUsd) ? { perDayUsd: r.perDayUsd } : {}),
+    ...(ok(r.perQuestionUsd) ? { perQuestionUsd: r.perQuestionUsd } : {}),
   };
   return Object.keys(out).length > 0 ? out : undefined;
 }

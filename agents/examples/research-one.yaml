@@ -59,6 +59,8 @@ outputs:
 nodes:
   - id: research
     type: llm-prompt
+    # A worker node: Claude's mid tier is enough here (ADR-0104). Other providers run it on their own model.
+    model: sonnet
     tools: [web-search, web-fetch]
     maxTurns: 6
     timeout: 180

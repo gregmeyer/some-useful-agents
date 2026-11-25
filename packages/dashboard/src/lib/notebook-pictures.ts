@@ -122,6 +122,8 @@ export function startNotebookPictures(ctx: Ctx, notebookId: string): boolean {
   const nb = store.get(notebookId);
   // A copy an experiment runs is read, not looked at: no pictures are drawn for it.
   if (!nb || nb.experimentRun) return false;
+  // While its steps run, options are still coming and going: pictures wait for the last of sua's steps (it starts them), so none is paid for twice or for one ruled out.
+  if (ctx.notebookPipelines?.has(notebookId)) return false;
   // Logos found before logos were their own kind were kept as example photos.
   if (wantsLogos(nb)) store.relabelLogos(notebookId);
   const candidates = store.pictureCandidates(notebookId, 8);

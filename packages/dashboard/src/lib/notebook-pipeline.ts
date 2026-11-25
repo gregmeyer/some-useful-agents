@@ -179,6 +179,11 @@ export function notebookBrief(nb: Notebook, entries?: readonly NotebookEntry[], 
  * What a pipeline agent is given: the notebook as its goal, in whichever
  * goal-like inputs it declares. Everything else keeps its default.
  */
+/** How many searches a find try makes for `need` more options: about one per two, 2 to 5 (each is a paid run). */
+export function findSearches(need: number): number {
+  return Math.max(2, Math.min(5, Math.ceil(Math.max(1, need) / 2)));
+}
+
 export function pipelineInputs(agent: Pick<Agent, 'inputs'>, nb: Notebook, entries?: readonly NotebookEntry[], job?: StepJob): Record<string, string> {
   const out: Record<string, string> = {};
   for (const name of Object.keys(agent.inputs ?? {})) {
@@ -188,6 +193,8 @@ export function pipelineInputs(agent: Pick<Agent, 'inputs'>, nb: Notebook, entri
     else if (n === 'TOPIC' || n === 'QUERY' || n === 'QUESTION' || n === 'SEARCH') out[name] = job ? `${stepLine(nb, job)}\n\n${nb.statement || nb.title}` : nb.statement || nb.title;
     else if (n === 'STEP' && job) out[name] = stepLine(nb, job);
     else if (n === 'CHECKS') out[name] = JSON.stringify(nb.checks);
+    // A find try sized to what's still needed: a top-up of 2 makes 2 searches, not 5.
+    else if (n === 'SEARCHES' && job?.step.kind === 'find') out[name] = String(findSearches(job.want - job.have));
     else if (n === 'OPTIONS' && entries) out[name] = optionsInput(nb, entries, job?.step.kind === 'check', job?.step.top);
     // An agent that files directly needs the notebook's field keys and roles.
     else if (n === 'FIELDS' || n === 'NOTEBOOK_FIELDS') out[name] = JSON.stringify(nb.fields.map((f) => ({ key: f.key, label: f.label, type: f.type, ...(f.role ? { role: f.role } : {}), ...(f.unit ? { unit: f.unit } : {}) })));

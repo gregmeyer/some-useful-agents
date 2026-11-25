@@ -11,6 +11,16 @@ export function claudeConfigDir(env: NodeJS.ProcessEnv = process.env): string {
 /** Short names the Claude CLI resolves itself; always valid. */
 const CLAUDE_ALIASES = ['default', 'opus', 'sonnet', 'haiku', 'fable', 'opusplan', 'best'];
 
+/**
+ * Whether a model name is one of the Claude CLI's own short names
+ * (`sonnet`, `haiku`…), with or without a context tag. A node pinned to one
+ * means "this tier on Claude"; other providers don't know the name, so they
+ * run it on their own model (ADR-0104).
+ */
+export function isClaudeAlias(model: string | undefined): boolean {
+  return !!model && CLAUDE_ALIASES.includes(bareModelId(model).toLowerCase());
+}
+
 /** `opus[1m]` / `claude-opus-5-5[1m]` → the model id without its context tag. */
 export function bareModelId(model: string): string {
   return model.replace(/\[[^\]]*\]$/, '').trim();

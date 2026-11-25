@@ -30,6 +30,8 @@ inputs:
 nodes:
   - id: pictures
     type: llm-prompt
+    # A worker node: Claude's mid tier is enough here (ADR-0104). Other providers run it on their own model.
+    model: sonnet
     allowedTools: [WebSearch, WebFetch]
     maxTurns: 14
     timeout: 240

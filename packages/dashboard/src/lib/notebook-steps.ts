@@ -14,7 +14,7 @@ import { inBackground } from './background.js';
 import { stepWhy, perItemWhy, type StepTry } from './notebook-step-why.js';
 import { reconcileAbout } from './notebook-reconcile.js';
 import { randomUUID } from 'node:crypto';
-import { NotebookStore, answerTracePages, checksLeft, siteSpread, givenNewSince, givenWaitingReason, notebookClosedReason, notebookViewData, rankOptions, sourceJobs, stepProgress, writesUp, type Agent, type InboxActionMeta, type Notebook, type NotebookEntry, type NotebookGiven, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
+import { NotebookStore, answerTracePages, checksLeft, perQuestionBudget, siteSpread, givenNewSince, givenWaitingReason, notebookClosedReason, notebookViewData, rankOptions, sourceJobs, stepProgress, writesUp, type Agent, type InboxActionMeta, type Notebook, type NotebookEntry, type NotebookGiven, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
 import { givenReadingReason } from './notebook-given-read.js';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
@@ -25,6 +25,7 @@ import { keep, passNote, perItemInputs, pipelineInputs, readItemAnswer } from '.
 import { notebookThread } from './notebook-chat.js';
 import { reconcileStepCards } from './notebook-step-queue.js';
 import { learnAbout } from './notebook-profile.js';
+import { startNotebookPictures } from './notebook-pictures.js';
 import { traceAnswerSources, traceOnItsOwn, traceWords, tracingNow } from './notebook-trace-step.js';
 import { whatsNew, whatsNewSummary } from './notebook-whats-new.js';
 import { decideNotebookPage, pageIsItsOwn, pageIsPicked } from './notebook-page.js';
@@ -41,7 +42,7 @@ export const MAX_TRIES = 3;
 /** The checker's inputs, for a test's stand-in. */
 const CHECKER_INPUTS = { NOTEBOOK: {}, CHECKS: {}, OPTIONS: {} } as unknown as Agent['inputs'];
 /** The finder's inputs, for a test's stand-in. */
-const FINDER_INPUTS = { NOTEBOOK: {}, OPTIONS: {}, FIELDS: {} } as unknown as Agent['inputs'];
+const FINDER_INPUTS = { NOTEBOOK: {}, OPTIONS: {}, FIELDS: {}, SEARCHES: {} } as unknown as Agent['inputs'];
 
 
 /** The route-handled action behind a step's Continue / Try again card. */
@@ -157,7 +158,7 @@ export function confirmDoneStepsAndSay(ctx: Ctx, notebookId: string): { done: No
  * must still be the one it would act on, so a stale card does nothing.
  * Runs in the background; returns at once.
  */
-export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?: string; expect?: NotebookStep['status'] } = {}): { started: boolean; reason?: string; step?: NotebookStep; note?: string } {
+export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?: string; expect?: NotebookStep['status']; /** sua going on by itself (not a press, not a greeting): the question's budget keeps counting. */ auto?: boolean } = {}): { started: boolean; reason?: string; step?: NotebookStep; note?: string } {
   const store = stores(ctx);
   let nb = store.get(notebookId);
   if (!nb) return { started: false, reason: 'No such notebook.' };
@@ -193,6 +194,9 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
   // Its agent came off (sua's does it): the step as it is now.
   if (resolved.note) { nb = store.get(nb.id)!; step = nb.steps?.find((x) => x.id === step!.id) ?? step; }
   const agentId = resolved.agentId;
+  // A press (or a new notebook's greeting) is a fresh question: its budget starts counting now.
+  if (!opts.auto) (ctx.notebookQuestionFrom ??= new Map()).set(notebookId, new Date().toISOString());
+  step = focusOnBestFew(store, nb, step);
   const index = (nb.steps ?? []).findIndex((s) => s.id === step.id);
   ctx.notebookPipelines.set(notebookId, { agentId, step: index + 1, of: nb.steps!.length, startedAt: Date.now() });
   store.updateStep(nb.id, step.id, { status: 'running' });
@@ -206,6 +210,8 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
     if (s.kind !== 'check' && s.kind !== 'write') traceOnItsOwn(ctx, store, notebookId);
     // Met, and the next step is sua's: it goes straight on, with no Continue to press.
     if (!was?.stopped) continueOnItsOwn(ctx, notebookId, s.id);
+    // Nothing more of sua's running: now its options get their pictures (held back while the steps ran).
+    if (!ctx.notebookPipelines?.has(notebookId)) startNotebookPictures(ctx, notebookId);
     // It paused: its card is the one waiting (an earlier round's that asks the same goes).
     reconcileStepCards(ctx, notebookId);
   }));
@@ -253,14 +259,23 @@ function continueOnItsOwn(ctx: Ctx, notebookId: string, stepId: string): void {
   const step = nb?.steps?.find((x) => x.id === stepId);
   // A check that stopped short, with a write-up next: it goes on with what it confirmed (the write-up marks the rest unconfirmed).
   if (nb && step?.status === 'stuck' && goesOnPastShortCheck(ctx, nb, step)) {
-    const out = moveOnFromStep(ctx, notebookId, { stepId });
+    const out = moveOnFromStep(ctx, notebookId, { stepId, auto: true });
     if (!out.moved || (out.next && !out.next.started && out.next.reason)) sayInThread(ctx, nb, `I couldn't go on past **${step.title}**: ${out.reason ?? out.next?.reason ?? 'it can’t move on yet'}`);
     return;
   }
   if (!nb || step?.status !== 'met') return;
   const next = nextOnItsOwn(ctx, nb, step);
   if (!next) return;
-  const out = startNotebookStep(ctx, notebookId, { stepId, expect: 'met' });
+  // Spent its budget: it doesn't start another paid step by itself (a write-up still goes ahead).
+  if (next.kind !== 'write') {
+    const spent = questionSpend(ctx, stores(ctx), notebookId);
+    const budget = questionBudget(ctx);
+    if (spent >= budget) {
+      sayInThread(ctx, nb, `This question has spent ${usd(spent)} of its ${usd(budget)} budget, so I stopped before **${next.title}**. Press **Next step** to go on, or change the budget in Settings → Usage.`);
+      return;
+    }
+  }
+  const out = startNotebookStep(ctx, notebookId, { stepId, expect: 'met', auto: true });
   if (out.started || !out.reason || !ctx.inboxStore) return;
   const threadId = notebookThread(ctx, nb);
   if (!threadId) return;
@@ -879,7 +894,14 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
   let spreadTried = false;
   let spreadNote = '';
   let spreadHad = 0;
+  let overBudget = '';
   for (let i = 0; i < MAX_TRIES; i++) {
+    // Another try costs money: none once the question has spent its budget (write steps return earlier: never held back).
+    if (i > 0) {
+      const spent = questionSpend(ctx, store, notebookId);
+      const budget = questionBudget(ctx);
+      if (spent >= budget) { overBudget = `It reached its budget for this question (${usd(spent)} of ${usd(budget)}).`; notes.push(`stopped at ${usd(spent)} of its ${usd(budget)} budget`); break; }
+    }
     tries++;
     const passId = store.startPass(nb.id, 'pipeline', undefined, { stepId: step.id });
     const entries = store.entries(nb.id, 1000);
@@ -957,8 +979,8 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
     if (now.met) return finish(ctx, store, notebookId, { ...step, tries }, now, [...notes, spreadWords(now.have - spreadHad, spreadNote, findSpread(store.get(notebookId)!, store.entries(notebookId, 1000), step, true))]);
   }
   // You stopped it, or no run got it closer: Move on comes first.
-  const stalled = stopped || !gained;
-  return finish(ctx, store, notebookId, { ...step, tries }, before, notes, stalled, stepWhy(step, last, { stalled: noCloser || last?.status !== 'completed', tries }));
+  const stalled = stopped || !gained || !!overBudget;
+  return finish(ctx, store, notebookId, { ...step, tries }, before, notes, stalled, overBudget || stepWhy(step, last, { stalled: noCloser || last?.status !== 'completed', tries }));
 }
 
 /** A check try must settle this share of the open option-by-check pairs (or check one option through) to earn another try. */
@@ -1113,7 +1135,8 @@ function finish(ctx: Ctx, store: NotebookStore, notebookId: string, step: Notebo
   postStepCard(ctx, nb, step.id, p);
   // What it found may disagree with who it's about (a new employer, a move): checked in the background.
   if (step.kind === 'find' || step.kind === 'source' || step.kind === 'profile') inBackground(ctx, 'reconcileAbout', reconcileAbout(ctx, store, notebookId).catch(() => undefined));
-  if (p.met && nb.steps?.[0]?.id === step.id) inBackground(ctx, 'pageAfterFirstStep', pageAfterFirstStep(ctx, store, notebookId));
+  // Its page is drawn again once its first step is met, unless a write-up comes later: that draws it again anyway, around what it wrote.
+  if (p.met && nb.steps?.[0]?.id === step.id && !nb.steps.some((x) => x.kind === 'write' && WRITTEN_SHAPES.has(x.shape ?? ''))) inBackground(ctx, 'pageAfterFirstStep', pageAfterFirstStep(ctx, store, notebookId));
   // Written (an answer, a plan, a write-up): the page can be composed around its parts.
   else if (p.met && step.kind === 'write' && WRITTEN_SHAPES.has(step.shape ?? '')) inBackground(ctx, 'pageAfterWritten', pageAfterWritten(ctx, store, notebookId));
 }
@@ -1261,7 +1284,7 @@ export function stopNotebookStep(ctx: Ctx, notebookId: string): { stopped: boole
  * as moved on), and the next step starts, unless it's yours (Decide). `stepId`
  * must still be the current step, so a stale card does nothing.
  */
-export function moveOnFromStep(ctx: Ctx, notebookId: string, opts: { stepId?: string } = {}): { moved: boolean; reason?: string; step?: NotebookStep; next?: ReturnType<typeof startNotebookStep> } {
+export function moveOnFromStep(ctx: Ctx, notebookId: string, opts: { stepId?: string; auto?: boolean } = {}): { moved: boolean; reason?: string; step?: NotebookStep; next?: ReturnType<typeof startNotebookStep> } {
   const store = stores(ctx);
   const nb = store.get(notebookId);
   if (!nb) return { moved: false, reason: 'No such notebook.' };
@@ -1278,13 +1301,56 @@ export function moveOnFromStep(ctx: Ctx, notebookId: string, opts: { stepId?: st
   store.noteRun(nb.id, `${step.title}: moved on with ${words}`);
   const next = currentStep(after);
   if (!next || isYourStep(next)) return { moved: true, step };
-  return { moved: true, step, next: startNotebookStep(ctx, nb.id) };
+  return { moved: true, step, next: startNotebookStep(ctx, nb.id, opts.auto ? { auto: true } : {}) };
 }
+
+/** A question's budget: Settings → Usage, else the default (docs/cost.md). */
+function questionBudget(ctx: Ctx): number {
+  return perQuestionBudget(ctx.llmSettingsStore?.get().spendLimits);
+}
+
+/**
+ * What a notebook's steps have spent on the question it's working on: the
+ * runs of its passes since the question began (a press, or its greeting),
+ * each counted once with the runs it started. After a restart, the last two hours.
+ */
+export function questionSpend(ctx: Ctx, store: NotebookStore, notebookId: string): number {
+  if (ctx.notebookQuestionSpend) return ctx.notebookQuestionSpend(notebookId);
+  const from = ctx.notebookQuestionFrom?.get(notebookId) ?? new Date(Date.now() - 2 * 3600_000).toISOString();
+  const ids = store.passes(notebookId, 200).filter((p) => p.startedAt >= from).flatMap((p) => p.runIds);
+  try { return ctx.runStore.spendOfRuns(ids); } catch { return 0; }
+}
+
+const usd = (n: number) => `$${n.toFixed(2)}`;
 
 /** How many to focus on: the next pick or keep step's target, else 5 (never more than are in the running). */
 export function topFor(nb: Notebook, running: number): number {
   const yours = nb.steps?.find((x) => isYourStep(x) && x.target);
   return Math.max(1, Math.min(running, yours?.target ?? 5));
+}
+
+/** How many a check or source step works on when none was set: your pick plus 2, at least 5, never more than are in the running. */
+export function defaultTop(nb: Notebook, running: number): number {
+  const yours = nb.steps?.find((x) => isYourStep(x) && x.target);
+  return Math.max(1, Math.min(running, Math.max(5, (yours?.target ?? 0) + 2)));
+}
+
+/**
+ * A check or source step with no top of its own works on the best few
+ * (defaultTop): checking twelve to pick one pays to check seven that won't be
+ * picked. One ruled out lets the next best in. Kept on the step, so its chip
+ * and "check the top N" show it; an answer's trace (code, no model) is left alone.
+ */
+function focusOnBestFew(store: NotebookStore, nb: Notebook, step: NotebookStep): NotebookStep {
+  if ((step.kind !== 'check' && step.kind !== 'source') || step.top !== undefined) return step;
+  const entries = store.entries(nb.id, 1000);
+  if (stepProgress(nb, entries, step).unit === 'sources traced') return step;
+  const running = notebookViewData(nb, entries).notebook.options.filter((o) => !o.ruledOut).length;
+  const top = defaultTop(nb, running);
+  if (running <= top) return step;
+  store.updateStep(nb.id, step.id, { top });
+  store.noteRun(nb.id, `${step.title}: the best ${String(top)} of ${String(running)}`);
+  return { ...step, top };
 }
 
 /**
