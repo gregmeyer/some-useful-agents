@@ -19,7 +19,7 @@ import { draftSteps } from './notebook-draft.js';
 import { formatFieldValue } from '../views/notebooks.js';
 import { suaStepAgent, suaStepAgentName } from './notebook-step-agents.js';
 import { waitingStepCard } from './notebook-step-queue.js';
-import { fitStepAgents } from './notebook-steps.js';
+import { fitStepAgents, startNotebookStep } from './notebook-steps.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -545,13 +545,18 @@ export function greetNotebook(ctx: Ctx, notebookId: string): string | undefined 
   // It depends on something of yours it doesn't have: it asks for that first, and nothing starts until then.
   const waiting = givenMissing(now);
   const first = waiting.length ? undefined : startableFirstStep(now);
+  // Asked for: it starts at once, with no Start to press (an experiment's copy runs its own steps; a test can make it wait).
+  const starts = !!first && !ctx.notebookStepsWait && !now.experimentRun;
+  const started = starts ? startNotebookStep(ctx, now.id, { stepId: first.id }) : undefined;
+  const goes = !!started?.started || (started?.reason === 'It’s already running.');
   ctx.inboxStore.addResponse(threadId, 'triage', notebookGreeting(now, store.entries(notebookId, 50).some((e) => e.kind === 'option'))
     // The page it decided on (lib/notebook-page.ts), when it isn't the shortlist.
     + (now.layout?.about ? `\n\nIts page is drawn for what it's for: ${now.layout.about}. Ask me to change it, or undo it on **Edit**.` : '')
     + (waiting.length ? `\n\nBefore I start, I need ${waiting.map((g) => `**${g.label}**`).join(' and ')}${waiting[0].link ? ` (I couldn't read the link you gave)` : ''}. Paste ${waiting.length === 1 ? 'it' : 'them'} at the top of [the notebook's page](/notebooks/${encodeURIComponent(now.id)}), or choose **Go on without it** there. I won't search on a guess.` : '')
-    + (first ? `\n\nPress **Start** when you're ready and I'll begin with **${first.title}**.` : ''));
-  // Its first step, one press away (the same card as a step's Continue).
-  if (first) {
+    + (first && goes ? `\n\nI've started on **${first.title}**. I'll go straight through and only stop if I get stuck or need you.` : '')
+    + (first && !goes ? `\n\n${started?.reason ? `I couldn't start on my own: ${started.reason} ` : ''}Press **Start** when you're ready and I'll begin with **${first.title}**.` : ''));
+  // Its first step, one press away (the same card as a step's Continue), when it didn't start by itself.
+  if (first && !goes) {
     const action: InboxActionMeta = {
       kind: 'action', status: 'proposed', agentId: 'notebook-step', effect: 'write',
       inputs: { NOTEBOOK: now.id, STEP: first.id, WAS: 'todo' },

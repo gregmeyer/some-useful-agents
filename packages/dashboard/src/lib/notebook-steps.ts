@@ -199,11 +199,42 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
   inBackground(ctx, 'runStep', runStep(ctx, store, nb.id, s, agentId).catch((err: unknown) => {
     try { store.updateStep(notebookId, s.id, { status: 'stuck', note: err instanceof Error ? err.message.slice(0, 160) : 'It failed.' }); } catch { /* the notebook is gone */ }
   }).finally(() => {
+    const was = ctx.notebookPipelines?.get(notebookId);
     ctx.notebookPipelines?.delete(notebookId);
+    // Met, and the next step is sua's: it goes straight on, with no Continue to press.
+    if (!was?.stopped) continueOnItsOwn(ctx, notebookId, s.id);
     // It paused: its card is the one waiting (an earlier round's that asks the same goes).
     reconcileStepCards(ctx, notebookId);
   }));
   return { started: true, step, ...(resolved.note ? { note: resolved.note } : {}) };
+}
+
+/**
+ * The step sua goes on to by itself after `step` met its goal: the next one
+ * still to do, when it's sua's. None when the next is yours (Decide, Narrow),
+ * there's none, the notebook is closed, or it's an experiment's copy (that
+ * runs its own steps). You're asked only when it's stuck or needs you.
+ */
+export function nextOnItsOwn(ctx: Ctx, nb: Notebook, step: NotebookStep): NotebookStep | undefined {
+  if (ctx.notebookStepsWait || nb.experimentRun || nb.status !== 'active' || nb.archivedAt) return undefined;
+  const steps = nb.steps ?? [];
+  const next = steps.slice(steps.findIndex((x) => x.id === step.id) + 1).find((x) => x.status !== 'done');
+  return next && !isYourStep(next) ? next : undefined;
+}
+
+/** A step that just met its goal: start the next one when it's sua's; when that can't start, say why (its Continue card follows). */
+function continueOnItsOwn(ctx: Ctx, notebookId: string, stepId: string): void {
+  const nb = stores(ctx).get(notebookId);
+  const step = nb?.steps?.find((x) => x.id === stepId);
+  if (!nb || step?.status !== 'met') return;
+  const next = nextOnItsOwn(ctx, nb, step);
+  if (!next) return;
+  const out = startNotebookStep(ctx, notebookId, { stepId, expect: 'met' });
+  if (out.started || !out.reason || !ctx.inboxStore) return;
+  const threadId = notebookThread(ctx, nb);
+  if (!threadId) return;
+  const msg = ctx.inboxStore.addResponse(threadId, 'triage', `I couldn't go on to **${next.title}**: ${out.reason}`);
+  publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
 }
 
 /**
@@ -1064,14 +1095,17 @@ export function postStepCard(ctx: Ctx, nb: Notebook, stepId: string, p: Notebook
   const missing = `${p.missing.slice(0, 6).map((m) => `- ${m}`).join('\n')}${p.missing.length > 6 ? `\n- and ${String(p.missing.length - 6)} more` : ''}`;
   const stalled = !p.met && !!step.stalled;
   const onward = next ? `goes on to **${next.title}**` : 'finishes';
+  // Met, and sua goes straight on: said, with no card to press.
+  const going = p.met ? nextOnItsOwn(ctx, nb, step) : undefined;
   const body = p.met
-    ? `Step ${String(i + 1)} of ${String(steps.length)} is done: **${step.title}** (${words}).${next ? ` Next is **${next.title}**${next.agentId ? `, with ${next.agentId}` : ''}.` : ' That was the last step.'}`
+    ? `Step ${String(i + 1)} of ${String(steps.length)} is done: **${step.title}** (${words}).${going ? ` Going on to **${going.title}**${going.agentId ? `, with ${going.agentId}` : ''}.` : next ? ` Next is **${next.title}**${next.agentId ? `, with ${next.agentId}` : ''}.` : ' That was the last step.'}`
     : stalled
       ? `**${step.title}** couldn't get any further (${words}). ${step.why ?? 'Its last run found nothing new.'} Its agent may not be able to do the rest. Still needed:\n${missing}\n\n**Move on** keeps what it found and ${onward}. **Try again** runs it once more. Or tell me what to do differently, for example a different agent for this step.`
       : `**${step.title}** stopped short after ${String(step.tries)} ${step.tries === 1 ? 'try' : 'tries'} (${words})${step.why && !/^It was still getting closer/.test(step.why) ? `. ${step.why}` : ', still getting closer.'} Still needed:\n${missing}\n\n**Try again** keeps going. **Move on** keeps what it found and ${onward}.`;
   const msg = inbox.addResponse(threadId, 'triage', body);
   publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
   reopenForStepNews(ctx, threadId);
+  if (going) return msg.id;
   const ids = stepCards(nb, step.id, p).map((action) => addStepCard(ctx, threadId, action));
   return ids[0] ?? msg.id;
 }
