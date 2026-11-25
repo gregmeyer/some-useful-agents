@@ -66,6 +66,12 @@ import { startNotebookTags, tagCounts } from '../lib/notebook-tags.js';
 import { publishInboxEvent, publishInboxChanged, isAjax } from './inbox-shared.js';
 import { runTriageAgent, notebookSetupSource, startNotebookFrom } from './inbox-engine.js';
 import { renderNotebookMain, nextStep } from '../views/notebooks.js';
+import { renderNotebookImport, renderImportPlan } from '../views/notebook-import.js';
+import { checkUploadedNotebookFile, importCheckedNotebookFile, bundleStores, notebookFileName } from '../lib/notebook-file.js';
+import { exportNotebookBundle, packNotebookBundle, NotebookFileError } from '@some-useful-agents/core';
+
+/** The most a notebook file upload may be (the largest seen is about 11 MB). */
+const NOTEBOOK_FILE_UPLOAD_MAX = 150 * 1024 * 1024;
 
 export const notebooksRouter: Router = Router();
 
@@ -194,6 +200,43 @@ notebooksRouter.post('/notebooks/:id/like', (req: Request, res: Response) => {
 });
 
 // New notebook (views/notebook-new.ts): say it, sua drafts it, you check it.
+// A notebook file from another sua (docs/notebooks.md "Send a copy to another machine"):
+// choose it, see what importing will do here, then Import.
+notebooksRouter.get('/notebooks/import', (req: Request, res: Response) => {
+  const flash = typeof req.query.error === 'string' ? { kind: 'error' as const, message: req.query.error } : undefined;
+  res.type('html').send(renderNotebookImport({ flash }));
+});
+
+notebooksRouter.post('/notebooks/import/check', express.raw({ type: () => true, limit: NOTEBOOK_FILE_UPLOAD_MAX }), async (req: Request, res: Response) => {
+  const body: unknown = req.body;
+  if (!Buffer.isBuffer(body) || body.length === 0) { res.status(400).json({ ok: false, error: 'Choose a notebook file (.suanb).' }); return; }
+  try {
+    const { key, plan } = await checkUploadedNotebookFile(getContext(req.app.locals), body);
+    res.json({ ok: true, key, html: render(renderImportPlan(plan, key)) });
+  } catch (err) {
+    res.status(err instanceof NotebookFileError ? 422 : 500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+notebooksRouter.post('/notebooks/import/:key', async (req: Request, res: Response) => {
+  try {
+    const done = await importCheckedNotebookFile(getContext(req.app.locals), String(req.params.key));
+    if (!done) { res.redirect(303, `/notebooks/import?error=${encodeURIComponent('That file was checked too long ago. Choose it again.')}`); return; }
+    res.redirect(303, `/notebooks/${encodeURIComponent(done.notebookId)}?flash=${encodeURIComponent(`Imported "${done.plan.title}". Its schedule is off here; a note on it says where it came from.`)}`);
+  } catch (err) {
+    res.redirect(303, `/notebooks/import?error=${encodeURIComponent(err instanceof Error ? err.message : String(err))}`);
+  }
+});
+
+// Download / share → Notebook file: a copy to import into another sua.
+notebooksRouter.get('/notebooks/:id/export.suanb', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const bundle = exportNotebookBundle(bundleStores(ctx), String(req.params.id));
+  if (!bundle) { res.status(404).type('text/plain').send('No such notebook.'); return; }
+  const file = packNotebookBundle(bundle);
+  res.set({ 'Content-Type': 'application/gzip', 'Content-Length': String(file.length), 'Cache-Control': 'private, no-store', 'Content-Disposition': attachment(notebookFileName(bundle.meta.title)) }).send(file);
+});
+
 notebooksRouter.get('/notebooks/new', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const sug = notebookSuggestions(ctx);

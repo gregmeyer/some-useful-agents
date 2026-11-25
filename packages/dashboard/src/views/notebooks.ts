@@ -1222,8 +1222,15 @@ function experimentShareMenu(nb: Pick<Notebook, 'id'>): SafeHtml {
         <a href="/notebooks/${id}/brief.html?download=1" download title="The brief as one HTML file" aria-label="Download the brief as HTML">HTML</a>
       </span></div>
       <span class="nb-csv__hint">The numbers are as the experiment stood when you open it. Its own page has every run.</span>
+      ${toAnotherSua(id)}
     </div>
   </details>`;
+}
+
+/** Download / share → To another sua: the whole notebook as a file another sua imports. */
+function toAnotherSua(id: string): SafeHtml {
+  return html`<span class="nb-progress__label nb-csv__brief-label">To another sua</span>
+    <div class="nb-share__row"><span class="nb-share__what">Notebook file</span><span class="nb-share__as"><a href="/notebooks/${id}/export.suanb" download title="A copy of the whole notebook (options, facts, pictures, write-up, steps) and the agents and tools of yours it runs, to import into sua on another machine: New notebook → Import a notebook file" aria-label="Download the notebook file">Download</a></span></div>`;
 }
 
 /**
@@ -1282,7 +1289,7 @@ function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: reado
   return html`<details class="nb-act nb-csv" data-nb-act>
     <summary class="btn btn--sm btn--ghost">Download / share</summary>
     <div class="nb-act__panel nb-csv__panel">
-      ${share}${csv}
+      ${share}${csv}${toAnotherSua(id)}
     </div>
   </details>`;
 }

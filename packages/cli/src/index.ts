@@ -43,6 +43,7 @@ import { policyCommand } from './commands/policy.js';
 import { chatCommand } from './commands/chat.js';
 import { webhookCommand } from './commands/webhook.js';
 import { backupsCommand } from './commands/backups.js';
+import { notebookCommand } from './commands/notebook.js';
 import { dbCommand } from './commands/db.js';
 import { usageCommand } from './commands/usage.js';
 import { memoryCommand } from './commands/memory.js';
@@ -142,5 +143,6 @@ program.addCommand(memoryCommand);
 program.addCommand(usageCommand);
 program.addCommand(backupsCommand);
 program.addCommand(dbCommand);
+program.addCommand(notebookCommand);
 
 program.parse();
