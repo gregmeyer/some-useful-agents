@@ -9,7 +9,7 @@ import { showsTldrCard } from './notebook-tldr.js';
 import type { NotebookMadeBy } from '../lib/notebook-made-by.js';
 import { countParts } from '../lib/notebook-card.js';
 import { shortDay, whatsNewLines, type WhatsNew } from '../lib/notebook-whats-new.js';
-import { answerNewSources, answerSubjects, notebookTags, openConflicts, isMeetingNotebook, layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookGiven, type NotebookLayout } from '@some-useful-agents/core';
+import { answerTracePages, answerNewSources, answerSubjects, notebookTags, openConflicts, isMeetingNotebook, layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookGiven, type NotebookLayout } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookSetupEditor, renderDraftsStrip } from './notebook-new.js';
 import { attachPick, givenFilePick } from './given-file.js';
@@ -613,10 +613,11 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
           ${widgets ? html`<div class="nb-hero__acts">${heroActions(nb, entries, leads, running, !!fresh && !fresh.empty)}</div>` : html``}
         </div>
         ${head?.statement === false || (nb.statement && sameWords(nb.statement, nb.title)) ? html`` : nb.statement ? html`<p class="nb-hero__statement">${nb.statement}</p>` : html`<p class="nb-hero__statement nb-hero__statement--empty">Say what this notebook is for under Edit.</p>`}
+        ${askedLine(nb)}
         ${conflictLine(nb, busy.includes(CHECKING_WHO))}
         <div class="nb-hero__chips">
           ${widgets ? html`` : nb.params.map((p) => html`<span class="nb-chip">${p}</span>`) as unknown as SafeHtml[]}
-          <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence}${running ? html`` : newLink(leads)} · ${madeByLink(nb, madeBy)}</span>
+          <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence}${running ? html`` : newLink(leads)}${sourcesCount(entries)} · ${madeByLink(nb, madeBy)}${nb.askedIn ? html` · <a href="/inbox/${encodeURIComponent(nb.askedIn)}" title="The conversation you asked it in">From this conversation →</a>` : html``}</span>
         </div>
         ${nb.steps?.length
           ? (!running && !nb.steps.some((x) => x.status === 'stuck' || x.status === 'running') ? stepChips(nb, nb.steps, entries, stepsStrip(nb, nb.steps, entries, false, madeBy), madeBy) : html`${stepsStrip(nb, nb.steps, entries, !!running, madeBy)}<p class="nb-hero__update">${updateAllButton(nb, !!running)}</p>`)
@@ -1213,7 +1214,7 @@ function stepButton(nb: Notebook, b: { label: string; hint: string; moveOn?: boo
 function experimentShareMenu(nb: Pick<Notebook, 'id'>): SafeHtml {
   const id = encodeURIComponent(nb.id);
   return html`<details class="nb-act nb-csv" data-nb-act>
-    <summary class="btn btn--sm btn--ghost">Download / share</summary>
+    <summary class="btn btn--sm btn--ghost">More formats</summary>
     <div class="nb-act__panel nb-csv__panel">
       <span class="nb-progress__label">To share</span>
       <div class="nb-share__row"><span class="nb-share__what">The brief</span><span class="nb-share__as">
@@ -1287,7 +1288,7 @@ function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: reado
       ${latest && !written ? row("What's new", fresh, html`${open("the brief of what's new", 'brief.html?latest=1', 'The brief of only the options the last run found for the first time')}${save("the brief of what's new", 'PDF', 'brief.pdf?latest=1', "The brief of what's new as a PDF file")}`) : html``}
       ${running.length === 0 ? html`` : row(written ? 'Every finding in full' : 'Each option in full', undefined, html`${open('the extended brief', 'brief.html?full=1', written ? 'The brief, then each finding as its own page shows it: every fact with its source, its notes and checks' : 'The brief, then each option in the running as its own page shows it: every fact with its source, its notes, checks and history')}${save('the extended brief', 'PDF', 'brief.pdf?full=1', `The extended brief as a PDF file; ${written ? 'each finding' : 'each option'} starts a new page`)}`)}`;
   return html`<details class="nb-act nb-csv" data-nb-act>
-    <summary class="btn btn--sm btn--ghost">Download / share</summary>
+    <summary class="btn btn--sm btn--ghost">More formats</summary>
     <div class="nb-act__panel nb-csv__panel">
       ${share}${csv}${toAnotherSua(id)}
     </div>
@@ -1304,6 +1305,36 @@ export function offersDecide(nb: Pick<Notebook, 'steps' | 'experimentId'>): bool
   // One that shows an experiment has results to read, not options to pick from.
   if (nb.experimentId) return false;
   return !nb.steps?.length || nb.steps.some((s) => s.kind === 'decide' || s.kind === 'narrow');
+}
+
+/** The foot of an answer: Ask a follow-up (a new answer, asked in this one's conversation), and the ones asked so far. */
+export function followUpBox(nb: Pick<Notebook, 'id' | 'archivedAt' | 'experimentRun' | 'experimentId'>, followUps: ReadonlyArray<{ id: string; title: string }>): SafeHtml {
+  if (nb.archivedAt || nb.experimentRun || nb.experimentId) return html``;
+  return html`<section class="nb-follow" id="nb-follow" aria-labelledby="nb-follow-h">
+    <h2 class="nb-follow__title" id="nb-follow-h">Ask a follow-up</h2>
+    ${followUps.length ? html`<p class="nb-follow__list"><span class="nb-follow__label">Follow-ups</span> ${followUps.map((f, i) => html`${i ? ' · ' : ''}<a href="/notebooks/${encodeURIComponent(f.id)}">${f.title}</a>`) as unknown as SafeHtml[]}</p>` : html``}
+    <form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/follow-up" class="nb-follow__form">
+      <textarea name="question" class="form-field nb-follow__input" rows="2" required aria-label="Your follow-up question" placeholder="What do you want to find out next?"></textarea>
+      <button type="submit" class="btn btn--primary btn--sm">Ask</button>
+    </form>
+    <p class="nb-follow__hint">A new answer of its own. sua works out how to answer it and goes straight through, and it links back here.</p>
+  </section>`;
+}
+
+/** What you asked, in your words, under the title: only when it says more than the title and what it's for. */
+function askedLine(nb: Pick<Notebook, 'asked' | 'title' | 'statement'>): SafeHtml {
+  const asked = (nb.asked ?? '').replace(/\s+/g, ' ').trim();
+  if (!asked || sameWords(asked, nb.title) || (nb.statement && sameWords(asked, nb.statement))) return html``;
+  const shown = asked.length > 240 ? `${asked.slice(0, 239).trimEnd()}…` : asked;
+  return html`<p class="nb-hero__asked"><span class="nb-hero__asked-label">You asked</span> “${shown}”</p>`;
+}
+
+/** The header's count of the pages it learned from, and how many of their quotes were found on them (" · 12 sources, 9 checked"). */
+export function sourcesCount(entries: readonly NotebookEntry[]): string {
+  const pages = answerTracePages(entries);
+  if (!pages.length) return '';
+  const found = pages.filter((e) => e.trace?.status === 'found').length;
+  return ` · ${String(pages.length)} source${pages.length === 1 ? '' : 's'}${found ? `, ${String(found)} checked` : ''}`;
 }
 
 /**
@@ -1349,6 +1380,7 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
         </div>
       </details>
       <a class="btn btn--sm btn--ghost nb-edit" href="/notebooks/${id}/edit">Edit</a>
+      ${!nb.experimentId && hasSomethingToShare(nb, entries) ? html`<a class="btn btn--sm btn--ghost nb-print" href="/notebooks/${id}/brief.html" target="_blank" rel="noopener" title="The answer as a page to print, save as a PDF or send">Print</a>` : html``}
       ${nb.experimentId ? experimentShareMenu(nb) : hasSomethingToShare(nb, entries) ? csvMenu(nb, entries, leads, whatsNewToo) : html``}
     </div>`;
 }
@@ -1587,10 +1619,10 @@ export function printLinks(nb: Pick<Notebook, 'fields'>, entries: readonly Noteb
 
 const hostOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return 'the link'; } };
 
-export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; madeBy?: NotebookMadeBy; whatsNew?: WhatsNew; reading?: Record<string, 'working' | 'failed'>; givenNotUsed?: GivenNotUsed; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+export function renderNotebookPage(args: { followUps?: ReadonlyArray<{ id: string; title: string }>; nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; madeBy?: NotebookMadeBy; whatsNew?: WhatsNew; reading?: Record<string, 'working' | 'failed'>; givenNotUsed?: GivenNotUsed; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'notebooks', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Answers</a></p>
-    ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your notebooks, Home and Today, and its schedule is off.
+    ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your answers, Home and Today, and its schedule is off.
       <form method="POST" action="/notebooks/${encodeURIComponent(args.nb.id)}/archive"><input type="hidden" name="archived" value="0"><button type="submit" class="btn btn--sm">Restore</button></form></div>` : html``}
     ${givenCard(args.nb, args.reading, args.givenNotUsed, 'needs')}
     ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries, args.busy ?? [], args.live, notebookHeaderView(args.nb, args.entries, args.history as NotebookWidgetHistory | undefined), args.madeBy, args.whatsNew, args.reading)}
@@ -1601,6 +1633,7 @@ export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunVie
       <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-nb-steps="${args.stepsKey ?? ''}" data-nb-live="${args.liveKey ?? ''}" data-nb-running="${args.running || args.busy?.length ? '1' : ''}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp, !!args.running)}</div>
       <aside class="nb-body__side">${sideForms(args.nb, args.entries, args.lastWord, args.unfiled, args.live?.talk)}</aside>
     </div>
+    ${followUpBox(args.nb, args.followUps ?? [])}
   `));
 }
 

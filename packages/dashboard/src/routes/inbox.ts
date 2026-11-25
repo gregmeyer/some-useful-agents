@@ -323,6 +323,11 @@ function threadNotebook(ctx: ReturnType<typeof getContext>, message: InboxMessag
   try { return notebookCardForThread(NotebookStore.fromHandle(ctx.runStore.databaseHandle()), message); } catch { return undefined; }
 }
 
+/** The answers asked in a conversation, for its list under the title; never fails the page. */
+function threadAnswers(ctx: ReturnType<typeof getContext>, threadId: string): Array<{ id: string; title: string; status: string }> {
+  try { return NotebookStore.fromHandle(ctx.runStore.databaseHandle()).askedInThread(threadId).map((n) => ({ id: n.id, title: n.title, status: n.archivedAt ? 'archived' : n.status })); } catch { return []; }
+}
+
 inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -344,6 +349,7 @@ inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
     message,
     responses,
     notebook: threadNotebook(ctx, message),
+    answers: threadAnswers(ctx, message.id),
     question: questionForMessage(ctx, message),
     triagePending,
     agentTurn: agentTurnInProgress(ctx, message, responses),

@@ -60,6 +60,7 @@ import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunnin
 import { keepPhotos, startListingPhotos } from '../lib/notebook-photos.js';
 import { optionIllustration, illustrationKind } from '../lib/notebook-illustrations.js';
 import { notebookThread, setThreadOptionFocus, optionNavIntent } from '../lib/notebook-chat.js';
+import { startAskedNotebook } from '../lib/notebook-request.js';
 import { startNotebookPictures, picturesRunning } from '../lib/notebook-pictures.js';
 import { startNotebookFacets } from '../lib/notebook-facets.js';
 import { startNotebookTags, tagCounts } from '../lib/notebook-tags.js';
@@ -422,7 +423,10 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   // What the latest run found that the one before didn't (a briefing rerun); never fails the page.
   let fresh: ReturnType<typeof whatsNew>;
   try { fresh = whatsNew(nb, entries, s.passes(nb.id, 60)); } catch { fresh = undefined; }
-  res.type('html').send(renderNotebookPage({ nb, unfiled, busy, live, reading: givenReadStates(ctx, nb), givenNotUsed: givenNotUsed(nb, s.passes(nb.id, 60)), liveKey: notebookLiveKey(live), ...(fresh ? { whatsNew: fresh } : {}), ...(coverPhoto ? { cover: coverPhoto } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), stepsKey: stepsKey(ctx, s.get(nb.id) ?? nb), ...(madeBy ? { madeBy } : {}), flash: parseFlash(req) }));
+  // The follow-ups asked from it: new answers asked in its conversation.
+  let followUps: Array<{ id: string; title: string }> = [];
+  try { followUps = nb.conversationId ? s.askedInThread(nb.conversationId).filter((x) => x.id !== nb.id).map((x) => ({ id: x.id, title: x.title })) : []; } catch { followUps = []; }
+  res.type('html').send(renderNotebookPage({ followUps, nb, unfiled, busy, live, reading: givenReadStates(ctx, nb), givenNotUsed: givenNotUsed(nb, s.passes(nb.id, 60)), liveKey: notebookLiveKey(live), ...(fresh ? { whatsNew: fresh } : {}), ...(coverPhoto ? { cover: coverPhoto } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), stepsKey: stepsKey(ctx, s.get(nb.id) ?? nb), ...(madeBy ? { madeBy } : {}), flash: parseFlash(req) }));
 });
 
 notebooksRouter.post('/notebooks/:id/entries', (req: Request, res: Response) => {
@@ -1363,6 +1367,18 @@ notebooksRouter.post('/notebooks/:id/update', async (req: Request, res: Response
  * Talk to sua about this notebook: starts its conversation (or continues it)
  * with what you said; sua files it into the notebook as you go.
  */
+// Ask a follow-up (the box at the foot of an answer): a new answer, asked in this one's conversation, so each links to the other.
+notebooksRouter.post('/notebooks/:id/follow-up', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const nb = store(req).get(String(req.params.id));
+  if (!nb) { res.redirect(303, '/notebooks'); return; }
+  const question = str(req.body?.question).trim().slice(0, 2000);
+  if (!question) { res.redirect(303, back(nb.id, 'Say what you want to find out next.', '#nb-follow')); return; }
+  const threadId = notebookThread(ctx, nb);
+  startAskedNotebook(ctx, { ask: `${question} (following up on “${nb.title}”)`, ...(threadId ? { threadId } : {}) });
+  res.redirect(303, back(nb.id, 'Working out how to answer it (about a minute). It will be listed under Follow-ups here, and in this answer’s conversation.', '#nb-follow'));
+});
+
 notebooksRouter.post('/notebooks/:id/ask', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const s = store(req);

@@ -1353,3 +1353,16 @@ body.has-sua-panel .nb-toast { display: none; }
 .nb-import__go { display: flex; gap: var(--space-2); align-items: center; }
 .nb-import__status { margin-top: var(--space-2); }
 .nbd-import { margin-top: var(--space-3); font-size: var(--font-size-sm); }
+
+/* What you asked, as you typed it, under the title (the answer's header). */
+.nb-hero__asked { margin: 0; font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text-muted); }
+.nb-hero__asked-label { font-family: var(--font-mono); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-subtle); margin-right: var(--space-2); }
+
+/* Ask a follow-up, at the foot of an answer. */
+.nb-follow { margin-top: var(--space-8); padding-top: var(--space-6); border-top: 1px solid var(--color-border); display: grid; gap: var(--space-3); max-width: 48rem; }
+.nb-follow__title { margin: 0; font-family: var(--font-display); font-size: var(--font-size-lg); }
+.nb-follow__form { display: flex; gap: var(--space-3); align-items: flex-end; }
+.nb-follow__input { flex: 1; min-width: 0; resize: vertical; }
+.nb-follow__hint, .nb-follow__list { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-subtle); }
+.nb-follow__label { font-family: var(--font-mono); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.06em; margin-right: var(--space-2); }
+@media (max-width: 640px) { .nb-follow__form { flex-direction: column; align-items: stretch; } }

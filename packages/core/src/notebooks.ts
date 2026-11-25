@@ -963,6 +963,8 @@ export interface Notebook {
   tldrCard?: 'always' | 'never';
   /** What you asked for, in your own words, as you typed it (links and all); `statement` is the tidied sentence. */
   asked?: string;
+  /** The conversation it was asked in (sua's bar, or a follow-up from another answer): its page links back, and that conversation lists it. */
+  askedIn?: string;
   /** The experiment whose results its page shows (ADR-0078): the notebook holds the conversation, the experiment the runs. */
   experimentId?: string;
   /** It is a copy an experiment made to run (ADR-0079): which experiment, and which version and run of it. Kept out of lists. */
@@ -1864,7 +1866,7 @@ export class NotebookStore {
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'], ['notebooks', 'tags_json TEXT'], ['notebooks', 'tldr_json TEXT'], ['notebooks', 'tldr_card TEXT'], ['notebooks', 'asked TEXT'], ['notebooks', 'brief_on_json TEXT'], ['notebooks', 'photo_json TEXT'], ['notebooks', 'given_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'], ['notebook_entries', 'origin_json TEXT'], ['notebook_entries', 'trace_json TEXT'],
-      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebooks', 'plan_json TEXT'], ['notebooks', 'meeting_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'], ['notebooks', 'experiment_id TEXT'], ['notebooks', 'experiment_run_json TEXT'], ['notebooks', 'starred_at TEXT'],
+      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebooks', 'plan_json TEXT'], ['notebooks', 'meeting_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'], ['notebooks', 'experiment_id TEXT'], ['notebooks', 'experiment_run_json TEXT'], ['notebooks', 'starred_at TEXT'], ['notebooks', 'asked_in TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -3022,6 +3024,17 @@ export class NotebookStore {
   }
 
   /** Link the notebook to its conversation with sua. */
+  /** Note the conversation it was asked in (once: a later ask doesn't move it). */
+  setAskedIn(id: string, threadId: string): void {
+    this.db.prepare('UPDATE notebooks SET asked_in = ? WHERE id = ? AND asked_in IS NULL').run(threadId, id);
+  }
+
+  /** The answers asked in a conversation, oldest first (an experiment's copies left out). */
+  askedInThread(threadId: string): Notebook[] {
+    const ids = this.db.prepare('SELECT id FROM notebooks WHERE asked_in = ? AND experiment_run_json IS NULL ORDER BY created_at').all(threadId) as Array<{ id: string }>;
+    return ids.map((r) => this.get(r.id)).filter((x): x is Notebook => !!x);
+  }
+
   setConversation(id: string, threadId: string): void {
     this.db.prepare('UPDATE notebooks SET conversation_id = ? WHERE id = ?').run(threadId, id);
   }
@@ -3600,6 +3613,7 @@ export class NotebookStore {
       ...(r.experiment_run_json ? (() => { const x = parse<{ experimentId?: string; label?: string } | undefined>(r.experiment_run_json, undefined); return x?.experimentId ? { experimentRun: { experimentId: String(x.experimentId), label: String(x.label ?? '') } } : {}; })() : {}),
       ...(r.given_json ? (() => { const g = cleanGiven(parse<unknown>(r.given_json, undefined)); return g.length ? { given: g } : {}; })() : {}),
       ...(r.conversation_id ? { conversationId: String(r.conversation_id) } : {}),
+      ...(typeof r.asked_in === 'string' && r.asked_in ? { askedIn: r.asked_in } : {}),
       ...(r.steps_json ? { steps: cleanSteps(parse<unknown[]>(r.steps_json, [])) } : {}),
       // Checked when it was set (setLayout); read as stored.
       ...((): { layout?: NotebookLayout } => { const l = r.layout_json ? parse<NotebookLayout | null>(r.layout_json, null) : null; return l && Array.isArray(l.components) ? { layout: l } : {}; })(),

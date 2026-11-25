@@ -34,3 +34,54 @@ describe('Answers', () => {
     }
   });
 });
+
+// An answer's header and its conversation: what you asked, how many sources,
+// Print, where it was asked; a follow-up at its foot, linked both ways.
+describe("an answer's header and its conversation", () => {
+  it('shows what you asked, its sources, Print and More formats, and links the conversation it was asked in', async () => {
+    const app = await makeApp();
+    const get = async (p: string) => (await request(app).get(p).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    const store = NotebookStore.fromHandle(S.runStore.databaseHandle());
+    const { InboxStore } = await import('@some-useful-agents/core');
+    const inbox = InboxStore.fromHandle(S.runStore.databaseHandle());
+    const thread = inbox.add({ priority: 'medium', source: 'manual', title: 'Hot dogs', body: 'is a hot dog a sandwich, by law and by dictionary?' })!;
+    const nb = store.create({ title: 'Is a hot dog a sandwich', statement: 'Settle it with sources', asked: 'is a hot dog a sandwich, by law and by dictionary?' });
+    store.setSteps(nb.id, [{ title: 'Find sources', kind: 'find', target: 2 }, { title: 'Write the answer', kind: 'write', shape: 'answer' }]);
+    store.setAskedIn(nb.id, thread.id);
+    store.setAskedIn(nb.id, 'another-thread');
+    expect(store.get(nb.id)!.askedIn).toBe(thread.id);
+    const a = store.addEntry(nb.id, { kind: 'evidence', title: 'Dictionary', body: '"a sandwich is two slices of bread with a filling" Dictionary', by: 'x', source: 'https://dict.example/sandwich' });
+    store.addEntry(nb.id, { kind: 'evidence', title: 'Council', body: '"a hot dog is its own thing entirely" Council', by: 'x', source: 'https://council.example/hot-dog' });
+    store.setEntryTrace(nb.id, a.id, 'found');
+    const page = await get(`/notebooks/${nb.id}`);
+    expect(page).toContain('<span class="nb-hero__asked-label">You asked</span> “is a hot dog a sandwich, by law and by dictionary?”');
+    expect(page).toContain(' · 2 sources, 1 checked · ');
+    expect(page).toContain(`<a href="/inbox/${thread.id}" title="The conversation you asked it in">From this conversation →</a>`);
+    expect(page).toContain(`href="/notebooks/${nb.id}/brief.html" target="_blank" rel="noopener" title="The answer as a page to print, save as a PDF or send">Print</a>`);
+    expect(page).toContain('>More formats</summary>');
+    expect(page).toContain(`action="/notebooks/${nb.id}/follow-up"`);
+    // The conversation lists it.
+    const conv = await get(`/inbox/${thread.id}/fragment`);
+    expect(conv).toMatch(new RegExp(`Answers from this conversation</span> <a href="/notebooks/${nb.id}">Is a hot dog a sandwich</a>`));
+  });
+
+  it('a follow-up is a new answer asked in this one\'s conversation; each lists the other', async () => {
+    const app = await makeApp();
+    const post = (p: string, body: Record<string, string>) => request(app).post(p).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const get = async (p: string) => (await request(app).get(p).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    const store = NotebookStore.fromHandle(S.runStore.databaseHandle());
+    const nb = store.create({ title: 'Headphones for flights', statement: 'Best noise-cancelling under $300' });
+    S.stepsReply = () => `<draft>${JSON.stringify({ title: 'Do they fold flat', statement: 'Which of them fold flat', steps: [{ title: 'Find 2 pairs', kind: 'find', target: 2 }] })}</draft>`;
+    const empty = await post(`/notebooks/${nb.id}/follow-up`, { question: '  ' });
+    expect(decodeURIComponent(empty.headers.location)).toContain('Say what you want to find out next.');
+    const res = await post(`/notebooks/${nb.id}/follow-up`, { question: 'Which of these fold flat?' });
+    expect(decodeURIComponent(res.headers.location)).toContain('It will be listed under Follow-ups here');
+    const conv = store.get(nb.id)!.conversationId!;
+    for (let i = 0; i < 200 && !store.askedInThread(conv).length; i++) await new Promise((r) => setTimeout(r, 25));
+    const [follow] = store.askedInThread(conv);
+    expect(follow).toMatchObject({ asked: 'Which of these fold flat? (following up on “Headphones for flights”)', askedIn: conv });
+    expect(await get(`/notebooks/${nb.id}`)).toContain(`Follow-ups</span> <a href="/notebooks/${follow.id}">${follow.title}</a>`);
+    expect(await get(`/notebooks/${follow.id}`)).toContain(`<a href="/inbox/${conv}" title="The conversation you asked it in">From this conversation →</a>`);
+    S.stepsReply = undefined;
+  });
+});
