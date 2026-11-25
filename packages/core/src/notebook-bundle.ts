@@ -185,8 +185,10 @@ export interface NotebookImportPlan {
   problems: string[];
 }
 
+/** Whether two agent definitions are the same, apart from the version number each machine counts for itself. */
 const sameAgentYaml = (a: string, b: string): boolean => {
-  try { return exportAgent(parseAgent(a)) === exportAgent(parseAgent(b)); } catch { return a === b; }
+  const norm = (y: string) => { try { return exportAgent(parseAgent(y)).replace(/^version:.*$/m, ''); } catch { return y; } };
+  return norm(a) === norm(b);
 };
 
 /** What importing this notebook file would do here, without doing it. */
@@ -310,8 +312,10 @@ export function importNotebookBundle(stores: BundleStores, bundle: NotebookBundl
     undo();
     throw err instanceof NotebookFileError ? err : new NotebookFileError(`Nothing was imported: ${(err as Error).message}`);
   }
-  const when = (opts.now ?? new Date()).toISOString().slice(0, 10);
-  const lines = [`Copied from ${bundle.meta.machine}, exported ${bundle.meta.exportedAt.slice(0, 10)}, imported ${when}.`];
+  // Dates as this machine's calendar has them (not UTC).
+  const day = (d: Date) => d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  const exported = new Date(bundle.meta.exportedAt);
+  const lines = [`Copied from ${bundle.meta.machine}, exported ${Number.isNaN(exported.getTime()) ? bundle.meta.exportedAt.slice(0, 10) : day(exported)}, imported ${day(opts.now ?? new Date())}.`];
   if (plan.scheduleWas) lines.push(`Its schedule (${plan.scheduleWas}) is off here, so two machines don't both fill it. Turn it on here if this machine should.`);
   if (plan.missingSecrets.length) lines.push(`Its agents need secrets this machine doesn't have: ${plan.missingSecrets.join(', ')}. Add them in Settings → Secrets.`);
   const differs = plan.agents.filter((a) => a.action === 'yours-differs').map((a) => a.id);
