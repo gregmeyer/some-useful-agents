@@ -550,6 +550,16 @@ export function parseProposedActions(
       accepted.push({ kind: 'action', status: 'proposed', agentId: type, effect: 'read', inputs: { NOTEBOOK: nbId, INSTRUCTION: said.slice(0, 1000) }, rationale: rationaleRaw || undefined, ctaLabel: 'Work it out' });
       continue;
     }
+    // `notebook-ask` answers a research question: sua drafts how to research it
+    // from their words (ASK) and starts at once (it runs on its own).
+    if (type === 'notebook-ask') {
+      const raw = e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs) ? e.inputs as Record<string, unknown> : {};
+      const ask = typeof raw.ASK === 'string' ? raw.ASK.trim() : '';
+      if (!ask) { rejected.push({ agentId: type, reason: 'notebook-ask needs inputs.ASK: the question, in their words' }); continue; }
+      const title = typeof raw.TITLE === 'string' ? raw.TITLE.trim().slice(0, 80) : '';
+      accepted.push({ kind: 'action', status: 'proposed', agentId: type, effect: 'write', inputs: { ASK: ask.slice(0, 4000), ...(title ? { TITLE: title } : {}) }, rationale: rationaleRaw || undefined, ctaLabel: 'Find out' });
+      continue;
+    }
     // `notebook-create` starts a notebook from one of their templates (TEMPLATE),
     // or set up like a notebook they have (LIKE) for someone or something else,
     // with what's different this time; a card to approve, after sua has asked.

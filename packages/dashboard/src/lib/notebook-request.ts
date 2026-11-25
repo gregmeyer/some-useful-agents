@@ -13,7 +13,7 @@ import { createNotebookFrom, type NewNotebookSetup } from './notebook-create.js'
 import { briefOnFromDraft, discardDraft, draftSteps, readDraft, searchAgents, startNotebookDraft, type NotebookDraft } from './notebook-draft.js';
 import { startNotebookStep } from './notebook-steps.js';
 import { startNotebookFrom } from '../routes/inbox-engine.js';
-import { publishInboxChanged } from '../routes/inbox-shared.js';
+import { publishInboxChanged, publishInboxEvent } from '../routes/inbox-shared.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -59,10 +59,10 @@ export function setupFromDraft(ctx: Ctx, text: string, draft: NotebookDraft, tit
 const pause = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r, ms); t.unref?.(); });
 
 /** Draft the ask and wait for it: the draft, or why there isn't one. */
-async function draftAsk(ctx: Ctx, ask: string, requestId: string): Promise<{ text: string; draft: NotebookDraft; draftId: string } | { error: string }> {
+async function draftAsk(ctx: Ctx, ask: string, requestId?: string): Promise<{ text: string; draft: NotebookDraft; draftId: string } | { error: string }> {
   const draftId = startNotebookDraft(ctx, ask);
   if (typeof draftId !== 'string') return draftId;
-  requestsOf(ctx).update(requestId, { phase: 'drafting', detail: 'sua is drafting the notebook from the ask (about a minute)…' });
+  if (requestId) requestsOf(ctx).update(requestId, { phase: 'drafting', detail: 'sua is drafting the notebook from the ask (about a minute)…' });
   const until = Date.now() + DRAFT_WAIT_MS;
   for (let wait = 50; Date.now() < until; wait = Math.min(wait * 2, 2000)) {
     const d = readDraft(ctx, draftId);
@@ -110,7 +110,7 @@ export async function runNotebookRequest(ctx: Ctx, requestId: string): Promise<v
       ? ` Its first step${started.step ? `, ${started.step.title},` : ''} is running.`
       : ` Its first step didn’t start: ${started.reason ?? 'it isn’t ready'}`;
   } else {
-    detail += ' It waits for the person to press Next step.';
+    detail += ctx.notebookStepsWait ? ' It waits for the person to start it.' : ' It starts by itself once it’s set up.';
   }
   requests.update(requestId, { phase: 'ready', detail, notebookId: nb.id });
   // The person hears about it: something else started a notebook of theirs.
@@ -154,4 +154,36 @@ export function failInterruptedNotebookRequests(ctx: Ctx): void {
     const requests = requestsOf(ctx);
     for (const r of requests.unfinished()) requests.update(r.id, { phase: 'failed', detail: 'The notebook wasn’t made.', error: 'The dashboard restarted while it was being made. Ask again.' });
   } catch { /* no table yet */ }
+}
+
+/**
+ * A question asked in sua's bar (a `notebook-ask` card, which runs on its
+ * own): sua drafts the answer's setup from the question, makes it, and it
+ * starts by itself (its greeting starts its first step). Said in the
+ * conversation it was asked in, with the link, or why it couldn't. Runs in the
+ * background; `then` is for tests.
+ */
+export function startAskedNotebook(ctx: Ctx, input: { ask: string; title?: string; threadId?: string }, then?: (out: { notebook: Notebook } | { error: string }) => void): void {
+  const say = (body: string) => {
+    if (!input.threadId || !ctx.inboxStore) return;
+    const msg = ctx.inboxStore.addResponse(input.threadId, 'triage', body);
+    publishInboxEvent(ctx, input.threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
+  };
+  const work = (async (): Promise<{ notebook: Notebook } | { error: string }> => {
+    const drafted = await draftAsk(ctx, input.ask);
+    if ('error' in drafted) return drafted;
+    try {
+      const nb = createNotebookFrom(ctx, setupFromDraft(ctx, drafted.text, drafted.draft, input.title));
+      return { notebook: nb };
+    } finally { discardDraft(ctx, drafted.draftId); }
+  })().catch((err: unknown) => ({ error: err instanceof Error ? err.message : String(err) }));
+  inBackground(ctx, 'startAskedNotebook', work.then((out) => {
+    if ('error' in out) say(`I couldn't set that up: ${out.error} You can [set it up yourself](/notebooks/new?text=${encodeURIComponent(input.ask)}).`);
+    else {
+      const nb = out.notebook;
+      const first = nb.steps?.[0];
+      say(`It's under way: [${nb.title}](/notebooks/${encodeURIComponent(nb.id)}).${first ? ` I'm starting with **${first.title}** and will go straight through; its page fills in as I go.` : ''}`);
+    }
+    then?.(out);
+  }));
 }

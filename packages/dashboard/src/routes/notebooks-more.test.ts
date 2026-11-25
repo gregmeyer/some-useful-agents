@@ -1066,7 +1066,7 @@ describe('notebooks asked for over MCP (notebook-create)', () => {
     await Promise.all(startQueuedNotebookRequests(ctx));
     const made = requests.get(t.id)!;
     expect(made.phase).toBe('ready');
-    expect(made.detail).toContain('waits for the person to press Next step');
+    expect(made.detail).toContain('waits for the person to start it');
     const nb = s.get(made.notebookId!)!;
     expect(nb.statement).toBe('Learn about Acme');
     expect(nb.steps?.[0]).toMatchObject({ title: 'Find news on Acme', status: 'todo' });
