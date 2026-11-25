@@ -72,6 +72,8 @@ export async function createTestContext(opts: TestContextOptions = {}): Promise<
     inboxTriagePendingRefires: new Set(),
     dataDir: dir,
     dashboardBaseUrl: `http://127.0.0.1:${port}`,
+    // No page is read on its own after a step (no network in tests); a test that wants it turns this off.
+    notebookTraceWait: true,
     ...extra,
   };
   return { ctx, dir, dbPath, agentsDir, provider };

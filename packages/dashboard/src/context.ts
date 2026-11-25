@@ -261,6 +261,8 @@ export interface DashboardContext {
    */
   /** Steps wait for Start and Continue instead of running straight through (tests that exercise the cards). */
   notebookStepsWait?: boolean;
+  /** Sources aren't traced on their own after a step (tests that don't read pages); a Check step still traces them. */
+  notebookTraceWait?: boolean;
   notebookPipelines?: Map<string, { agentId: string; step: number; of: number; startedAt: number; runId?: string; /** Runs going at once (a source step reads pages side by side): Stop cancels each. */ runIds?: Set<string>; stopped?: boolean; again?: boolean }>;
   /** Notebooks being set up (fields, stages) right now. */
   notebookSetups?: Set<string>;

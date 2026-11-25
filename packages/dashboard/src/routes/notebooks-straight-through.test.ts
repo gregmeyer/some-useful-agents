@@ -96,6 +96,82 @@ describe('steps run straight through', () => {
   });
 });
 
+// Every kind checks its sources (ADR-0082): the pages a step filed are traced
+// on their own, in code, not only an answer's at its Check step.
+describe('sources are traced after every step that files them', () => {
+  const evidence = (n: number, option = true) => `<notebook>${JSON.stringify({ entries: [
+    ...(option ? [{ kind: 'option', title: `Pair ${String(n)}` }] : []),
+    { kind: 'evidence', title: `Review ${String(n)}`, body: `"the noise cancelling is the best we have tested" Review ${String(n)} (found by the Web search)`, source: `https://reviews.example/${String(n)}`, fingerprint: `https://reviews.example/${String(n)}` },
+    { kind: 'evidence', title: `Forum ${String(n)}`, body: `"mine broke at the hinge after a month" Forum ${String(n)} (found by the Web search)`, source: `https://forum.example/missing-${String(n)}`, fingerprint: `https://forum.example/missing-${String(n)}` },
+  ] })}</notebook>`;
+
+  it('a shortlist with no check or write step: its find step\'s pages are traced', async () => {
+    const app = await makeApp({ straightThrough: true, traceOnItsOwn: true });
+    const { getContext } = await import('../context.js');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { tracingNow } = await import('../lib/notebook-trace-step.js');
+    const ctx = getContext(app.locals);
+    const read: string[] = [];
+    ctx.notebookTrace = async (url: string) => { read.push(url); return url.includes('missing') ? 'missing' : 'found'; };
+    const store = NotebookStore.fromHandle(S.runStore.databaseHandle());
+    const nb = store.create({ title: 'Headphones', pipeline: ['sched-agent'] });
+    store.setSteps(nb.id, [{ title: 'Find 1 pair', kind: 'find', agentId: 'notebook-finder', target: 1 }, { title: 'Pick one', kind: 'decide', target: 1 }]);
+    S.finderReply = () => evidence(1);
+    const { startNotebookStep } = await import('../lib/notebook-steps.js');
+    expect(startNotebookStep(ctx, nb.id).started).toBe(true);
+    for (let i = 0; i < 200 && (ctx.notebookPipelines?.has(nb.id) || store.get(nb.id)!.steps![0].status === 'running'); i++) await new Promise((r) => setTimeout(r, 25));
+    await tracingNow(nb.id);
+    expect(read.sort()).toEqual(['https://forum.example/missing-1', 'https://reviews.example/1']);
+    const traced = Object.fromEntries(store.entries(nb.id, 1000).filter((e) => e.kind === 'evidence').map((e) => [e.title, e.trace?.status]));
+    expect(traced).toEqual({ 'Review 1': 'found', 'Forum 1': 'missing' });
+    S.finderReply = undefined;
+    ctx.notebookTrace = undefined;
+  });
+
+  it('a Check step after it waits for that trace: no page is read twice', async () => {
+    const app = await makeApp({ straightThrough: true, traceOnItsOwn: true });
+    const { getContext } = await import('../context.js');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const ctx = getContext(app.locals);
+    const read: string[] = [];
+    ctx.notebookTrace = async (url: string) => { read.push(url); await new Promise((r) => setTimeout(r, 30)); return 'found'; };
+    const store = NotebookStore.fromHandle(S.runStore.databaseHandle());
+    const nb = store.create({ title: 'Is a hot dog a sandwich' });
+    store.setSteps(nb.id, [{ title: 'Find sources', kind: 'find', agentId: 'notebook-finder', target: 1 }, { title: 'Check the sources', kind: 'check' }, { title: 'Write the answer', kind: 'write', shape: 'answer' }]);
+    S.finderReply = () => evidence(2, false);
+    const { startNotebookStep } = await import('../lib/notebook-steps.js');
+    expect(startNotebookStep(ctx, nb.id).started).toBe(true);
+    for (let i = 0; i < 400 && store.get(nb.id)!.steps![1].status !== 'met' && store.get(nb.id)!.steps![1].status !== 'done'; i++) await new Promise((r) => setTimeout(r, 25));
+    expect(store.get(nb.id)!.steps![1].status).toMatch(/met|done/);
+    expect(read.sort()).toEqual(['https://forum.example/missing-2', 'https://reviews.example/2']);
+    for (let i = 0; i < 200 && ctx.notebookPipelines?.has(nb.id); i++) await new Promise((r) => setTimeout(r, 25));
+    S.finderReply = undefined;
+    ctx.notebookTrace = undefined;
+  });
+
+  it('is off for an experiment\'s copy, and when there\'s nothing new to trace', async () => {
+    const app = await makeApp({ traceOnItsOwn: true });
+    const { getContext } = await import('../context.js');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { traceOnItsOwn, tracingNow } = await import('../lib/notebook-trace-step.js');
+    const ctx = getContext(app.locals);
+    const read: string[] = [];
+    ctx.notebookTrace = async (url: string) => { read.push(url); return 'found'; };
+    const store = NotebookStore.fromHandle(S.runStore.databaseHandle());
+    const nb = store.create({ title: 'Nothing filed' });
+    traceOnItsOwn(ctx, store, nb.id);
+    expect(tracingNow(nb.id)).toBeUndefined();
+    store.addEntry(nb.id, { kind: 'evidence', title: 'A page', body: '"a quote long enough to look for" A page', by: 'x', source: 'https://a.example/x' });
+    traceOnItsOwn(ctx, store, nb.id);
+    await tracingNow(nb.id);
+    expect(read).toEqual(['https://a.example/x']);
+    // Traced once: nothing new, nothing read again.
+    traceOnItsOwn(ctx, store, nb.id);
+    expect(tracingNow(nb.id)).toBeUndefined();
+    ctx.notebookTrace = undefined;
+  });
+});
+
 // A question asked in sua's bar: sua proposes `notebook-ask`, which runs on
 // its own; the answer is drafted, made and started, and linked in the thread.
 describe('a question asked in sua\'s bar starts the answer', () => {

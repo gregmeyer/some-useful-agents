@@ -25,7 +25,7 @@ import { keep, passNote, perItemInputs, pipelineInputs, readItemAnswer } from '.
 import { notebookThread } from './notebook-chat.js';
 import { reconcileStepCards } from './notebook-step-queue.js';
 import { learnAbout } from './notebook-profile.js';
-import { traceAnswerSources, traceWords } from './notebook-trace-step.js';
+import { traceAnswerSources, traceOnItsOwn, traceWords, tracingNow } from './notebook-trace-step.js';
 import { whatsNew, whatsNewSummary } from './notebook-whats-new.js';
 import { decideNotebookPage, pageIsItsOwn, pageIsPicked } from './notebook-page.js';
 import { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, NOTEBOOK_RESEARCHER_ID, NOTEBOOK_WRITER_ID, stepAgentHelpers, suaStepAgent, suaStepAgentName } from './notebook-step-agents.js';
@@ -185,7 +185,8 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
     step = after;
   }
   if (isYourStep(step)) return { started: false, reason: yoursReason(step), step };
-  if (step.kind === 'check' && nb.checks.length === 0) return { started: false, reason: 'The notebook has no checks yet. Add them under Edit, or tell sua what to check.', step };
+  // An answer's Check has no checks of its own: it traces the answer's sources (ADR-0082), so it can start.
+  if (step.kind === 'check' && nb.checks.length === 0 && stepProgress(nb, store.entries(nb.id, 1000), step).unit !== 'sources traced') return { started: false, reason: 'The notebook has no checks yet. Add them under Edit, or tell sua what to check.', step };
   const resolved = stepAgent(ctx, step, nb.id);
   if (!resolved.agentId) return { started: false, reason: resolved.reason, step };
   if (met) nb = store.updateStep(nb.id, met.id, { status: 'done' });
@@ -201,6 +202,8 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
   }).finally(() => {
     const was = ctx.notebookPipelines?.get(notebookId);
     ctx.notebookPipelines?.delete(notebookId);
+    // The pages it filed are traced on their own, whatever kind of notebook (ADR-0082).
+    if (s.kind !== 'check' && s.kind !== 'write') traceOnItsOwn(ctx, store, notebookId);
     // Met, and the next step is sua's: it goes straight on, with no Continue to press.
     if (!was?.stopped) continueOnItsOwn(ctx, notebookId, s.id);
     // It paused: its card is the one waiting (an earlier round's that asks the same goes).
@@ -351,6 +354,7 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
       try { store.noteRun(notebookId, `${step.title}, again: ${err instanceof Error ? err.message.slice(0, 160) : 'it failed'}`); } catch { /* the notebook is gone */ }
     }).finally(() => {
       ctx.notebookPipelines?.delete(notebookId);
+      traceOnItsOwn(ctx, store, notebookId);
       reconcileStepCards(ctx, notebookId);
     }));
     return { started: true, step };
@@ -372,6 +376,7 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
     try { store.noteRun(notebookId, `${step.title}, again: ${err instanceof Error ? err.message.slice(0, 160) : 'it failed'}`); } catch { /* the notebook is gone */ }
   }).finally(() => {
     ctx.notebookPipelines?.delete(notebookId);
+    traceOnItsOwn(ctx, store, notebookId);
     // It paused: its card is the one waiting (an earlier round's that asks the same goes).
     reconcileStepCards(ctx, notebookId);
   }));
@@ -461,6 +466,7 @@ export function updateBriefing(ctx: Ctx, notebookId: string, opts: { only?: read
       // A check before an answer or write-up: the sources this update found (and any not traced yet) are traced, as its Check does (no agent needed).
       const traces = step.kind === 'check' && writesAnswer(store.get(notebookId));
       if (traces) {
+        await tracingNow(notebookId);
         const pending = answerTracePages(store.entries(notebookId, 1000)).filter((e) => !e.trace).length;
         if (pending) {
           const t = await traceAnswerSources(store, notebookId, ctx.notebookTrace);
@@ -496,6 +502,7 @@ export function updateBriefing(ctx: Ctx, notebookId: string, opts: { only?: read
     try { store.noteRun(notebookId, `Update: ${err instanceof Error ? err.message.slice(0, 160) : 'it failed'}`); } catch { /* the notebook is gone */ }
   }).finally(() => {
     ctx.notebookPipelines?.delete(notebookId);
+    traceOnItsOwn(ctx, store, notebookId);
     reconcileStepCards(ctx, notebookId);
   }));
   return { started: true, steps };
@@ -782,6 +789,8 @@ async function runAgent(ctx: Ctx, agentId: string, inputs: (agent: Pick<Agent, '
 async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, agentId: string): Promise<void> {
   const agent = { id: agentId };
   const notes: string[] = [];
+  // A check after a trace that's running on its own: it waits for it, so no page is read twice.
+  if (step.kind === 'check') await tracingNow(notebookId);
   let nb = store.get(notebookId)!;
   let before = stepProgress(nb, store.entries(nb.id, 1000), step);
   // Already there (a search earlier found enough): no run needed. A profile step runs whenever it's started (to learn more, or find their photo).
