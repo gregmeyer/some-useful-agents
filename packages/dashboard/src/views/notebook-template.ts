@@ -93,7 +93,7 @@ export function renderTemplateSave(args: {
   ];
   return render(layout({ title: `Template from ${nb.title}`, activeNav: 'notebooks', flash: args.flash }, html`
     <div class="nbt nbt--talk" data-nbt>
-      <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a> › <a href="/notebooks/${id}">${nb.title}</a> › Make a template</p>
+      <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Answers</a> › <a href="/notebooks/${id}">${nb.title}</a> › Make a template</p>
       <h1 class="nbe__title">Make a template from this notebook</h1>
       <p class="nbt__lede">Tell sua how notebooks like this should start next time. It drafts the template, you approve it on its card, and the preview here updates. The template keeps the setup and the page, never this notebook's findings.</p>
       <div class="nbt-grid">

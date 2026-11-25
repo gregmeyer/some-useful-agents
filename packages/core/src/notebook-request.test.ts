@@ -47,7 +47,7 @@ describe('describeNotebookTemplate', () => {
       '- meeting-briefing: Meeting briefing',
       '  For: Prepare sourced talking points and questions for my meeting with <subject>, from their profile and relevant public sources.',
       '  Steps: Learn about <subject> → Write talking points',
-      '  Page: Meeting briefing',
+      '  Page: Meeting brief',
       `  Subject: Who you're meeting (a person or company), e.g. "Alan Berkson"`,
       "  Asks the person for: <subject>'s LinkedIn profile",
     ].join('\n'));

@@ -35,7 +35,7 @@ export function renderTalkingPointsEdit(args: { nb: Notebook; entries: readonly 
   return render(layout({ title: `Talking points: ${nb.title}`, activeNav: 'notebooks', flash: args.flash }, html`
     <div class="tpe">
       ${pageHeader({
-        crumbs: [{ label: 'Home', href: '/' }, { label: 'Notebooks', href: '/notebooks' }, { label: nb.title, href: `/notebooks/${id}` }, { label: 'Talking points' }],
+        crumbs: [{ label: 'Home', href: '/' }, { label: 'Answers', href: '/notebooks' }, { label: nb.title, href: `/notebooks/${id}` }, { label: 'Talking points' }],
         title: 'Edit the talking points',
         description: 'Change what to raise, why it matters and what to ask; reorder, remove or add points. The quotes behind a point stay as they are. The briefing and its brief show what you save.',
       })}

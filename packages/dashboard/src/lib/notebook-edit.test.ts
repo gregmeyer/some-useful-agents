@@ -65,7 +65,7 @@ describe('a notebook as a document', () => {
       'Added the limit “45 minutes”', 'Added the limit “over video”', 'Removed the limit “30 minutes”',
       'Notes a new fact: Company (text, org)', 'No longer notes Fee',
       'Added step 3: Write the talking points (decide 3)',
-      'How it looks: Shortlist → Meeting briefing',
+      'How it looks: Shortlist → Meeting brief',
     ]);
   });
 
@@ -100,8 +100,8 @@ describe('what an edit changes', () => {
 
   it('names the page: a ready-made one, the shortlist, or one drawn for it', () => {
     expect(pageName(undefined)).toBe('Shortlist');
-    expect(pageName(layoutPreset('dossier')!.layout)).toBe('Meeting briefing');
-    expect(pageName({ components: [], about: 'a report' })).toBe('Made for this notebook');
+    expect(pageName(layoutPreset('dossier')!.layout)).toBe('Meeting brief');
+    expect(pageName({ components: [], about: 'a report' })).toBe('Made for this answer');
   });
 
   it('knows a request about the page from one about the work', () => {

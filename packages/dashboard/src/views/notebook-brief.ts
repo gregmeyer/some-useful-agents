@@ -468,7 +468,7 @@ ${TLDR_CSS}
 }
 `;
   const body = html`  ${briefHead({
-    line: `${args.latest ? "What's new · " : ''}${args.full ? 'Extended notebook brief' : 'Notebook brief'} · ${fmtDate(undefined, now)}`,
+    line: `${args.latest ? "What's new · " : ''}${args.full ? 'Answer in full' : 'Answer'} · ${fmtDate(undefined, now)}`,
     title: nb.title,
     ...(nb.statement ? { statement: nb.statement } : {}),
     ...(nb.meeting?.when || nb.meeting?.goal ? { meeting: { ...(nb.meeting.when ? { when: meetingWhenWords(nb.meeting.when) } : {}), ...(nb.meeting.goal ? { goal: nb.meeting.goal } : {}) } } : {}),

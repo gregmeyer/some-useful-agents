@@ -55,7 +55,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
   ${/* The brand is Home, and Home is the inbox: one link, not two. */ ''}
   <a class="topbar__brand ${opts.activeNav === 'home' || opts.activeNav === 'inbox' ? 'is-active' : ''}" href="/" title="Home: your inbox" ${opts.activeNav === 'home' || opts.activeNav === 'inbox' ? html`aria-current="page"` : html``}>sua</a>
   <nav class="topbar__nav">
-    <a href="/notebooks" class="${opts.activeNav === 'notebooks' ? 'is-active' : ''}">Notebooks</a>
+    <a href="/notebooks" class="${opts.activeNav === 'notebooks' ? 'is-active' : ''}">Answers</a>
     <a href="/agents" class="${opts.activeNav === 'agents' || opts.activeNav === 'tools' || opts.activeNav === 'nodes' || opts.activeNav === 'runs' || opts.activeNav === 'packs' ? 'is-active' : ''}">Agents</a>
     <a href="/experiments" class="${opts.activeNav === 'experiments' ? 'is-active' : ''}">Experiments</a>
     <a href="/pulse" class="${opts.activeNav === 'pulse' ? 'is-active' : ''}">Pulse</a>
@@ -78,7 +78,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
   <form class="home-ask home-ask--bar" method="POST" action="/inbox/new" data-home-ask>
     <span class="home-ask__prompt" aria-hidden="true">sua&nbsp;›</span>
     <textarea class="home-ask__input" name="body" rows="1"
-      placeholder="Ask sua to run, build, fix, or look something up…"
+      placeholder="Ask a question, or ask sua to run, build or fix something…"
       data-home-ask-input aria-label="Ask sua"></textarea>
     <button type="submit" class="btn btn--primary btn--sm home-ask__send" data-home-ask-send>Send ↵</button>
   </form>

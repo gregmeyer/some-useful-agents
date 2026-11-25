@@ -527,7 +527,7 @@ export function liveBar(live: NotebookLive | undefined, nb?: Notebook): SafeHtml
       </div>` : html``}
       ${talk?.state === 'working' ? html`<div class="nb-live__row nb-live__row--working" role="status">
         <span class="working__spin" aria-hidden="true"></span>
-        <span class="nb-live__text"><strong>${talk.text.replace(/…$/, '')}</strong> on a reply in this notebook's conversation…</span>
+        <span class="nb-live__text"><strong>${talk.text.replace(/…$/, '')}</strong> on a reply in this answer's conversation…</span>
         ${open(talk.threadId, 'Watch', false)}
       </div>` : html``}
       ${work.length ? html`<div class="nb-live__working" data-notebook-running>
@@ -773,7 +773,7 @@ function entryCard(nb: Notebook, e: NotebookEntry, v?: NotebookViewOption): Safe
 
 function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory, settingUp = false, running = false): SafeHtml {
   const note = settingUp
-    ? html`<p class="nb-setup" role="status"><span class="working__spin" aria-hidden="true"></span>sua is setting up this notebook: what each option records, the stages they go through, and a page that fits what it's for. This page updates when it's done.</p>`
+    ? html`<p class="nb-setup" role="status"><span class="working__spin" aria-hidden="true"></span>sua is setting up this answer: what each option records, the stages they go through, and a page that fits what it's for. This page updates when it's done.</p>`
     : html``;
   return html`${note}${surfaceColumnBody(nb, compiled, entries, history, running)}`;
 }
@@ -882,7 +882,7 @@ function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: {
   return html`
     ${hasEntries || nb.conversationId ? html`
       <section class="nb-side__card nb-talk${talkLive?.state === 'waiting' ? ' is-waiting' : ''}" aria-labelledby="nb-talk-title">
-        <h2 class="nb-side__title" id="nb-talk-title">Talk to sua about this notebook</h2>
+        <h2 class="nb-side__title" id="nb-talk-title">Talk to sua about this answer</h2>
         ${talkLive?.state === 'waiting'
           ? html`<div class="nb-talk__waiting" role="status">
               <span class="nb-talk__waiting-label">${waitingStepButtons(talkLive, nb).length ? 'Ready when you are' : waitingWords(talkLive.kind).label}</span>
@@ -897,7 +897,7 @@ function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: {
       </section>` : html``}
     ${unfiled.length ? html`
       <section class="nb-side__card nb-unfiled" aria-labelledby="nb-unfiled-title">
-        <h2 class="nb-side__title" id="nb-unfiled-title">Runs not in this notebook yet</h2>
+        <h2 class="nb-side__title" id="nb-unfiled-title">Runs not in this answer yet</h2>
         <p class="nb-unfiled__lede">Finished, but not filed here. Add what they found, or skip ones that don't belong.</p>
         <ul class="nb-unfiled__list">${unfiled.map((r) => html`
           <li class="nb-unfiled__item">
@@ -938,30 +938,30 @@ function notebookMoreActions(nb: Notebook): SafeHtml {
   const post = (path: string, name: string, value: string, label: string) =>
     html`<form method="POST" action="/notebooks/${id}/${path}" class="nbe-manage__act"><input type="hidden" name="${name}" value="${value}"><button type="submit" class="btn btn--sm">${label}</button></form>`;
   return html`
-      <ul class="nbe-manage" aria-label="Manage this notebook">
+      <ul class="nbe-manage" aria-label="Manage this answer">
         ${nb.status === 'active'
           ? row(post('status', 'status', 'stopped', 'Stop'), 'Pause it: no more searches or steps. Everything stays, and you can reopen it.')
           : row(post('status', 'status', 'active', 'Reopen'), 'Make it active again, to keep searching and working through its steps.')}
-        ${row(html`<a class="btn btn--sm nbe-manage__act" href="/notebooks/${id}/template">Save as a template…</a>`, 'Start new notebooks set up like this one, saying what changes each time (like who you\'re meeting).')}
+        ${row(html`<a class="btn btn--sm nbe-manage__act" href="/notebooks/${id}/template">Save as a template…</a>`, 'Start new answers set up like this one, saying what changes each time (like who you\'re meeting).')}
         <li class="nbe-manage__row">
           <details class="nbe-manage__delete">
-            <summary><span class="btn btn--sm nbe-manage__act">Clear and run again…</span><span class="nbe-manage__what">A fresh notebook with the same setup and none of what this one found; this one ${nb.archivedAt ? 'stays' : 'is'} archived.</span></summary>
+            <summary><span class="btn btn--sm nbe-manage__act">Clear and run again…</span><span class="nbe-manage__what">A fresh answer with the same setup and none of what this one found; this one ${nb.archivedAt ? 'stays' : 'is'} archived.</span></summary>
             <form method="POST" action="/notebooks/${id}/rerun" class="nb-delete__form">
-              <p class="nb-delete__what">A new notebook with the same setup (what it's for, limits, done-whens, checks, steps, its page) starts its first step. This one ${nb.archivedAt ? 'stays' : 'is'} archived with its options, notes, answer and history; nothing is deleted. No template is made.</p>
+              <p class="nb-delete__what">A new answer with the same setup (what it's for, limits, done-whens, checks, steps, its page) starts its first step. This one ${nb.archivedAt ? 'stays' : 'is'} archived with its options, notes, answer and history; nothing is deleted. No template is made.</p>
               <button type="submit" class="btn btn--sm btn--primary">Run it again</button>
             </form>
           </details>
         </li>
         ${nb.archivedAt
-          ? row(post('archive', 'archived', '0', 'Restore'), 'Show it again in your notebooks, Home and Today.')
-          : row(post('archive', 'archived', '1', 'Archive'), 'Hide it from your notebooks, Home and Today, and stop its schedule. Nothing is deleted.')}
+          ? row(post('archive', 'archived', '0', 'Restore'), 'Show it again in your answers, Home and Today.')
+          : row(post('archive', 'archived', '1', 'Archive'), 'Hide it from your answers, Home and Today, and stop its schedule. Nothing is deleted.')}
         <li class="nbe-manage__row nbe-manage__row--danger">
           <details class="nbe-manage__delete">
             <summary><span class="btn btn--sm nbe-manage__act">Delete…</span><span class="nbe-manage__what">Remove it and everything in it. This can't be undone.</span></summary>
             <form method="POST" action="/notebooks/${id}/delete" class="nb-delete__form">
               <p class="nb-delete__what">Delete “${nb.title}” and everything in it (options, notes, history, photos)? Its conversation with sua and the runs that fed it stay. This can't be undone.${nb.archivedAt ? '' : ' To only hide it, archive it instead.'}</p>
               <input type="hidden" name="confirm" value="${nb.id}">
-              <button type="submit" class="btn btn--sm btn--warn">Delete this notebook</button>
+              <button type="submit" class="btn btn--sm btn--warn">Delete this answer</button>
             </form>
           </details>
         </li>
@@ -1011,10 +1011,10 @@ function notebookTagEditor(nb: Notebook, tab: NotebookEditView['tab'], vocabular
     html`<form method="POST" action="/notebooks/${id}/tags" class="${cls}"><input type="hidden" name="tab" value="${tab}"><input type="hidden" name="${name}" value="${value}">${inner}</form>`;
   return html`<section class="nbe-card nbe-tags" id="nbe-tags" aria-labelledby="nbe-tags-h">
     <h2 class="nbe-card__h" id="nbe-tags-h">Tags</h2>
-    <p class="nbe-tags__hint">For filtering your notebooks. Changes save straight away, and sua keeps them when it tags again.</p>
+    <p class="nbe-tags__hint">For filtering your answers. Changes save straight away, and sua keeps them when it tags again.</p>
     ${tags.length
       ? html`<ul class="nbe-tags__list" aria-label="This notebook's tags">${tags.map((t) => html`<li>${form('remove', t, html`<span class="nbe-tag__name">${t}</span>${mine.has(t) ? html`<span class="nbe-tag__by">yours</span>` : html``}<button type="submit" class="nbe-tag__x" aria-label="Remove the tag ${t}" title="Remove">×</button>`, 'nbe-tag')}</li>`) as unknown as SafeHtml[]}</ul>`
-      : html`<p class="nbe-tags__none">${nb.tags?.at || removed.length ? 'No tags.' : 'No tags yet. sua adds them in the background; open Notebooks to start it.'}</p>`}
+      : html`<p class="nbe-tags__none">${nb.tags?.at || removed.length ? 'No tags.' : 'No tags yet. sua adds them in the background; open Answers to start it.'}</p>`}
     <form method="POST" action="/notebooks/${id}/tags" class="nbe-tags__add">
       <input type="hidden" name="tab" value="${tab}">
       <label class="sr-only" for="nbe-tag-add">Add a tag</label>
@@ -1069,7 +1069,7 @@ export function renderNotebookEdit(args: NotebookEditView): string {
       ${editSummary(proposed)}
       ${args.turns.length ? html`<ol class="nbe-turns">${args.turns.map(editTurn) as unknown as SafeHtml[]}
         ${args.working ? html`<li class="nbe-turn nbe-turn--sua is-working" role="status"><span class="nbe-turn__who">sua</span><span class="working__spin" aria-hidden="true"></span>Changing it. The preview opens when it's done.</li>` : html``}</ol>` : html`
-        <p class="nbe-talk__lede">Say what to change, the way you'd ask a person. “Do it better” has sua sharpen the whole notebook and draw its page again.</p>`}
+        <p class="nbe-talk__lede">Say what to change, the way you'd ask a person. “Do it better” has sua sharpen the whole answer and draw its page again.</p>`}
       <form method="POST" action="/notebooks/${id}/edit/talk" class="nbe-talk__form">
         <label class="sr-only" for="nbe-say">What to change</label>
         <textarea name="text" id="nbe-say" rows="3" class="form-field" required data-enter-sends ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}
@@ -1086,8 +1086,8 @@ export function renderNotebookEdit(args: NotebookEditView): string {
       </form>
     </section>`;
   const prompt = html`
-    <section class="nbe-prompt" aria-label="The notebook as a document">
-      <p class="nbe-prompt__lede">The whole notebook as a document. Change anything, then show it in the preview; nothing is saved until you save. A section you leave out stays as it was. Steps read <code>Title (kind target; about who; facts a, b; top 5; with agent)</code>; a write step that answers the question reads <code>(write; answer)</code>, one that makes a plan <code>(write; plan)</code>, one that writes a shortlist up <code>(write; writeup)</code>.</p>
+    <section class="nbe-prompt" aria-label="The answer as a document">
+      <p class="nbe-prompt__lede">The whole answer as a document. Change anything, then show it in the preview; nothing is saved until you save. A section you leave out stays as it was. Steps read <code>Title (kind target; about who; facts a, b; top 5; with agent)</code>; a write step that answers the question reads <code>(write; answer)</code>, one that makes a plan <code>(write; plan)</code>, one that writes a shortlist up <code>(write; writeup)</code>.</p>
       ${(() => {
         // Enhance: while sua works, say so; once back, what it made sharper (the preview shows the rest).
         const lastTurn = args.turns.at(-1);
@@ -1104,7 +1104,7 @@ export function renderNotebookEdit(args: NotebookEditView): string {
         return html``;
       })()}
       <form method="POST" action="/notebooks/${id}/edit/prompt" class="nbe-prompt__form">
-        <textarea name="markdown" class="form-field nbe-prompt__text" rows="26" spellcheck="false" aria-label="The notebook as markdown" ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>${args.markdown}</textarea>
+        <textarea name="markdown" class="form-field nbe-prompt__text" rows="26" spellcheck="false" aria-label="The answer as markdown" ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>${args.markdown}</textarea>
         <div class="nbe-prompt__acts">
           <button type="submit" class="btn btn--sm" ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>Show in the preview</button>
           <button type="submit" class="btn btn--sm btn--primary" formaction="/notebooks/${id}/edit/enhance" title="sua makes it a sharper prompt for its goal: what it's for, limits, done-whens, facts, checks and steps. You see it in the preview before anything is saved." ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>✦ Enhance this prompt</button>
@@ -1130,9 +1130,9 @@ export function renderNotebookEdit(args: NotebookEditView): string {
   return render(layout({ title: `Edit ${nb.title}`, activeNav: 'notebooks', flash: args.flash, wide: true }, html`
     <div class="nbe">
       ${pageHeader({
-        crumbs: [{ label: 'Home', href: '/' }, { label: 'Notebooks', href: '/notebooks' }, { label: nb.title, href: `/notebooks/${id}` }, { label: 'Edit' }],
-        title: 'Edit this notebook',
-        description: 'Preview shows the notebook as it would be. Nothing changes until you save.',
+        crumbs: [{ label: 'Home', href: '/' }, { label: 'Answers', href: '/notebooks' }, { label: nb.title, href: `/notebooks/${id}` }, { label: 'Edit' }],
+        title: 'Edit this answer',
+        description: 'Preview shows the answer as it would be. Nothing changes until you save.',
       })}
       <div class="nbe-cols">
       <div class="nbe-work">
@@ -1148,7 +1148,7 @@ export function renderNotebookEdit(args: NotebookEditView): string {
         </div>` : html``}
         ${args.tab === 'prompt' ? prompt : args.tab === 'looks' ? notebookLooks(nb.id, { now: nb.layout, ...(nb.layoutBy ? { by: nb.layoutBy } : {}), ...(args.lookChanged !== undefined ? { changed: args.lookChanged } : {}), working: args.working, undos: args.layoutUndos ?? 0 }) : talk}
       </div>
-      <aside class="nbe-rail" aria-label="This notebook">
+      <aside class="nbe-rail" aria-label="This answer">
         ${notebookTagEditor(nb, args.tab, args.tagVocabulary ?? [])}
         ${givenRail(nb)}
         <section class="nbe-card" aria-labelledby="nbe-manage-h">
@@ -1163,11 +1163,11 @@ export function renderNotebookEdit(args: NotebookEditView): string {
           <span class="nbe-preview__state${pending ? ' is-changed' : ''}">${pending ? 'with your changes, not saved' : 'as it is now'}</span>
           <span class="nbe-preview__acts">
             ${pending && !args.working ? html`<form method="POST" action="/notebooks/${id}/edit/save"><button type="submit" class="btn btn--primary btn--sm">Save changes</button></form>` : html``}
-            <a class="btn btn--sm btn--ghost" href="/notebooks/${id}">Open the notebook</a>
+            <a class="btn btn--sm btn--ghost" href="/notebooks/${id}">Open the answer</a>
             <button type="button" class="btn btn--sm" data-nbe-close>Close</button>
           </span>
         </div>
-        <div class="nbe-preview__page" tabindex="0" aria-label="The notebook as it would be"><div class="nbe-preview__inner" inert>
+        <div class="nbe-preview__page" tabindex="0" aria-label="The answer as it would be"><div class="nbe-preview__inner" inert>
           ${hero(proposed, [], undefined, widgetsIn, undefined, decisionLeads(proposed, args.entries, Infinity, args.history), args.entries, [], undefined, notebookHeaderView(proposed, args.entries, args.history as NotebookWidgetHistory | undefined))}
           <div class="nb-body__main">${surfaceColumnBody(proposed, args.compiled, args.entries, args.history)}</div>
         </div></div>
@@ -1230,7 +1230,7 @@ function experimentShareMenu(nb: Pick<Notebook, 'id'>): SafeHtml {
 /** Download / share → To another sua: the whole notebook as a file another sua imports. */
 function toAnotherSua(id: string): SafeHtml {
   return html`<span class="nb-progress__label nb-csv__brief-label">To another sua</span>
-    <div class="nb-share__row"><span class="nb-share__what">Notebook file</span><span class="nb-share__as"><a href="/notebooks/${id}/export.suanb" download title="A copy of the whole notebook (options, facts, pictures, write-up, steps) and the agents and tools of yours it runs, to import into sua on another machine: New notebook → Import a notebook file" aria-label="Download the notebook file">Download</a></span></div>`;
+    <div class="nb-share__row"><span class="nb-share__what">Answer file</span><span class="nb-share__as"><a href="/notebooks/${id}/export.suanb" download title="A copy of the whole notebook (options, facts, pictures, write-up, steps) and the agents and tools of yours it runs, to import into sua on another machine: New notebook → Import a notebook file" aria-label="Download the notebook file">Download</a></span></div>`;
 }
 
 /**
@@ -1280,7 +1280,7 @@ function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: reado
   const save = (what: string, as: string, path: string, hint: string) => html`<a href="/notebooks/${id}/${path}" download title="${hint}" aria-label="Download ${what} as ${as}">${as}</a>`;
   const row = (name: string, n: number | undefined, links: SafeHtml) => html`<div class="nb-share__row"><span class="nb-share__what">${name}${n !== undefined ? html` <span class="nb-csv__n">${String(n)}</span>` : html``}</span><span class="nb-share__as">${links}</span></div>`;
   const share = html`<span class="nb-progress__label">To share</span>
-      ${row('The brief', undefined, html`${open('the brief', 'brief.html', written ? 'A polished page of what sua wrote and what it found, to send or hand to Claude' : 'A polished page of where it stands and the options, to send or hand to Claude')}${save('the brief', 'PDF', 'brief.pdf', 'The brief as a PDF file named after the notebook, ready to send: its pictures inside it, page numbers, no print dialog')}${save('the brief', 'HTML', 'brief.html?download=1', 'The brief as one HTML file')}`)}
+      ${row('Print version', undefined, html`${open('the brief', 'brief.html', written ? 'A polished page of what sua wrote and what it found, to send or hand to Claude' : 'A polished page of where it stands and the options, to send or hand to Claude')}${save('the brief', 'PDF', 'brief.pdf', 'The brief as a PDF file named after the notebook, ready to send: its pictures inside it, page numbers, no print dialog')}${save('the brief', 'HTML', 'brief.html?download=1', 'The brief as one HTML file')}`)}
       ${row('TL;DR picture', undefined, html`${open('the TL;DR picture', 'tldr.png', written ? 'One picture of what it found: the answer in a sentence and its first findings' : 'One picture that sums it up: the best lead, the numbers, and the options as ranked bars')}${save('the TL;DR picture', 'PNG', 'tldr.png?download=1', 'The TL;DR as a PNG file, to drop into a message')}<a href="/notebooks/${id}/tldr" title="Say how you want the picture drawn: for LinkedIn, more editorial, more creative" aria-label="Redraw the TL;DR picture">Redraw…</a>`)}
       ${tldrCardSwitch(nb)}
       ${whatsNewToo ? row("The brief with what's new", undefined, html`${open("the brief with what's new", 'brief.html?new=1', "The brief, with what's new since the last run at the top (the plain brief leaves it out)")}${save("the brief with what's new", 'PDF', 'brief.pdf?new=1', "The brief as a PDF, with what's new since the last run")}`) : html``}
@@ -1427,14 +1427,14 @@ export function givenCard(nb: Pick<Notebook, 'id' | 'given' | 'archivedAt'> & { 
     // What needs you, above the title: a step waits on it, it isn't used yet, or sua is reading it (or couldn't).
     const waiting = have.filter((g) => !g.read || reading[g.key]);
     if (!stale && !missing.length && !skipped.length && !waiting.length) return html``;
-    return html`<section class="nb-given" data-nb-given aria-label="What this notebook needs from you">${staleHtml}${missingHtml}${skippedHtml}${waiting.map(got) as unknown as SafeHtml[]}</section>`;
+    return html`<section class="nb-given" data-nb-given aria-label="What this answer needs from you">${staleHtml}${missingHtml}${skippedHtml}${waiting.map(got) as unknown as SafeHtml[]}</section>`;
   }
   if (part === 'fresh') {
     // Just read, and no step has worked from it yet: open under the header, so you can check what sua read before it's used.
     const just = have.filter((g) => g.read && fresh && !reading[g.key]);
     return just.length ? html`<section class="nb-given nb-given--fresh" data-nb-given aria-label="What sua read from what you gave">${just.map(got) as unknown as SafeHtml[]}</section>` : html``;
   }
-  return html`<section class="nb-given" data-nb-given aria-label="What you gave this notebook">
+  return html`<section class="nb-given" data-nb-given aria-label="What you gave this answer">
     ${staleHtml}
     ${missingHtml}
     ${skippedHtml}
@@ -1471,7 +1471,7 @@ export function givenAdds(nb: Notebook, reading: Record<string, 'working' | 'fai
   const gave = used.length
     ? html`<details class="nb-hero__add" data-nb-act data-nb-act-name="gave"><summary>${used.length === 1 ? `You gave: ${used[0].label}` : `You gave ${String(used.length)} things`}</summary><div class="nb-hero__addpanel">${used.map(facts) as unknown as SafeHtml[]}</div></details>`
     : html``;
-  return html`<div class="nb-hero__adds" role="group" aria-label="Add to this notebook">
+  return html`<div class="nb-hero__adds" role="group" aria-label="Add to this answer">
     ${meeting}
     ${gave}
     ${wanted.map((g) => html`<details class="nb-hero__add" data-nb-act data-nb-act-name="want-${g.key}"><summary>If you have ${g.label}</summary>
@@ -1589,7 +1589,7 @@ const hostOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\.
 
 export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; madeBy?: NotebookMadeBy; whatsNew?: WhatsNew; reading?: Record<string, 'working' | 'failed'>; givenNotUsed?: GivenNotUsed; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'notebooks', flash: args.flash, wide: true }, html`
-    <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
+    <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Answers</a></p>
     ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your notebooks, Home and Today, and its schedule is off.
       <form method="POST" action="/notebooks/${encodeURIComponent(args.nb.id)}/archive"><input type="hidden" name="archived" value="0"><button type="submit" class="btn btn--sm">Restore</button></form></div>` : html``}
     ${givenCard(args.nb, args.reading, args.givenNotUsed, 'needs')}
@@ -1711,25 +1711,25 @@ export function renderNotebooksList(args: {
   const empty = q.q || q.tag
     ? html`<p class="nb-list__empty">No ${q.status === 'all' ? '' : `${q.status} `}notebooks ${q.tag ? html`tagged “${q.tag}”` : html``}${q.q && q.tag ? ' and ' : ''}${q.q ? html`matching “${q.q}”` : html``}. ${(args.elsewhere ?? []).map((e) => html`<a href="${href({ status: e.status })}">${String(e.count)} under ${e.status === 'all' ? 'All' : 'Archived'}</a>. `) as unknown as SafeHtml[]}<a href="${href({ q: '', tag: undefined })}">Clear the ${q.q && q.tag ? 'search and tag' : q.tag ? 'tag' : 'search'}</a></p>`
     : renderNotebooksEmpty(args.templates ?? [], {
-      title: q.status === 'all' ? 'No notebooks in use' : `No ${q.status} notebooks`,
+      title: q.status === 'all' ? 'No answers in use' : `No ${q.status} answers`,
       where: html`Yours are under ${elsewhere.map((st, i) => html`${i ? (i === elsewhere.length - 1 ? ' and ' : ', ') : ''}<a href="${href({ status: st })}">${label[st]} (${String(counts[st])})</a>`) as unknown as SafeHtml[]}.`,
     });
-  return render(layout({ title: 'Notebooks', activeNav: 'notebooks', flash: args.flash, wide: true }, html`
+  return render(layout({ title: 'Answers', activeNav: 'notebooks', flash: args.flash, wide: true }, html`
     ${pageHeader({
-      crumbs: [{ label: 'Home', href: '/' }, { label: 'Notebooks' }],
-      title: 'Notebooks',
-      description: "A goal you keep over time: what it's for, what you've found, how far each one got, and what you decided.",
-      cta: html`<a class="btn btn--primary btn--sm nbl-new__btn" href="/notebooks/new">+ New notebook</a>`,
+      crumbs: [{ label: 'Home', href: '/' }, { label: 'Answers' }],
+      title: 'Answers',
+      description: 'What you asked sua to find out: each answer with its sources, how far it got, and what you decided.',
+      cta: html`<a class="btn btn--primary btn--sm nbl-new__btn" href="/notebooks/new">+ Ask a question</a>`,
     })}
     ${renderDraftsStrip(args.drafts ?? [], 'list')}
     ${counts.all || counts.archived ? html`
       <form method="GET" action="/notebooks" class="nbl-tools" role="search">
-        <nav class="nb-tabs" aria-label="Notebooks by status">${tab('active', 'Active')}${tab('decided', 'Decided')}${tab('stopped', 'Stopped')}${tab('all', 'All')}${counts.starred || q.status === 'starred' ? tab('starred', '★ Starred') : html``}${counts.archived ? tab('archived', 'Archived') : html``}</nav>
+        <nav class="nb-tabs" aria-label="Answers by status">${tab('active', 'Active')}${tab('decided', 'Decided')}${tab('stopped', 'Stopped')}${tab('all', 'All')}${counts.starred || q.status === 'starred' ? tab('starred', '★ Starred') : html``}${counts.archived ? tab('archived', 'Archived') : html``}</nav>
         ${q.status !== 'active' ? html`<input type="hidden" name="status" value="${q.status}">` : html``}
         ${q.tag ? html`<input type="hidden" name="tag" value="${q.tag}">` : html``}
-        <label class="nbl-tools__search"><span class="sr-only">Search notebooks</span>
+        <label class="nbl-tools__search"><span class="sr-only">Search answers</span>
           <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
-          <input type="search" name="q" value="${q.q}" placeholder="Search notebooks" autocomplete="off"></label>
+          <input type="search" name="q" value="${q.q}" placeholder="Search answers" autocomplete="off"></label>
         <label class="nbl-tools__sort"><span class="sr-only">Sort</span>
           <select name="sort" data-autosubmit>
             <option value="updated"${q.sort === 'updated' ? unsafeHtml(' selected') : unsafeHtml('')}>Recently updated</option>
@@ -1812,7 +1812,7 @@ export function coverArt(nb: Pick<Notebook, 'id' | 'title' | 'statement' | 'stag
   const id = `nbc-${nb.id.replace(/[^a-z0-9-]/gi, '')}`;
   const kind = notebookKind(nb);
   const bars = nb.stages.slice(0, 5).map((_, i, a) => `<rect x="${String(16 + i * 22)}" y="${String(150 - (a.length - i) * 7)}" width="16" height="${String((a.length - i) * 7)}" rx="3" fill="#fff" fill-opacity="${(0.55 - i * 0.08).toFixed(2)}"/>`).join('');
-  return unsafeHtml(`<svg class="nbl-card__art" viewBox="0 0 320 160" preserveAspectRatio="xMidYMid slice" role="img" aria-label="${kind === 'notebook' ? 'Notebook' : kind}">
+  return unsafeHtml(`<svg class="nbl-card__art" viewBox="0 0 320 160" preserveAspectRatio="xMidYMid slice" role="img" aria-label="${kind === 'notebook' ? 'Answer' : kind}">
     <defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${String(hue)} 55% 46%)"/><stop offset="1" stop-color="hsl(${String((hue + 40) % 360)} 60% 32%)"/></linearGradient></defs>
     <rect width="320" height="160" fill="url(#${id})"/>
     <circle cx="270" cy="20" r="70" fill="#fff" fill-opacity="0.08"/><circle cx="300" cy="140" r="46" fill="#fff" fill-opacity="0.06"/>
@@ -1835,7 +1835,7 @@ export function drawnCoverSrc(nb: Pick<Notebook, 'id' | 'title' | 'statement' | 
   for (const ch of nb.id) h = (h * 31 + ch.charCodeAt(0)) % 360;
   const hue = (h + 170) % 360;
   const kind = notebookKind(nb);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" preserveAspectRatio="xMidYMid slice" role="img" aria-label="${kind === 'notebook' ? 'Notebook' : kind}">
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" preserveAspectRatio="xMidYMid slice" role="img" aria-label="${kind === 'notebook' ? 'Answer' : kind}">
 <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${String(hue)} 55% 46%)"/><stop offset="1" stop-color="hsl(${String((hue + 40) % 360)} 60% 32%)"/></linearGradient></defs>
 <rect width="600" height="600" fill="url(#g)"/>
 <circle cx="480" cy="110" r="190" fill="#fff" fill-opacity="0.08"/><circle cx="110" cy="520" r="150" fill="#fff" fill-opacity="0.06"/>
@@ -1848,7 +1848,7 @@ export function drawnCoverSrc(nb: Pick<Notebook, 'id' | 'title' | 'statement' | 
 
 /** The notebooks control in Home's header: a button to the list with a joined "+" for a new one, sized like the controls beside it. */
 export function renderHomeNotebooksButtons(active: number, total: number): SafeHtml {
-  return html`<span class="home-nbgroup" title="Notebooks: goals you keep over time"><a class="btn btn--sm" href="/notebooks">${NOTEBOOK_ICON}${total === 0 ? 'Notebooks' : `${String(active)} notebook${active === 1 ? '' : 's'}`}</a><a class="btn btn--sm home-nbgroup__new" href="/notebooks/new" aria-label="New notebook" title="New notebook">+</a></span>`;
+  return html`<span class="home-nbgroup" title="Answers: what you asked sua to find out"><a class="btn btn--sm" href="/notebooks">${NOTEBOOK_ICON}${total === 0 ? 'Answers' : `${String(active)} answer${active === 1 ? '' : 's'}`}</a><a class="btn btn--sm home-nbgroup__new" href="/notebooks/new" aria-label="Ask a question" title="Ask a question">+</a></span>`;
 }
 
 /** "today 7:00 am", "tomorrow 7:00 am", "Thu 7:00 am". */

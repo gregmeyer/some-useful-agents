@@ -68,8 +68,8 @@ function renderAskCard(starters: readonly AskStarters[], offered: ReadonlySet<st
       ${start?.pills.length ? html`<div class="home-ask-card__starters" data-ask-starters hidden>
         <div class="home-ask-card__row">
           <span class="home-ask-card__verb">Start</span>
-          <div class="ask-pills" role="group" aria-label="Start a notebook">${start.pills.map((p) => (p.href
-            ? html`<a class="ask-pill" href="${p.href}" title="New notebook: ${p.text}…">${p.label}</a>`
+          <div class="ask-pills" role="group" aria-label="Ask a question">${start.pills.map((p) => (p.href
+            ? html`<a class="ask-pill" href="${p.href}" title="Ask: ${p.text}…">${p.label}</a>`
             : html`<button type="button" class="ask-pill" data-ask-fill="${p.text}" title="${p.text}">${p.label}</button>`)) as unknown as SafeHtml[]}</div>
         </div>
       </div>` : html``}
@@ -141,7 +141,7 @@ export function renderHomePage(opts: {
         <div class="home-main" data-ask-scope>
           ${main.map((p) => part[p.id]) as unknown as SafeHtml[]}
         </div>
-        <aside class="home-rail" aria-label="Today's reads and your notebooks">
+        <aside class="home-rail" aria-label="Today's reads and your answers">
           ${rail.map((p) => part[p.id]) as unknown as SafeHtml[]}
         </aside>
       </div>

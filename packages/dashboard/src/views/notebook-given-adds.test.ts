@@ -17,7 +17,7 @@ describe("what you gave a notebook: what needs you above the title, the rest in 
     expect(String(givenCard(n, {}, undefined, 'needs'))).toBe('');
     expect(String(givenCard(n, {}, undefined, 'fresh'))).toBe('');
     const adds = String(givenAdds(n));
-    expect(adds).toContain('<div class="nb-hero__adds" role="group" aria-label="Add to this notebook">');
+    expect(adds).toContain('<div class="nb-hero__adds" role="group" aria-label="Add to this answer">');
     expect(adds).toMatch(/<details class="nb-hero__add" data-nb-act data-nb-act-name="gave"><summary>You gave: their LinkedIn profile<\/summary>/);
     expect(adds).toContain('Their LinkedIn profile, as sua read it:</span> A founder in San Francisco.');
     expect(adds).toContain('<dt>Role</dt><dd>Founder</dd>');
@@ -42,7 +42,7 @@ describe("what you gave a notebook: what needs you above the title, the rest in 
       { key: 'notes', label: 'your notes', state: 'skipped', at },
       { ...profile, read: undefined },
     ]), {}, undefined, 'needs'));
-    expect(needs).toContain('aria-label="What this notebook needs from you"');
+    expect(needs).toContain('aria-label="What this answer needs from you"');
     expect(needs).toContain('sua needs the agenda.');
     expect(needs).toContain('Not matched to your notes:');
     expect(needs).toContain("sua hasn't read their LinkedIn profile yet.");

@@ -42,7 +42,7 @@ export function renderImportPlan(plan: NotebookImportPlan, key: string): SafeHtm
 export function renderNotebookImport(opts: { flash?: { kind: 'error' | 'ok' | 'info'; message: string } } = {}): string {
   return render(layout({ title: 'Import a notebook', activeNav: 'notebooks', flash: opts.flash }, html`
     <div class="nb-import">
-      <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a> › Import</p>
+      <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Answers</a> › Import</p>
       <h1 class="nbd__title">Import a notebook</h1>
       <p class="dim">A notebook file (<span class="mono">.suanb</span>) is a copy of a notebook from another sua: Download / share → Notebook file on that machine. It brings its options, facts, pictures, write-up and steps, and the agents and tools of yours it runs. Once imported it's its own notebook here.</p>
       <label class="form-field">

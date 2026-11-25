@@ -2451,7 +2451,7 @@ describe('a notebook\'s conversation (sua files what you say)', () => {
     const empty = await get(`/notebooks/${nb.id}`);
     expect(empty.text).toContain("Tell sua what you're looking for");
     expect(empty.text).toContain(`action="/notebooks/${nb.id}/ask"`);
-    expect(empty.text).not.toContain('Talk to sua about this notebook');
+    expect(empty.text).not.toContain('Talk to sua about this answer');
 
     const first = await post(`/notebooks/${nb.id}/ask`, { text: 'She is 17, likes Subarus' });
     expect(first.status).toBe(204);
@@ -2490,7 +2490,7 @@ describe('a notebook\'s conversation (sua files what you say)', () => {
 
     // The page now: the conversation box + Continue; the sections fragment for live updates.
     const page = await get(`/notebooks/${nb.id}`);
-    expect(page.text).toContain('Talk to sua about this notebook');
+    expect(page.text).toContain('Talk to sua about this answer');
     expect(page.text).toContain(`data-nb-continue="${thread}"`);
     expect(page.text).toContain('Add an entry yourself');
     const main = await get(`/notebooks/${nb.id}/main`);

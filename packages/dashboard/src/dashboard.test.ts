@@ -355,7 +355,7 @@ describe('Dashboard nav structure (Pulse hero + Agents section tabs)', () => {
     // Home is the inbox, so the brand covers it: no separate Inbox item.
     expect(nav).not.toContain('>Inbox');
     expect(nav).toContain('>Agents<');
-    expect(nav).toContain('>Notebooks<');
+    expect(nav).toContain('>Answers<');
     // Top-level nav still doesn't surface the building blocks directly.
     expect(nav).not.toContain('href="/tools"');
     expect(nav).not.toContain('href="/nodes"');

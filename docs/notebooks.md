@@ -9,6 +9,8 @@ A **notebook** is a goal you keep over time, like "Buy a used car" or "Find a ne
 - **entries**: options you're weighing, notes, evidence, and decisions, each with who added it;
 - finally, **a decision** that closes it.
 
+**In the dashboard they're Answers.** The top bar says **Answers**, and so do Home's shelf, the list, **Ask a question** (the page that starts one) and each one's page. `/answers` (and anything under it) goes to the same page under `/notebooks`, which stays the URL. Each answer's kind is the name of its page: **Shortlist**, **Meeting brief**, **Company brief**, **Topic brief**, **Explainer** (the page once called Answer), **How-to** (once Runbook), **Plan** or **Watch**. A page drawn under an old name reads as the new one, and an edit that names an old one still picks it. This doc, the code, the MCP tools and the `sua notebook` CLI still say notebook.
+
 ## Where to find them
 
 **Notebooks** is in the top bar, first after Home. Notebooks also show up:

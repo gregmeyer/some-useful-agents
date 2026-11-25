@@ -222,16 +222,16 @@ export function renderHelp(): string {
           <a href="/settings/appearance#brand">Settings \u2192 Appearance \u2192 Brand</a>.
         </li>
         <li>
-          <strong>Start from Home.</strong> The <em>Ask sua</em> card under Today has starters to start a notebook,
+          <strong>Start from Home.</strong> The <em>Ask sua</em> card under Today has starters to ask a question,
           run, build, fix or look something up; its <em>Run</em> row runs an agent that takes nothing in one click, and for one about something (a topic, a place) fills the box with its values to change before you send.
         </li>
         <li>
-          <strong>Keep a goal in a notebook.</strong> <a href="/notebooks/new">Start a notebook</a> with a sentence
-          (a car to buy, a meeting to prepare for): sua lays out its steps (learn about who it's about, find, source,
-          check, then decide or write the talking points), runs them one at a time, and picks a page that fits: a
-          shortlist for a choice, a briefing for a meeting. Change it from <em>Edit</em>: <em>Talk</em> (say what to
-          change), <em>Prompt</em> (the whole notebook as text) or <em>How it looks</em>, with a preview before you
-          save. Share its brief (it prints its page, as a PDF); save it as a template under <em>Manage</em>.
+          <strong>Ask a question, get an answer you can check.</strong> <a href="/notebooks/new">Ask a question</a> in a sentence
+          (a car to buy, a meeting to prepare for, how something works): sua lays out its steps (learn about who it's about, find, source,
+          check, then decide or write it up), runs them straight through, and picks a page that fits: a
+          shortlist for a choice, a meeting brief for a meeting, an explainer for a question. Every source it used is listed, with its quote and whether it was found on the page. Change it from <em>Edit</em>: <em>Talk</em> (say what to
+          change), <em>Prompt</em> (the whole answer as text) or <em>How it looks</em>, with a preview before you
+          save. Share its print version (as a page or a PDF); save it as a template under <em>Manage</em>.
         </li>
         <li>
           <strong>Serve it to other agents.</strong> Set <code>mcp: true</code> and run <code>sua mcp start</code>:
@@ -274,7 +274,7 @@ export function renderHelp(): string {
       </p>
       <ul style="line-height: 1.8;">
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/quickstart.md" target="_blank" rel="noreferrer">Quickstart</a> \u2014 30-minute first-touch guide, from install to chained agents.</li>
-        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/notebooks.md" target="_blank" rel="noreferrer">Notebooks</a> \u2014 goals sua keeps for you: steps, options, templates, a brief (<a href="/notebooks">Notebooks</a>).</li>
+        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/notebooks.md" target="_blank" rel="noreferrer">Answers</a> \u2014 what you asked sua to find out: steps, options, templates, a brief (<a href="/notebooks">Answers</a>).</li>
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/boards.md" target="_blank" rel="noreferrer">Boards</a> \u2014 Pulse and dashboards as canvases; build one from a request (<a href="/pulse">Pulse</a>).</li>
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/agents.md" target="_blank" rel="noreferrer">Agent YAML reference</a> \u2014 every field: inputs, nodes, schedule, signal, output widget.</li>
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/flows.md" target="_blank" rel="noreferrer">Flow control</a> \u2014 conditional, switch, loop, agent-invoke, branch, end, break.</li>

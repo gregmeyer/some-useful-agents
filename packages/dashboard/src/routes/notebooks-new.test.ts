@@ -273,7 +273,7 @@ describe('how a notebook was made (Workflow)', () => {
     expect(csv.text).toContain('Car c');
     expect(csv.text).not.toMatch(/Car [abd]/);
     const brief = (await get('/notebooks/car/brief.html?latest=1')).text;
-    expect(brief).toContain('What&#39;s new · Notebook brief');
+    expect(brief).toContain('What&#39;s new · Answer');
     expect(brief).toContain('1 new in the running from the last run that found options');
     expect(brief).toContain('1 more it found was ruled out.');
     expect(brief).toContain('New in the last run<span class="count">1 new</span>');
@@ -441,7 +441,7 @@ describe('a brief to share', () => {
     // The extended brief (an option): the summary, then each option in full.
     expect(t).not.toContain('Each option in full');
     const full = (await get(`/notebooks/${nb.id}/brief.html?full=1`)).text;
-    expect(full).toContain('Extended notebook brief');
+    expect(full).toContain('Answer in full');
     expect(full).toMatch(/<h2 data-n="\d+" id="b-full">Each option in full<span class="count">2<\/span><\/h2>/);
     expect(full).toMatch(/<dl class="full__facts"><div><dt>Price<\/dt><dd>\$4,999<\/dd><\/div>/);
     expect(full).toContain('<li class="crit is-met"><i>✓</i><span>Clean title</span></li>');
@@ -912,7 +912,7 @@ describe('a notebook\'s page, drawn by sua', () => {
     const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     const post = (path: string, body: string) => request(app).post(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
     const edit = (await get(`/notebooks/${nb.id}/edit?tab=looks`)).text;
-    expect(edit).toMatch(/aria-label="Made for this notebook, how it looks">[\s\S]*?<span class="look-card__badge">Now<\/span>/);
+    expect(edit).toMatch(/aria-label="Made for this answer, how it looks">[\s\S]*?<span class="look-card__badge">Now<\/span>/);
     expect(edit).toContain('Undo the last saved change to how it looks');
     const undone = await post(`/notebooks/${nb.id}/layout`, 'undo=1');
     expect(decodeURIComponent(undone.headers.location)).toContain('Put the page back how it was before the last change.');

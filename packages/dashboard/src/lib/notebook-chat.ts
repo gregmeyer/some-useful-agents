@@ -483,7 +483,7 @@ export function notebookThread(ctx: Ctx, nb: Notebook): string | undefined {
   const existing = nb.conversationId && ctx.inboxStore.get(nb.conversationId) ? nb.conversationId : undefined;
   if (existing) return existing;
   const created = ctx.inboxStore.add({
-    priority: 'medium', source: 'manual', title: `Notebook: ${nb.title}`, body: '(empty)',
+    priority: 'medium', source: 'manual', title: `Answer: ${nb.title}`, body: '(empty)',
     contextJson: JSON.stringify({ page: { path: `/notebooks/${encodeURIComponent(nb.id)}`, title: nb.title, kind: 'notebook', id: nb.id } }),
   });
   notebooksOf(ctx).setConversation(nb.id, created.id);
@@ -501,7 +501,7 @@ export function notebookGreeting(nb: Notebook, hasOptions = false): string {
   const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
   // The one most useful thing to say first, in sua's own words.
   const first = !nb.statement
-    ? "What's this notebook for? A sentence is enough."
+    ? "What do you want to find out? A sentence is enough."
     // A meeting notebook without the meeting: when it is and what you want, so the talking points aim at it.
     : isMeetingNotebook(nb) && !nb.meeting?.goal
       ? `When is the meeting, and what do you want out of it? Tell me here, or add it under **Add the meeting** at the top of the page; the talking points aim at your goal.`

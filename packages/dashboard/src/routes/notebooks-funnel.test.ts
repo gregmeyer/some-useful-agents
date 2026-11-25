@@ -520,7 +520,7 @@ describe('sua greets a new notebook', () => {
     expect(text).toContain('**Done when:** at least one car that fits; clean title.');
     expect(text).toContain('What are your limits? Budget, must-haves, deal-breakers, and where to look.');
     expect(notebookGreeting({ ...nb, params: ['AWD'] })).toContain("Tell me about any you've already seen, or ask me to search");
-    expect(notebookGreeting({ ...nb, statement: '' })).toContain("What's this notebook for?");
+    expect(notebookGreeting({ ...nb, statement: '' })).toContain('What do you want to find out?');
   });
 
   it('posts it once, into the notebook\'s own conversation, after setup', async () => {
@@ -535,7 +535,7 @@ describe('sua greets a new notebook', () => {
     expect(nb.conversationId).toBeTruthy();
     const inbox = InboxStore.fromHandle(S.runStore.databaseHandle());
     const thread = inbox.get(nb.conversationId!)!;
-    expect(thread).toMatchObject({ title: 'Notebook: Find a staff role', status: 'awaiting_user' });
+    expect(thread).toMatchObject({ title: 'Answer: Find a staff role', status: 'awaiting_user' });
     const said = inbox.listResponses(thread.id);
     expect(said).toHaveLength(1);
     expect(said[0]).toMatchObject({ role: 'triage' });
@@ -741,7 +741,7 @@ describe('runs not in the notebook yet', () => {
     // Only runs it offers can be skipped.
     expect(decodeURIComponent((await post('run-g0/skip')).headers.location.replace(/\+/g, ' '))).toContain("isn't offered here");
     expect(decodeURIComponent((await post('skip-all')).headers.location.replace(/\+/g, ' '))).toContain('Skipped 2 runs');
-    expect((await get()).text).not.toContain('Runs not in this notebook yet');
+    expect((await get()).text).not.toContain('Runs not in this answer yet');
     expect(store.skippedRunIds(nb.id).sort()).toEqual(['run-g1', 'run-g2', 'run-g3']);
   });
 
@@ -763,7 +763,7 @@ describe('runs not in the notebook yet', () => {
     run('run-other', 'weather', 'completed', 60_000, keeper);
     const get = () => request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     let page = await get();
-    expect(page.text).toContain('Runs not in this notebook yet');
+    expect(page.text).toContain('Runs not in this answer yet');
     expect(page.text).toContain(`/notebooks/${nb.id}/runs/run-new/add`);
     for (const r of ['run-filed', 'run-failed', 'run-old', 'run-other']) expect(page.text).not.toContain(`/runs/${r}/add`);
     // A run already filed into another notebook belongs there.
@@ -787,7 +787,7 @@ describe('runs not in the notebook yet', () => {
     for (let i = 0; i < 50 && !store.entries(nb.id).some((e) => e.title.startsWith('2007 Forester')); i++) await new Promise((r) => setTimeout(r, 20));
     expect(store.entries(nb.id).find((e) => e.title.startsWith('2007 Forester'))?.runId).toBe('run-new');
     page = await get();
-    expect(page.text).not.toContain('Runs not in this notebook yet');
+    expect(page.text).not.toContain('Runs not in this answer yet');
     expect(decodeURIComponent((await post('run-new')).headers.location.replace(/\+/g, ' '))).toContain('already in the notebook');
     // Adding it was a pass of its own, and the Workflow draws it.
     const passes = store.passes(nb.id);
@@ -820,7 +820,7 @@ describe("Home's notebooks shelf", () => {
 
     // None yet: an inviting + New, nothing else.
     let page = await home();
-    expect(page).toContain('Your notebooks');
+    expect(page).toContain('Your answers');
     expect(page).toContain('class="nbs-new nbs-new--alone" href="/notebooks/new"');
     expect(page).not.toContain('class="nbs-card"');
 
@@ -847,12 +847,12 @@ describe("Home's notebooks shelf", () => {
     expect(cards).toHaveLength(4);
     expect(cards[0]).toContain(`/notebooks/${car.id}"`); // changed last, so first
     // Recent ones you decided or put away are listed too, marked; they're where you were, not a suggestion.
-    expect(page).toContain('Recent notebooks');
+    expect(page).toContain('Recent answers');
     const card = (id: string) => page.slice(page.indexOf(`/notebooks/${id}"`), page.indexOf('</a>', page.indexOf(`/notebooks/${id}"`)));
     expect(card(done.id)).toContain('<span class="nbs-card__mark">decided</span>');
     expect(card(away.id)).toContain('<span class="nbs-card__mark">archived</span>');
     expect(card(car.id)).not.toContain('nbs-card__mark');
-    expect(page).toContain('All notebooks (7) →');
+    expect(page).toContain('All answers (7) →');
     const carCard = page.slice(page.indexOf(`/notebooks/${car.id}"`), page.indexOf('</a>', page.indexOf(`/notebooks/${car.id}"`)));
     expect(carCard).toContain('sua asked you');
     expect(carCard).toContain('<span class="nbs-card__price">$4,023</span>');

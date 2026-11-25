@@ -103,6 +103,13 @@ function widgetHistory(ctx: ReturnType<typeof getContext>, s: NotebookStore): No
   });
 }
 
+// Answers is what the notebooks are called (ADR-0049 keeps the /notebooks URLs): /answers and anything under it go there, the query kept.
+notebooksRouter.get(/^\/answers(\/.*)?$/, (req: Request, res: Response) => {
+  const rest = req.path.slice('/answers'.length);
+  const q = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  res.redirect(301, `/notebooks${rest}${q}`);
+});
+
 notebooksRouter.get('/notebooks', (req: Request, res: Response) => {
   // The old "+ New notebook" form opened with ?new=1; it's a page now.
   if (req.query.new === '1') { res.redirect(302, `/notebooks/new${req.query.flash ? `?flash=${encodeURIComponent(str(req.query.flash))}` : ''}`); return; }

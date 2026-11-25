@@ -108,7 +108,7 @@ export function renderNotebookOptionPage(args: { nb: Notebook; entry: NotebookEn
   const seenAgain = o.lastSeenAt.slice(0, 16) !== o.firstSeenAt.slice(0, 16);
   return render(layout({ title: `${o.name} · ${nb.title}`, activeNav: 'notebooks', flash: args.flash, wide: true }, html`
     <div class="nbo-top">
-      <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a> › <a href="${nbHref}">${nb.title}</a></p>
+      <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Answers</a> › <a href="${nbHref}">${nb.title}</a></p>
       ${optionNav(e, data.nav)}
     </div>
     <section class="nbo-hero${e.ruledOut ? ' nbo-hero--out' : ''}" aria-labelledby="nbo-title" data-nb-option="${e.id}" data-nb-option-notebook="${nb.id}">

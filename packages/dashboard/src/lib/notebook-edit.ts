@@ -121,7 +121,7 @@ export function pageName(layout: NotebookLayout | undefined): string {
   if (!layout) return 'Shortlist';
   const preset = layout.preset ? layoutPreset(layout.preset) : undefined;
   if (preset && JSON.stringify(preset.layout.components) === JSON.stringify(layout.components)) return preset.label;
-  return 'Made for this notebook';
+  return 'Made for this answer';
 }
 
 /** What an edit changes, one line each, in the setup's order. Pure. */
@@ -165,7 +165,7 @@ export function describeSetupChange(before: NotebookSetup, after: NotebookSetup,
   if (pageAfter !== undefined && JSON.stringify(pageBefore ?? null) !== JSON.stringify(pageAfter ?? null)) {
     const a = pageName(pageAfter ?? undefined);
     const b = pageName(pageBefore);
-    const why = pageAfter?.about && a === 'Made for this notebook' ? ` (${pageAfter.about})` : '';
+    const why = pageAfter?.about && a === 'Made for this answer' ? ` (${pageAfter.about})` : '';
     out.push(a === b ? `How it looks: changed${why}` : `How it looks: ${b} → ${a}${why}`);
   }
   return out;
@@ -353,7 +353,7 @@ export function notebookFromMarkdown(md: string, base: NotebookSetup, baseLayout
   const page = items(PAGE)?.join(' ');
   let layout: NotebookLayout | null | undefined;
   if (page && norm(page) !== norm(pageName(baseLayout))) {
-    const preset = NOTEBOOK_LAYOUT_PRESETS.find((p) => norm(p.label) === norm(page) || norm(p.id) === norm(page));
+    const preset = NOTEBOOK_LAYOUT_PRESETS.find((p) => norm(p.label) === norm(page) || norm(p.id) === norm(page) || (p.was ?? []).some((w) => norm(w) === norm(page)));
     if (preset) layout = preset.id === 'shortlist' ? null : preset.layout;
   }
   return { setup, ...(layout !== undefined ? { layout } : {}) };

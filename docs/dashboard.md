@@ -32,7 +32,7 @@ The footer shows a **build stamp** (`sua vX · <sha>`) so you can tell which bui
 
 ## Navigation
 
-The top bar: `sua · Notebooks · Agents · Pulse · Settings · Help`. The `sua` brand is Home (`/`). **Agents** groups the building blocks; its pages share an in-page tab strip (**Start here · Agents · Behaviors · Tools · Runs · Packs · Scheduled**) under the page header. On the right, **N need you** (every page) counts what Today lists as waiting for you, and **Ask sua** (or **Cmd/Ctrl+K**) starts a conversation with sua from anywhere.
+The top bar: `sua · Answers · Agents · Experiments · Pulse · Settings · Help` (**Answers** is the notebooks list, at `/notebooks`; `/answers` goes there too). The `sua` brand is Home (`/`). **Agents** groups the building blocks; its pages share an in-page tab strip (**Start here · Agents · Behaviors · Tools · Runs · Packs · Scheduled**) under the page header. On the right, **N need you** (every page) counts what Today lists as waiting for you, and **Ask sua** (or **Cmd/Ctrl+K**) starts a conversation with sua from anywhere.
 
 ### The conversation panel
 

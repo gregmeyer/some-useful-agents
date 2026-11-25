@@ -43,7 +43,7 @@ export function renderTldrRedraw(args: { nb: Notebook; state?: TldrRedrawState; 
   const form = (path: string, label: string, cls = 'btn btn--sm') => html`<form method="POST" action="/notebooks/${id}/tldr/${path}"><button type="submit" class="${cls}" ${busy ? unsafeHtml('disabled') : unsafeHtml('')}>${label}</button></form>`;
   return render(layout({ title: `TL;DR picture · ${nb.title}`, activeNav: 'notebooks', flash: args.flash, wide: true }, html`
     ${pageHeader({
-      crumbs: [{ label: 'Home', href: '/' }, { label: 'Notebooks', href: '/notebooks' }, { label: nb.title, href: `/notebooks/${id}` }, { label: 'TL;DR picture' }],
+      crumbs: [{ label: 'Home', href: '/' }, { label: 'Answers', href: '/notebooks' }, { label: nb.title, href: `/notebooks/${id}` }, { label: 'TL;DR picture' }],
       title: 'The TL;DR picture',
       description: 'One picture that sums the notebook up, to share. Say how you want it drawn; its names, numbers and bars always come from the notebook.',
     })}
