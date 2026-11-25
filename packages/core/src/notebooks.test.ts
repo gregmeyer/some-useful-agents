@@ -1836,3 +1836,26 @@ describe('facts kept as a reader should see them', () => {
     expect(again.facts.find((f) => f.key === 'revenue')!.changedAt).toBeUndefined();
   });
 });
+
+describe('siteSpread: a shortlist leaning on one site', () => {
+  it('names the site and how many over half the target, unless the target is small, it is a multi-company job board, or you asked for that site', async () => {
+    const { siteSpread, NotebookStore } = await import('./notebooks.js');
+    const { mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const s = new NotebookStore(join(mkdtempSync(join(tmpdir(), 'sua-spread-')), 'runs.db'));
+    const make = (title: string, hosts: string[]) => {
+      const nb = s.create({ title });
+      hosts.forEach((h, i) => s.upsertOption(nb.id, { title: `Item ${String(i)}`, by: 'you', fingerprint: `https://${h}/p/${String(i)}` }));
+      const entries = s.entries(nb.id, 100);
+      const options = entries.filter((e) => e.kind === 'option').map((e) => ({ id: e.id, fields: (e.data ?? {}) as Record<string, string> }));
+      return (want: number) => siteSpread(s.get(nb.id)!, entries, options, { title: 'Find them' }, want);
+    };
+    expect(make('Headphones', ['www.shop.example', 'shop.example', 'shop.example', 'shop.example', 'shop.example'])(5)).toEqual({ host: 'shop.example', over: 2 });
+    expect(make('Headphones', ['a.example', 'b.example', 'a.example', 'b.example'])(4)).toBeUndefined();
+    expect(make('Headphones', ['shop.example', 'shop.example', 'shop.example'])(3)).toBeUndefined();
+    expect(make('PM roles', ['jobs.ashbyhq.com', 'jobs.ashbyhq.com', 'jobs.ashbyhq.com', 'jobs.ashbyhq.com'])(4)).toBeUndefined();
+    expect(make('Headphones on Shop', ['shop.example', 'shop.example', 'shop.example', 'shop.example'])(4)).toBeUndefined();
+    s.close();
+  });
+});

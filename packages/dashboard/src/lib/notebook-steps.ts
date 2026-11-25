@@ -14,7 +14,7 @@ import { inBackground } from './background.js';
 import { stepWhy, perItemWhy, type StepTry } from './notebook-step-why.js';
 import { reconcileAbout } from './notebook-reconcile.js';
 import { randomUUID } from 'node:crypto';
-import { NotebookStore, answerTracePages, checksLeft, givenNewSince, givenWaitingReason, notebookClosedReason, notebookViewData, rankOptions, sourceJobs, stepProgress, writesUp, type Agent, type InboxActionMeta, type Notebook, type NotebookEntry, type NotebookGiven, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
+import { NotebookStore, answerTracePages, checksLeft, siteSpread, givenNewSince, givenWaitingReason, notebookClosedReason, notebookViewData, rankOptions, sourceJobs, stepProgress, writesUp, type Agent, type InboxActionMeta, type Notebook, type NotebookEntry, type NotebookGiven, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
 import { givenReadingReason } from './notebook-given-read.js';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
@@ -225,10 +225,38 @@ export function nextOnItsOwn(ctx: Ctx, nb: Notebook, step: NotebookStep): Notebo
   return next && !isYourStep(next) ? next : undefined;
 }
 
+/**
+ * A check step that stopped short goes on by itself, straight through, when
+ * the next step writes it up: the write-up says which options weren't
+ * confirmed, so another few minutes of checking that can't settle them isn't
+ * worth stopping for. Not when steps wait (tests), for an experiment's copy,
+ * or a closed notebook.
+ */
+export function goesOnPastShortCheck(ctx: Ctx, nb: Notebook, step: NotebookStep): NotebookStep | undefined {
+  if (step.kind !== 'check' || ctx.notebookStepsWait || nb.experimentRun || nb.status !== 'active' || nb.archivedAt) return undefined;
+  const steps = nb.steps ?? [];
+  const next = steps.slice(steps.findIndex((x) => x.id === step.id) + 1).find((x) => x.status !== 'done');
+  return next?.kind === 'write' ? next : undefined;
+}
+
+/** Say something in the notebook's conversation (no card). */
+function sayInThread(ctx: Ctx, nb: Notebook, body: string): void {
+  const threadId = ctx.inboxStore ? notebookThread(ctx, nb) : undefined;
+  if (!threadId) return;
+  const msg = ctx.inboxStore!.addResponse(threadId, 'triage', body);
+  publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
+}
+
 /** A step that just met its goal: start the next one when it's sua's; when that can't start, say why (its Continue card follows). */
 function continueOnItsOwn(ctx: Ctx, notebookId: string, stepId: string): void {
   const nb = stores(ctx).get(notebookId);
   const step = nb?.steps?.find((x) => x.id === stepId);
+  // A check that stopped short, with a write-up next: it goes on with what it confirmed (the write-up marks the rest unconfirmed).
+  if (nb && step?.status === 'stuck' && goesOnPastShortCheck(ctx, nb, step)) {
+    const out = moveOnFromStep(ctx, notebookId, { stepId });
+    if (!out.moved || (out.next && !out.next.started && out.next.reason)) sayInThread(ctx, nb, `I couldn't go on past **${step.title}**: ${out.reason ?? out.next?.reason ?? 'it can’t move on yet'}`);
+    return;
+  }
   if (!nb || step?.status !== 'met') return;
   const next = nextOnItsOwn(ctx, nb, step);
   if (!next) return;
@@ -847,6 +875,10 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
   let last: StepTry | undefined;
   // Its last try got it no closer (else it ran out of tries this press while still getting closer).
   let noCloser = false;
+  // A find step whose options all came from one site gets one try elsewhere (fix for checks that can't read that site).
+  let spreadTried = false;
+  let spreadNote = '';
+  let spreadHad = 0;
   for (let i = 0; i < MAX_TRIES; i++) {
     tries++;
     const passId = store.startPass(nb.id, 'pipeline', undefined, { stepId: step.id });
@@ -885,17 +917,65 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
     nb = store.get(notebookId)!;
     const now = stepProgress(nb, store.entries(nb.id, 1000), step);
     store.updateStep(nb.id, step.id, { tries, note: progressWords(step, now) });
-    if (now.met) return finish(ctx, store, notebookId, { ...step, tries }, now, notes);
+    if (now.met) {
+      // Enough, but from one site with a check still to come: one more try elsewhere before going on (a check that can't read that site confirms nothing).
+      const spread = step.kind === 'find' && !spreadTried && i < MAX_TRIES - 1 ? findSpread(nb, store.entries(nb.id, 1000), step) : undefined;
+      if (!spread) {
+        if (spreadNote && step.kind === 'find') notes.push(spreadWords(now.have - spreadHad, spreadNote, findSpread(nb, store.entries(nb.id, 1000), step, true)));
+        return finish(ctx, store, notebookId, { ...step, tries }, now, notes);
+      }
+      spreadTried = true;
+      spreadNote = spread.host;
+      spreadHad = now.have;
+      notes.push(`${String(spread.over + Math.ceil(now.want / 2))} of them from ${spread.host}: one more try elsewhere`);
+      before = { ...now, met: false, have: now.have - spread.over, missing: [`${String(spread.over)} more from somewhere other than ${spread.host}`] };
+      gained = true;
+      continue;
+    }
     // A run that got it no closer: another try with the same job won't either.
     // Closer: more done, or anything still needed changed (a fact found, a check ticked, an option ruled out).
-    const closer = now.have > before.have || now.missing.join('\n') !== before.missing.join('\n');
+    // A check step is judged by its option-by-check pairs: a try that settles under a quarter of the open ones (and checks no option through) is its last.
+    const closer = step.kind === 'check' && before.cells && now.cells
+      ? now.have > before.have || before.cells.open - now.cells.open >= Math.max(1, Math.ceil(before.cells.open * CHECK_PROGRESS_SHARE))
+      : now.have > before.have || now.missing.join('\n') !== before.missing.join('\n');
     before = now;
     if (!closer) { noCloser = true; break; }
     gained = true;
+    // Short of the count, and what it has leans on one site: the next try is told to look elsewhere now, not after another try at the same site.
+    const lean = step.kind === 'find' && !spreadTried ? findSpread(nb, store.entries(nb.id, 1000), step) : undefined;
+    if (lean) {
+      spreadTried = true;
+      spreadNote = lean.host;
+      spreadHad = now.have;
+      notes.push(`${String(lean.over + Math.ceil(now.want / 2))} of them from ${lean.host}: the next try looks elsewhere`);
+      before = { ...now, missing: now.missing.map((m) => (/^\d+ more$/.test(m) ? `${m}, from somewhere other than ${lean.host}` : m)) };
+    }
+  }
+  // The try elsewhere didn't finish: it already had enough, so it goes on with those.
+  if (spreadNote && !stopped) {
+    const now = stepProgress(store.get(notebookId)!, store.entries(notebookId, 1000), step);
+    if (now.met) return finish(ctx, store, notebookId, { ...step, tries }, now, [...notes, spreadWords(now.have - spreadHad, spreadNote, findSpread(store.get(notebookId)!, store.entries(notebookId, 1000), step, true))]);
   }
   // You stopped it, or no run got it closer: Move on comes first.
   const stalled = stopped || !gained;
   return finish(ctx, store, notebookId, { ...step, tries }, before, notes, stalled, stepWhy(step, last, { stalled: noCloser || last?.status !== 'completed', tries }));
+}
+
+/** A check try must settle this share of the open option-by-check pairs (or check one option through) to earn another try. */
+export const CHECK_PROGRESS_SHARE = 0.25;
+
+/** How the try elsewhere went, in a line ("2 more from other sites", "the other sites had none that fit"). */
+function spreadWords(added: number, host: string, still: { host: string } | undefined): string {
+  if (added <= 0) return `all from ${host} still; the other sites had none that fit`;
+  return `${String(added)} more from other sites${still ? `, though most are still from ${host}` : ''}`;
+}
+
+/** A find step's options leaning on one site, when a check step comes after it (only then does it matter: the check reads their pages). */
+function findSpread(nb: Notebook, entries: readonly NotebookEntry[], step: NotebookStep, anyway = false): { host: string; over: number } | undefined {
+  const steps = nb.steps ?? [];
+  if (!anyway && !steps.slice(steps.findIndex((s) => s.id === step.id) + 1).some((s) => s.kind === 'check')) return undefined;
+  const options = notebookViewData(nb, entries).notebook.options.filter((o) => !o.ruledOut);
+  return siteSpread(nb, entries, options, step, step.target ?? 5);
 }
 
 /** At most this many pages a press: the step can be pressed again for the rest. */
@@ -1105,8 +1185,11 @@ export function postStepCard(ctx: Ctx, nb: Notebook, stepId: string, p: Notebook
   const stalled = !p.met && !!step.stalled;
   const onward = next ? `goes on to **${next.title}**` : 'finishes';
   // Met, and sua goes straight on: said, with no card to press.
-  const going = p.met ? nextOnItsOwn(ctx, nb, step) : undefined;
-  const body = p.met
+  const going = p.met ? nextOnItsOwn(ctx, nb, step) : !p.met && step.status === 'stuck' ? goesOnPastShortCheck(ctx, nb, step) : undefined;
+  const settled = p.cells ? p.cells.total - p.cells.open : 0;
+  const body = !p.met && going
+    ? `**${step.title}** stopped after ${String(step.tries)} ${step.tries === 1 ? 'try' : 'tries'} (${words}${p.cells?.total ? `; ${String(settled)} of ${String(p.cells.total)} checks confirmed or ruled out` : ''}).${step.why ? ` ${step.why}` : ''} Going on to **${going.title}**: it marks what wasn’t confirmed as unconfirmed. You can check the best few again from its step on the page.`
+    : p.met
     ? `Step ${String(i + 1)} of ${String(steps.length)} is done: **${step.title}** (${words}).${going ? ` Going on to **${going.title}**${going.agentId ? `, with ${going.agentId}` : ''}.` : next ? ` Next is **${next.title}**${next.agentId ? `, with ${next.agentId}` : ''}.` : ' That was the last step.'}`
     : stalled
       ? `**${step.title}** couldn't get any further (${words}). ${step.why ?? 'Its last run found nothing new.'} Its agent may not be able to do the rest. Still needed:\n${missing}\n\n**Move on** keeps what it found and ${onward}. **Try again** runs it once more. Or tell me what to do differently, for example a different agent for this step.`

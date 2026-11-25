@@ -4420,6 +4420,9 @@ export interface NotebookStepProgress {
   met: boolean; have: number; want: number; missing: string[];
   /** What it counts, when not options ("publishers": an answer's find step, ADR-0081). */
   unit?: string;
+  /** A check step's option-by-check pairs: how many are still open (neither met nor not met), of how many. A try is judged by how many it settles. */
+  cells?: { open: number; total: number };
+
 }
 
 /**
@@ -4428,6 +4431,43 @@ export interface NotebookStepProgress {
  * step looks up (counted fact by fact); check, every one has each check ticked (a failed one is ruled out,
  * so it's no longer in the running); decide, only when you've confirmed it.
  */
+/** Hosts that publish for many companies (applicant-tracking job boards): one host, many sources. */
+const MANY_PUBLISHER_HOSTS = /(^|\.)(ashbyhq\.com|greenhouse\.io|lever\.co|myworkdayjobs\.com|workable\.com|smartrecruiters\.com|bamboohr\.com|recruitee\.com|jobvite\.com|icims\.com|breezy\.hr)$/i;
+
+/** A shortlist's find step counts at most this share of its target from one site (rounded up), once the target is at least SPREAD_MIN. */
+export const SPREAD_MIN = 4;
+
+/**
+ * Whether a shortlist's options lean on one site: the most common site among
+ * their own links, and how many from it are over half the target (rounded up).
+ * None when the target is small, few options have links, or the notebook names
+ * that site (you asked for it), or the site is a job board that hosts many
+ * companies' postings. The find step uses it for one more try elsewhere. Pure.
+ */
+export function siteSpread(nb: Notebook, entries: readonly NotebookEntry[], options: ReadonlyArray<{ id: string; fields: Record<string, NotebookFieldValue> }>, step: { title?: string }, want: number): { host: string; over: number } | undefined {
+  if (want < SPREAD_MIN) return undefined;
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  const hostOf = (u: string | undefined) => { try { return u && /^https?:/i.test(u) ? new URL(u).hostname.replace(/^www\./, '').toLowerCase() : undefined; } catch { return undefined; } };
+  const counts = new Map<string, number>();
+  let linked = 0;
+  for (const o of options) {
+    const h = hostOf(optionLink(nb.fields, o.fields) ?? byId.get(o.id)?.fingerprint);
+    if (!h) continue;
+    linked++;
+    counts.set(h, (counts.get(h) ?? 0) + 1);
+  }
+  if (linked < SPREAD_MIN) return undefined;
+  const [host, n] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] ?? ['', 0];
+  const cap = Math.ceil(want / 2);
+  // A job board that hosts many companies' postings is many publishers on one host.
+  if (!host || n <= cap || MANY_PUBLISHER_HOSTS.test(host)) return undefined;
+  // You asked for that site ("on Crutchfield", "site:crutchfield.com"): one site is what you want.
+  const name = host.split('.').slice(-2, -1)[0] ?? host;
+  const asked = [nb.title, nb.statement, nb.asked ?? '', step.title ?? '', ...nb.params].join(' ').toLowerCase();
+  if (asked.includes(host) || (name.length >= 4 && asked.includes(name))) return undefined;
+  return { host, over: n - cap };
+}
+
 /** A profile step is met with this many facts learned about who the notebook is about. */
 export const PROFILE_FACTS_WANTED = 4;
 /** The pages an answer's check step traces: its evidence with a page, one per page (the first filed), newest first. */
@@ -4443,7 +4483,7 @@ export const ANSWER_OUTSIDE_PUBLISHERS = 2;
 /** A write step with no target is met with this many talking points. */
 export const BRIEFING_POINTS_WANTED = 3;
 
-export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'kind' | 'target' | 'status' | 'facts' | 'top'> & { shape?: NotebookStep['shape'] }): NotebookStepProgress {
+export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'kind' | 'target' | 'status' | 'facts' | 'top'> & { shape?: NotebookStep['shape']; title?: string }): NotebookStepProgress {
   const ranked = rankOptions(nb, notebookViewData(nb, entries).notebook.options);
   // A source or check step on the top N counts only those.
   const options = (step.kind === 'source' || step.kind === 'check') && step.top ? ranked.slice(0, step.top) : ranked;
@@ -4513,11 +4553,12 @@ export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], st
     const missing = nb.checks.length ? options.map((o) => ({ o, left: checksLeft(nb, o) }))
       .filter((x) => x.left.length).map((x) => `${x.o.name} — ${x.left.join(', ')}`) : [];
     const want = options.length;
+    const open = nb.checks.length ? options.reduce((k, o) => k + checksLeft(nb, o).length, 0) : 0;
     // A notebook that writes an answer or a write-up also traces the pages it learned from (ADR-0082): not done while one isn't.
     const writes = nb.steps?.some((s) => s.kind === 'write' && (s.shape === 'answer' || s.shape === 'writeup'));
     const untraced = writes ? answerTracePages(entries).filter((e) => !e.trace).map((e) => `source not traced yet — ${e.title}`) : [];
     // No checks yet: nothing is checked (the step waits for some).
-    return { met: want > 0 && nb.checks.length > 0 && !missing.length && !untraced.length, have: nb.checks.length ? want - missing.length : 0, want, missing: [...missing, ...untraced] };
+    return { met: want > 0 && nb.checks.length > 0 && !missing.length && !untraced.length, have: nb.checks.length ? want - missing.length : 0, want, missing: [...missing, ...untraced], cells: { open, total: want * nb.checks.length } };
   }
   if (step.kind === 'narrow') {
     // Yours: done when you keep some. Before then, how many are in the running against how many to keep.
