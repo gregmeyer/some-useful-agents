@@ -63,7 +63,7 @@ export function withSourcesList(given: readonly ViewComponent[], add = true): Vi
   const children = at >= 0 ? [...kids.slice(0, at), pid, ...kids.slice(at)] : [...kids, pid];
   return [
     ...renamed.map((c) => (c === root ? { ...c, children } : c)),
-    panel(pid, 'Where its sources are from', lid, 'who publishes each page it learned from'),
+    panel(pid, 'Where its sources are from', lid, { path: '/notebook/sourcesNote' }),
     { id: lid, component: 'Agenda', title: SOURCES_TITLE, points: { path: '/notebook/sources' }, questions: { path: '/notebook/sourceCautions' }, questionsLabel: 'To weigh', maxQuestions: 3, check: false },
   ];
 }
@@ -321,7 +321,7 @@ const ANSWER: ViewComponent[] = [
     questionsLabel: 'Still open', maxQuestions: 5, check: false, empty: 'No findings yet.',
   },
   // Who its pages are from (ADR-0081): each publisher, whose own or from outside, linked to its pages.
-  { ...panel('sources_p', 'Where its sources are from', 'sources', 'who publishes each page it learned from'), when: 'answered' },
+  { ...panel('sources_p', 'Where its sources are from', 'sources', { path: '/notebook/sourcesNote' }), when: 'answered' },
   {
     id: 'sources', component: 'Agenda', title: SOURCES_TITLE, points: { path: '/notebook/sources' }, questions: { path: '/notebook/sourceCautions' },
     questionsLabel: 'To weigh', maxQuestions: 3, check: false, empty: 'No pages yet.',
@@ -490,7 +490,7 @@ const RUNBOOK: ViewComponent[] = [
     id: 'findings', component: 'Agenda', title: 'What it rests on', points: { path: '/notebook/findings' }, questions: { path: '/notebook/openQuestions' },
     questionsLabel: 'Still open', maxQuestions: 5, check: false, empty: 'No findings yet.',
   },
-  { ...panel('sources_p', 'Where its sources are from', 'sources', 'who publishes each page it learned from'), when: 'answered' },
+  { ...panel('sources_p', 'Where its sources are from', 'sources', { path: '/notebook/sourcesNote' }), when: 'answered' },
   {
     id: 'sources', component: 'Agenda', title: SOURCES_TITLE, points: { path: '/notebook/sources' }, questions: { path: '/notebook/sourceCautions' },
     questionsLabel: 'To weigh', maxQuestions: 3, check: false, empty: 'No pages yet.',
@@ -1004,6 +1004,7 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/section': 'One written part by its key, /notebook/section/<key> (an answer\'s or a plan\'s), the same shape as an answerSections item; a page composed around what was written binds parts this way, and a key that\'s gone leaves its part out. A diagram with what-ifs (the written part says "whatIf") draws its own sliders; nothing to add.',
   '/notebook/experiment': 'For a notebook that shows an experiment (ADR-0078): {label, headline, rests, figures: [{label, value, sub, tone?}] (StatStrip), conditions, changes and items (Table rows), href, runs}. Counted from the experiment\'s runs; empty rows before it has run.',
   '/notebook/openQuestions': 'What the answer leaves open: questions it couldn\'t settle or what to do next (Agenda questions).',
+  '/notebook/sourcesNote': 'One line over the sources list: how many pages from how many publishers, and how many quotes were found on their page (a Panel note).',
   '/notebook/sources': 'Who publishes the pages an answer learned from (ADR-0081): one point per publisher, saying whose own pages they are or that they\'re from outside the subjects, what kind of source and how many pages, each linked to its pages (Agenda points).',
   '/notebook/sourceCautions': 'What to weigh about where an answer\'s sources come from: when every page it rests on is the subjects\' own, or only one publisher is from outside them (Agenda questions).',
   '/notebook/planIntro/label': '"The plan" once a write step wrote one; before, "Where it stands" (Callout label).',

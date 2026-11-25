@@ -1026,8 +1026,49 @@ const Timeline = define('Timeline', 'sua-a2ui-timeline',
 // Generic (any data in these shapes), so boards and agent views can use them too.
 const sectionHead = css`
   .h { margin: 0 0 8px; font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); }
-  .empty { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }`;
+  .empty { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+  /* A source you tap: its card opens in place (works on touch, unlike a hover title). */
+  details.src { display: inline; position: relative; }
+  details.src > summary { display: inline; padding: 0; cursor: pointer; list-style: none; color: var(--color-primary); }
+  details.src > summary::before, details.tr-d > summary::before { content: none; }
+  details.src > summary::-webkit-details-marker { display: none; }
+  details.src > summary::marker { content: ''; }
+  details.src > summary::after { content: ' ▾'; font-family: system-ui, sans-serif; }
+  details.src[open] > summary::after { content: ' ▴'; }
+  details.src > summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; border-radius: 2px; }
+  .card { display: block; margin: 6px 0 4px; padding: 10px 12px; max-width: 34rem; border: 1px solid var(--color-border); border-radius: var(--radius-md, 8px); background: var(--color-bg); font-size: var(--font-size-xs); line-height: 1.5; color: var(--color-text); white-space: normal; }
+  .card .who { font-weight: 600; }
+  .card .kind { color: var(--color-text-muted); }
+  .card blockquote { margin: 6px 0; padding-left: 10px; border-left: 2px solid var(--color-border); color: var(--color-text); font-style: italic; }
+  .card .st { display: block; margin: 4px 0; }
+  .card .st--found { color: var(--color-ok); }
+  .card .st--missing, .card .st--unread { color: var(--color-warn); }
+  .card .st--none, .card .st--no-quote { color: var(--color-text-muted); }
+  details.tr-d { display: inline; }
+  details.tr-d > summary { display: inline; padding: 3px 6px; cursor: pointer; list-style: none; }
+  details.tr-d > summary::-webkit-details-marker { display: none; }
+  details.tr-d > summary::marker { content: ''; }`;
 const outLink = (u, text) => (safeUrl(u) ? html`<a href=${safeUrl(u)} target=${u.startsWith('/') ? nothing : '_blank'} rel="noopener noreferrer">${text}</a>` : text);
+// Whether a source's quote was found on its page (ADR-0082), as the card says it.
+const SOURCE_STATUS = {
+  found: 'Its quote is on the page.',
+  missing: 'The page was read, and its quote isn\u2019t there.',
+  unread: 'The page couldn\u2019t be read, so the quote wasn\u2019t checked.',
+  'no-quote': 'Filed without a quote, so there\u2019s nothing to check.',
+  none: 'Not checked against its page yet.',
+};
+/**
+ * A link to what something rests on. A page sua learned from (it has a
+ * quote, a check or a kind) opens a card you tap: who publishes it, the
+ * quote, whether the quote was found on the page, and Open. Anything else
+ * (an option's page) is a plain link.
+ */
+const refLink = (r) => {
+  const href = safeUrl(r.href);
+  if (!href || href.startsWith('/') || !(r.quote || r.trace || r.kind)) return outLink(r.href, r.label);
+  const st = SOURCE_STATUS[r.trace] ? r.trace : 'none';
+  return html`<details class="src"><summary>${r.label}</summary><span class="card" role="group" aria-label=${`Source: ${r.label}`}><span class="who">${r.label}</span>${r.kind ? html` <span class="kind">· ${r.kind}</span>` : nothing}${r.quote ? html`<blockquote>${r.quote}</blockquote>` : nothing}<span class="st st--${st}">${SOURCE_STATUS[st]}</span><a href=${href} target="_blank" rel="noopener noreferrer">Open ${sourceName(href)} ↗</a></span></details>`;
+};
 
 const ProfileCard = define('ProfileCard', 'sua-a2ui-profile-card',
   Common.extend({ name: Str, role: Str.optional(), org: Str.optional(), about: Str.optional(), image: Str.optional(), imageFrom: Str.optional(), imageWhy: Str.optional(), rejectHref: Str.optional(), links: CommonSchemas.DynamicValue.optional(), asOf: Str.optional(), variant: z.enum(['card', 'cover']).optional(), quote: Str.optional(), quoteFrom: Str.optional(), quoteBy: Str.optional() }).strict(),
@@ -1272,7 +1313,7 @@ const Agenda = define('Agenda', 'sua-a2ui-agenda',
           : html`<div class="pt"><span class="num">${i + 1}</span><span class="t">${pt.text}</span></div>`}
         ${replace ? html`<form class="swap" method="POST" action=${replace}><input type="hidden" name="at" value=${String(i)}><input type="hidden" name="text" value=${pt.text}><button type="submit" class="copy" title="Strike this point; sua writes a new one in its place">Replace</button></form>` : nothing}
         ${pt.note ? html`<div class="note">${pt.note}</div>` : nothing}
-        ${refs(pt).length || TRACED[pt.trace] ? html`<div class="refs">${TRACED[pt.trace] ? html`<span class="tr tr--${pt.trace}" title=${TRACED[pt.trace][1]}>${TRACED[pt.trace][0]}</span>` : nothing}${refs(pt).map((r) => outLink(r.href, r.label))}</div>` : nothing}
+        ${refs(pt).length || TRACED[pt.trace] ? html`<div class="refs">${TRACED[pt.trace] ? html`<details class="tr-d"><summary class="tr tr--${pt.trace}" title=${TRACED[pt.trace][1]}>${TRACED[pt.trace][0]}</summary><span class="card">${TRACED[pt.trace][1]}.</span></details>` : nothing}${refs(pt).map(refLink)}</div>` : nothing}
       </li>`)}</ol>` : nothing}
       ${questions.length ? html`<h4 class="h">${p.questionsLabel ?? 'Questions to ask'}</h4><ul>${questions.slice(0, this._allQ ? questions.length : maxQ).map((q) => html`<li>${q.text}${q.href && safeUrl(q.href) && q.label ? html` <span class="refs">${outLink(q.href, q.label)}</span>` : nothing}</li>`)}</ul>
         ${!this._allQ && questions.length > maxQ ? html`<button type="button" class="more" @click=${() => { this._allQ = true; this.requestUpdate(); }}>Show ${questions.length - maxQ} more</button>` : nothing}` : nothing}
@@ -1424,7 +1465,7 @@ const Itinerary = define('Itinerary', 'sua-a2ui-itinerary',
       ${days.length ? html`<ol class="days">${days.map((d) => html`<li class="day"><div class="when">${d.when || 'Anytime'}</div><ul class="items">${d.items.map((it) => html`<li>
         <div class="t">${it.text}</div>
         ${it.note ? html`<div class="note">${it.note}</div>` : nothing}
-        ${refs(it).length ? html`<div class="refs">${refs(it).map((r) => outLink(r.href, r.label))}</div>` : nothing}
+        ${refs(it).length ? html`<div class="refs">${refs(it).map(refLink)}</div>` : nothing}
       </li>`)}</ul></li>`)}</ol>` : nothing}
       ${before.length ? html`<h4 class="h">${p.beforeLabel ?? 'Before you start'}</h4><ul class="plain">${before.map((b) => html`<li>${b.text}</li>`)}</ul>` : nothing}
       ${open.length ? html`<h4 class="h">${p.openLabel ?? 'Still open'}</h4><ul class="plain">${open.map((o) => html`<li>${o.text}</li>`)}</ul>` : nothing}
@@ -1655,7 +1696,7 @@ function drawDiagram(given, host, key) {
 }
 const sectionRefs = (it) => {
   const r = (Array.isArray(it?.refs) ? it.refs : []).filter((x) => x && safeUrl(x.href) && x.label).slice(0, 4);
-  return r.length ? html`<div class="refs">${r.map((x) => outLink(x.href, x.label))}</div>` : nothing;
+  return r.length ? html`<div class="refs">${r.map(refLink)}</div>` : nothing;
 };
 /** A table that reads as a rubric: 2–3 columns, the first a condition (core looksLikeRubric). */
 const looksLikeRubric = (cols) => cols.length >= 2 && cols.length <= 3 && typeof cols[0] === 'string' && /^(if|when|need|you|your)\b/i.test(cols[0].trim());

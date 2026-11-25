@@ -357,3 +357,14 @@ describe('the notebook\'s numbers (Lead)', () => {
     expect(notebookNumbers(nb, [])).toEqual({});
   });
 });
+
+describe('the line over the sources list', () => {
+  it('counts pages and publishers, and how many quotes were found on their page', async () => {
+    const { sourcesNote } = await import('./notebook-widgets.js');
+    expect(sourcesNote([])).toBe('');
+    const r = (trace?: string) => ({ label: 'a.example', href: 'https://a.example/x', ...(trace ? { trace } : {}) });
+    expect(sourcesNote([{ refs: [r(), r()] }])).toBe('2 pages from 1 publisher · not checked against their pages yet · tap one to see its quote');
+    expect(sourcesNote([{ refs: [r('found'), r('missing')] }, { refs: [r('found'), r('unread')] }])).toBe('4 pages from 2 publishers · 2 quotes found on their pages, 1 not found · tap one to see it');
+    expect(sourcesNote([{ refs: [r('found')] }])).toBe('1 page from 1 publisher · 1 quote found on its page · tap one to see it');
+  });
+});

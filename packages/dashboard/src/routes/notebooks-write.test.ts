@@ -675,7 +675,10 @@ describe('a write step', () => {
     expect(themes).toEqual([{ id: evidence[0].id, title: 'A ladder staggers maturities so part comes due each year.', said: '"Staggered maturity dates." (found by the Ladder guidance search)', source: 'https://regulator.example/cd-ladders', explains: true, publisher: 'regulator.example', whose: 'from outside the subjects' }]);
     const after = s.get(nb.id)!;
     expect(after.answer!.findings[0].from).toEqual([evidence[0].id]);
-    expect(notebookWidgetData(after, s.entries(nb.id)).notebook.findings[0].refs).toEqual([{ label: 'regulator.example', href: 'https://regulator.example/cd-ladders' }]);
+    // Its card (tap it): the quote it was filed with, not yet checked against the page.
+    expect(notebookWidgetData(after, s.entries(nb.id)).notebook.findings[0].refs).toEqual([expect.objectContaining({ label: 'regulator.example', href: 'https://regulator.example/cd-ladders', quote: 'Staggered maturity dates.' })]);
+    expect(notebookWidgetData(after, s.entries(nb.id)).notebook.findings[0].refs[0]).not.toHaveProperty('trace');
+    expect(notebookWidgetData(after, s.entries(nb.id)).notebook.sourcesNote).toBe('1 page from 1 publisher · not checked against their pages yet · tap one to see its quote');
     S.writerReply = undefined;
   });
 
@@ -718,7 +721,7 @@ describe('a write step', () => {
     expect(view.sourceCautions).toEqual([{ text: caution }]);
     // Each publisher once, most pages first, linked to its pages.
     expect(view.sources.map((p) => p.text)).toEqual(['CopilotKit · its own pages · primary source and vendor · 2 pages', 'AG-UI · its own pages · primary source · 1 page', "Google · A2UI's own pages · vendor · 1 page"]);
-    expect(view.sources[0].refs).toEqual([{ label: 'docs.copilotkit.ai', href: 'https://docs.copilotkit.ai/concepts/architecture' }, { label: 'copilotkit.ai', href: 'https://www.copilotkit.ai/ag-ui-and-a2ui' }]);
+    expect(view.sources[0].refs).toEqual([expect.objectContaining({ label: 'docs.copilotkit.ai', href: 'https://docs.copilotkit.ai/concepts/architecture' }), expect.objectContaining({ label: 'copilotkit.ai', href: 'https://www.copilotkit.ai/ag-ui-and-a2ui' })]);
 
     // Two outside publishers cited: nothing to weigh.
     applyKeeperResult(s, s.get(nb.id)!, 'notebook-finder', 'run-2', `<notebook>${JSON.stringify({ entries: [page('An outside explainer', 'https://thenewstack.io/a2ui'), page('Another outside view', 'https://infoq.com/ag-ui')] })}</notebook>`);
