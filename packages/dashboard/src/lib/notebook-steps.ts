@@ -25,6 +25,7 @@ import { keep, passNote, perItemInputs, pipelineInputs, readItemAnswer } from '.
 import { notebookThread } from './notebook-chat.js';
 import { reconcileStepCards } from './notebook-step-queue.js';
 import { learnAbout } from './notebook-profile.js';
+import { optionWords } from './notebook-card.js';
 import { startNotebookPictures } from './notebook-pictures.js';
 import { traceAnswerSources, traceOnItsOwn, traceWords, tracingNow } from './notebook-trace-step.js';
 import { whatsNew, whatsNewSummary } from './notebook-whats-new.js';
@@ -1210,19 +1211,47 @@ export function postStepCard(ctx: Ctx, nb: Notebook, stepId: string, p: Notebook
   // Met, and sua goes straight on: said, with no card to press.
   const going = p.met ? nextOnItsOwn(ctx, nb, step) : !p.met && step.status === 'stuck' ? goesOnPastShortCheck(ctx, nb, step) : undefined;
   const settled = p.cells ? p.cells.total - p.cells.open : 0;
-  const body = !p.met && going
+  // The last of sua's steps (none after it, or the next is yours): one Done message with the way to the answer.
+  const done = p.met && !going && (!next || isYourStep(next)) ? doneWords(ctx, nb, next) : undefined;
+  const body = done ?? (!p.met && going
     ? `**${step.title}** stopped after ${String(step.tries)} ${step.tries === 1 ? 'try' : 'tries'} (${words}${p.cells?.total ? `; ${String(settled)} of ${String(p.cells.total)} checks confirmed or ruled out` : ''}).${step.why ? ` ${step.why}` : ''} Going on to **${going.title}**: it marks what wasn’t confirmed as unconfirmed. You can check the best few again from its step on the page.`
     : p.met
     ? `Step ${String(i + 1)} of ${String(steps.length)} is done: **${step.title}** (${words}).${going ? ` Going on to **${going.title}**${going.agentId ? `, with ${going.agentId}` : ''}.` : next ? ` Next is **${next.title}**${next.agentId ? `, with ${next.agentId}` : ''}.` : ' That was the last step.'}`
     : stalled
       ? `**${step.title}** couldn't get any further (${words}). ${step.why ?? 'Its last run found nothing new.'} Its agent may not be able to do the rest. Still needed:\n${missing}\n\n**Move on** keeps what it found and ${onward}. **Try again** runs it once more. Or tell me what to do differently, for example a different agent for this step.`
-      : `**${step.title}** stopped short after ${String(step.tries)} ${step.tries === 1 ? 'try' : 'tries'} (${words})${step.why && !/^It was still getting closer/.test(step.why) ? `. ${step.why}` : ', still getting closer.'} Still needed:\n${missing}\n\n**Try again** keeps going. **Move on** keeps what it found and ${onward}.`;
+      : `**${step.title}** stopped short after ${String(step.tries)} ${step.tries === 1 ? 'try' : 'tries'} (${words})${step.why && !/^It was still getting closer/.test(step.why) ? `. ${step.why}` : ', still getting closer.'} Still needed:\n${missing}\n\n**Try again** keeps going. **Move on** keeps what it found and ${onward}.`);
   const msg = inbox.addResponse(threadId, 'triage', body);
   publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
   reopenForStepNews(ctx, threadId);
   if (going) return msg.id;
   const ids = stepCards(nb, step.id, p).map((action) => addStepCard(ctx, threadId, action));
   return ids[0] ?? msg.id;
+}
+
+/**
+ * The Done message: what it found, in counts (options, sources, quotes found
+ * on their pages), the step that's yours if one is next, and the link to the
+ * answer. Said once a question: a later step finishing (Search again, an
+ * update) says what it did as before. Undefined when it was already said.
+ */
+export function doneWords(ctx: Ctx, nb: Notebook, next: NotebookStep | undefined): string | undefined {
+  const from = ctx.notebookQuestionFrom?.get(nb.id) ?? '';
+  ctx.notebookDoneSaid ??= new Map();
+  if (ctx.notebookDoneSaid.get(nb.id) === from) return undefined;
+  ctx.notebookDoneSaid.set(nb.id, from);
+  const entries = stores(ctx).entries(nb.id, 1000);
+  const options = notebookViewData(nb, entries).notebook.options.filter((o) => !o.ruledOut).length;
+  const pages = answerTracePages(entries);
+  const found = pages.filter((e) => e.trace?.status === 'found').length;
+  const words = optionWords(nb);
+  const n = (k: number, one: string, many: string) => `${String(k)} ${k === 1 ? one : many}`;
+  const counts = [
+    options ? n(options, words.one, words.many) : '',
+    pages.length ? n(pages.length, 'source', 'sources') : '',
+    found ? `${n(found, 'quote', 'quotes')} found on ${found === 1 ? 'its page' : 'their pages'}` : '',
+  ].filter(Boolean);
+  const yours = next ? ` One step is yours: **${next.title}**.` : '';
+  return `Done${counts.length ? `: ${counts.join(', ')}` : ''}.${yours} [Open the answer →](/notebooks/${encodeURIComponent(nb.id)})`;
 }
 
 /** Put one step card in the thread (proposed, waiting on you). */
