@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { bareModelId, claudeConfigModel, claudeModels } from './claude-models.js';
+import { bareModelId, claudeConfigModel, claudeModels, isClaudeAlias } from './claude-models.js';
 import { modelRetired, refusedModelId } from './codex-models.js';
 import { classifyLlmFailure } from './node-spawner.js';
 
@@ -53,5 +53,12 @@ describe("Claude's retired-model wording", () => {
   it('is model_unavailable, naming the model', () => {
     expect(classifyLlmFailure({ result: said, exitCode: 1, error: 'Process exited with code 1' })).toBe('model_unavailable');
     expect(refusedModelId(said)).toBe('claude-3-opus-20240229');
+  });
+});
+
+describe('isClaudeAlias', () => {
+  it('knows the CLI short names, with or without a context tag, and nothing else', () => {
+    expect(['sonnet', 'haiku', 'opus', 'Sonnet', 'opus[1m]'].every(isClaudeAlias)).toBe(true);
+    expect(['gpt-6-sol', 'claude-sonnet-5-5', '', undefined].some((m) => isClaudeAlias(m))).toBe(false);
   });
 });

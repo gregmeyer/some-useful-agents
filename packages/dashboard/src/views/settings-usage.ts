@@ -1,4 +1,4 @@
-import { formatTokens, formatUsd, type SpendLimits, type UsageSummary } from '@some-useful-agents/core';
+import { DEFAULT_PER_QUESTION_USD, formatTokens, formatUsd, type SpendLimits, type UsageSummary } from '@some-useful-agents/core';
 import { html, type SafeHtml } from './html.js';
 
 /**
@@ -80,10 +80,10 @@ export function renderSettingsUsage(args: {
 
 /** Default spend limits for agents without their own `spendLimit:`. */
 function renderLimitsForm(limits: SpendLimits, unenforceable: string[]): SafeHtml {
-  const field = (name: 'perRunUsd' | 'perDayUsd', label: string, hint: string) => html`
+  const field = (name: 'perRunUsd' | 'perDayUsd' | 'perQuestionUsd', label: string, hint: string, empty = 'no limit') => html`
     <label class="settings-pricing__field">
       <span class="dim">${label}</span>
-      <input type="number" name="${name}" min="0" step="any" inputmode="decimal" placeholder="no limit"
+      <input type="number" name="${name}" min="0" step="any" inputmode="decimal" placeholder="${empty}"
         value="${limits[name] === undefined ? '' : String(limits[name])}" style="width: 8rem;" aria-describedby="${name}-hint">
       <span class="dim" id="${name}-hint">${hint}</span>
     </label>`;
@@ -99,6 +99,7 @@ function renderLimitsForm(limits: SpendLimits, unenforceable: string[]): SafeHtm
       <form method="POST" action="/settings/usage/limits" class="settings-pricing__form">
         ${field('perRunUsd', 'Per run (USD)', 'each run, incl. agents it calls')}
         ${field('perDayUsd', 'Per agent, per day (USD)', 'resets at midnight')}
+        ${field('perQuestionUsd', 'Per question (USD)', `what one asked question's steps may spend before sua stops starting new tries; its write-up still runs. Empty: $${String(DEFAULT_PER_QUESTION_USD)}`, String(DEFAULT_PER_QUESTION_USD))}
         <button type="submit" class="btn btn--sm btn--primary">Save limits</button>
       </form>
       ${unenforceable.length > 0 ? html`

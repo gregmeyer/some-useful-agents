@@ -41,6 +41,10 @@ inputs:
     type: string
     default: "[]"
     description: The notebook's fields as JSON (key, label, type, role).
+  SEARCHES:
+    type: string
+    default: "5"
+    description: At most this many searches (2 to 5). A step needing a few more options asks for fewer, so a short top-up costs less.
 
 nodes:
   # 1. The options it already has, as short "name: link" lines, so each
@@ -80,8 +84,8 @@ nodes:
       Options it already has:
       {{upstream.have.result}}
 
-      Split the search into 3 to 5 narrow searches that will run at the same
-      time, each small enough to do with a few searches and page opens, and
+      Split the search into at most {{inputs.SEARCHES}} narrow searches (2 at
+      least) that will run at the same time, each small enough to do with a few searches and page opens, and
       each covering ground the others don't. One per place to look, where
       that fits:
         - jobs: one per applicant tracking system (Greenhouse:
@@ -175,6 +179,16 @@ nodes:
       if needs:
           searches = []
 
+      # At most SEARCHES (2 to 5): a step that needs a few more asks for fewer, each search being a paid
+      # run. An independent search the plan made is kept, in the last place.
+      import os
+      try:
+          cap = max(2, min(5, int(os.environ.get("SEARCHES") or "5")))
+      except ValueError:
+          cap = 5
+      own = [s for s in searches if s.get("independent") in (True, "true")][:1]
+      searches = [s for s in searches if s not in own][:cap - len(own)] + own
+
       # An answer short of sources from outside what it's about (SIFT,
       # ADR-0081): the notebook asks for an independent search. When the
       # plan didn't make one, add it (in place of the last when 5 are planned).
@@ -187,7 +201,7 @@ nodes:
           if subj:
               q = " ".join(f'"{x}"' for x in subj[:2]) + " comparison OR analysis OR review" + "".join(f" -site:{h}" for h in sites[:6])
               extra = {"where": "independent sources", "query": q, "why": "independent pages: third parties that compare or analyse them, not their own sites", "kind": "learn", "independent": True}
-              searches = (searches[:4] if len(searches) >= 5 else searches) + [extra]
+              searches = (searches[:cap - 1] if len(searches) >= cap else searches) + [extra]
       for s in searches:
           # The searcher reads "why": an independent search says so there too.
           if s.get("independent") in (True, "true") and "independent" not in str(s.get("why", "")).lower():

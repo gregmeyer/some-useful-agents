@@ -18,6 +18,17 @@ import { formatUsd, localProviderNames } from './usage.js';
 export interface SpendLimits {
   perRunUsd?: number;
   perDayUsd?: number;
+  /** What one asked question's steps may spend before sua stops starting new tries (its write-up still runs). Unset: DEFAULT_PER_QUESTION_USD. */
+  perQuestionUsd?: number;
+}
+
+/** A question's budget when Settings → Usage sets none (docs/cost.md). */
+export const DEFAULT_PER_QUESTION_USD = 8;
+
+/** The budget for one asked question: the setting, else the default. */
+export function perQuestionBudget(defaults: SpendLimits | undefined): number {
+  const v = defaults?.perQuestionUsd;
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : DEFAULT_PER_QUESTION_USD;
 }
 
 export interface EffectiveSpendLimits extends SpendLimits {

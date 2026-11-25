@@ -641,6 +641,21 @@ export class RunStore {
    * already includes the agents it called), and by provider/model (from each
    * node attempt, so a fallback's failed attempt counts against its provider).
    */
+  /**
+   * What these runs cost, counted once: a run's cost already includes the runs
+   * it started, so only the given runs that have no parent are summed.
+   */
+  spendOfRuns(ids: readonly string[]): number {
+    if (!ids.length) return 0;
+    let total = 0;
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      const row = this.db.prepare(`SELECT COALESCE(SUM(cost_usd), 0) AS cost FROM runs WHERE parent_run_id IS NULL AND id IN (${chunk.map(() => '?').join(',')})`).get(...chunk) as { cost: number };
+      total += row.cost;
+    }
+    return total;
+  }
+
   usageSummary(sinceIso: string, filter: { agentName?: string } = {}): UsageSummary {
     const agentWhere = filter.agentName ? ' AND agentName = ?' : '';
     const args: SqlValue[] = filter.agentName ? [sinceIso, filter.agentName] : [sinceIso];

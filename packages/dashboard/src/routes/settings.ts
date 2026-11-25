@@ -1124,7 +1124,7 @@ settingsRouter.post('/settings/usage/limits', (req: Request, res: Response) => {
     return n;
   };
   try {
-    ctx.llmSettingsStore.setSpendLimits({ perRunUsd: read(body.perRunUsd), perDayUsd: read(body.perDayUsd) });
+    ctx.llmSettingsStore.setSpendLimits({ perRunUsd: read(body.perRunUsd), perDayUsd: read(body.perDayUsd), perQuestionUsd: read(body.perQuestionUsd) });
     redirectWith(res, '/settings/usage#limits', 'flash', 'Saved the spend limits. They apply to runs that start from now on.');
   } catch (err) {
     redirectWith(res, '/settings/usage#limits', 'error', (err as Error).message);

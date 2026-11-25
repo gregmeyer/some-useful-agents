@@ -46,6 +46,8 @@ inputs:
 nodes:
   - id: page
     type: llm-prompt
+    # A worker node: Claude's mid tier is enough here (ADR-0104). Other providers run it on their own model.
+    model: sonnet
     maxTurns: 1
     timeout: 180
     outputContract:

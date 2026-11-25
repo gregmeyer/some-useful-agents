@@ -332,6 +332,8 @@ nodes:
   #    downloaded text: a screenshot of each, read by a model that sees it.
   - id: look
     type: llm-prompt
+    # A worker node: Claude's mid tier is enough here (ADR-0104). Other providers run it on their own model.
+    model: sonnet
     dependsOn: [verify]
     onlyIf: { upstream: verify, field: any_second_look, equals: true }
     tools: [web-screenshot]
