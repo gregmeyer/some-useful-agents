@@ -13,7 +13,7 @@
  *   Search log (coverage)          | Limits (disagreements flagged)
  */
 import { answerCover, answerDiagramView, type AnswerDiagramView } from './answer-art.js';
-import { readerPage, answerConfidence, findingStatus, type FindingTrace, answerSubjects, evidenceOrigin, sourceSpread, sourceSpreadCaution, SOURCE_KINDS, type SourceKind } from '@some-useful-agents/core';
+import { readerPage, answerConfidence, findingStatus, type FindingTrace, answerSubjects, evidenceOrigin, evidenceQuote, sourceSpread, sourceSpreadCaution, SOURCE_KINDS, type SourceKind } from '@some-useful-agents/core';
 import { missingExperimentData, rankBy, rankOptions, isRange,
   notebookViewData, notebookLayoutOf, withTldrCardSlot, resolveNotebookLayout, splitNotebookHeader, resolvePointer, type NotebookLayout, type NotebookLayoutFlag, type NotebookLayoutValueKey, cleanData, fieldNumber, validateViewComponents, viewToMessages,
   type Notebook, type NotebookAffiliation, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
@@ -214,7 +214,9 @@ export interface NotebookWidgetData extends NotebookViewData {
     /** What the answer leaves open (Agenda questions). */
     openQuestions: Array<{ text: string }>;
     /** Who publishes the pages it learned from, one point per publisher, linked to its pages (Agenda points; ADR-0081). */
-    sources: Array<{ text: string; refs: Array<{ label: string; href: string }> }>;
+    sources: Array<{ text: string; refs: SourceRef[] }>;
+    /** One line over the sources list: how many pages, from how many publishers, how many checked against their page. */
+    sourcesNote: string;
     /** What to weigh about where its sources come from (Agenda questions). */
     sourceCautions: Array<{ text: string }>;
     /** The parts the answer was asked for (AnswerSections), each step and row with links to what it rests on. */
@@ -487,6 +489,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       // A notebook that shows an experiment: its results, read from the experiment each time.
       ...(nb.experimentId ? { experiment: history?.experiment?.(nb.experimentId) ?? missingExperimentData(nb.experimentId) } : {}),
       ...written,
+      sourcesNote: sourcesNote(written.sources),
       section: Object.fromEntries([...written.answerSections, ...written.planSections].map((x) => [x.key, x])),
       runbook: { glance: runbookGlance(nb.answer, written.answerSections), lesson: runbookLessonView(nb.answer) },
       numbers,
@@ -771,23 +774,33 @@ function namedOptions(nb: Notebook, active: readonly NotebookViewOption[], all: 
   return (text) => tests.map((t) => ({ id: t.id, at: text.search(t.re) })).filter((x) => x.at >= 0).sort((a, b) => a.at - b.at).map((x) => x.id);
 }
 
+/** A link to a page sua learned from, with what its card shows: its quote, whether that was found on the page, and what kind of source it is. */
+export interface SourceRef { label: string; href: string; quote?: string; trace?: string; kind?: string }
+
+/** What a page's card says (the label and href are the caller's). */
+function sourceCard(e: NotebookEntry, subjects: readonly string[]): Omit<SourceRef, 'label' | 'href'> {
+  const quote = evidenceQuote(e.body ?? '');
+  const kind = evidenceOrigin(e, subjects)?.kind;
+  return { ...(quote ? { quote: quote.length > 400 ? `${quote.slice(0, 397).replace(/\s+\S*$/, '')}…` : quote } : {}), ...(e.trace ? { trace: e.trace.status } : {}), ...(kind ? { kind: KIND_WORDS[kind] } : {}) };
+}
+
 /**
  * What an answer's part rests on, as links: an option to its page, evidence
  * from a page (a source that explains) to that page.
  */
-function answerRefs(nb: Notebook, active: readonly NotebookViewOption[], entries: readonly NotebookEntry[], all: readonly NotebookViewOption[] = active): (from: readonly string[], text?: string) => Array<{ label: string; href: string }> {
+function answerRefs(nb: Notebook, active: readonly NotebookViewOption[], entries: readonly NotebookEntry[], all: readonly NotebookViewOption[] = active): (from: readonly string[], text?: string) => SourceRef[] {
   const byId = new Map(active.map((o) => [o.id, o]));
   const sources = new Map(entries.filter((e) => e.kind === 'evidence' && e.fingerprint).map((e) => [e.id, e]));
   const subjects = answerSubjects(nb);
   const named = namedOptions(nb, active, all);
   return (from, text) => {
     const ids = [...new Set([...from, ...(text ? named(text) : [])])].slice(0, 12);
-    const out = ids.flatMap((id) => {
+    const out = ids.flatMap((id): SourceRef[] => {
       const o = byId.get(id);
       if (o) return [{ label: o.name, href: notebookOptionPath(nb.id, o.id) }];
       const e = sources.get(id);
-      // Named for who publishes it (ADR-0081), else its site.
-      return e ? [{ label: evidenceOrigin(e, subjects)?.publisher ?? sourceLabel(e.fingerprint!), href: e.fingerprint! }] : [];
+      // Named for who publishes it (ADR-0081), else its site; its card says its quote and whether it was found.
+      return e ? [{ label: evidenceOrigin(e, subjects)?.publisher ?? sourceLabel(e.fingerprint!), href: e.fingerprint!, ...sourceCard(e, subjects) }] : [];
     });
     // Two pages of one publisher: "CopilotKit", "CopilotKit (2)".
     return out.map((r, i) => { const n = out.slice(0, i).filter((x) => x.label === r.label).length; return n ? { ...r, label: `${r.label} (${String(n + 1)})` } : r; });
@@ -839,7 +852,7 @@ export function sourcePoints(nb: Notebook, entries: readonly NotebookEntry[]): N
   return spread.byPublisher.map((p) => {
     const mine = pages.filter((x) => x.o.publisher.toLowerCase().replace(/[^a-z0-9]/g, '') === p.publisher.toLowerCase().replace(/[^a-z0-9]/g, ''));
     // By address, so pages filed in one run keep one order.
-    const refs = mine.map((x) => ({ label: sourceLabel(x.e.fingerprint!), href: x.e.fingerprint! })).sort((a, b) => a.href.localeCompare(b.href));
+    const refs: SourceRef[] = mine.map((x) => ({ label: sourceLabel(x.e.fingerprint!), href: x.e.fingerprint!, ...sourceCard(x.e, subjects) })).sort((a, b) => a.href.localeCompare(b.href));
     const whose = p.whose ? (p.whose.toLowerCase() === p.publisher.toLowerCase() ? 'its own pages' : `${p.whose}'s own pages`) : 'from outside the subjects';
     return {
       // Its pages' kinds, in a fixed order ("primary source and vendor" when they differ).
@@ -847,6 +860,22 @@ export function sourcePoints(nb: Notebook, entries: readonly NotebookEntry[]): N
       refs: refs.map((r, i) => { const n = refs.slice(0, i).filter((x) => x.label === r.label).length; return n ? { ...r, label: `${r.label} (${String(n + 1)})` } : r; }),
     };
   });
+}
+
+/**
+ * The line over the sources list: "14 pages from 6 publishers · 9 quotes found
+ * on their page", or why none were checked yet. '' when there are none. Pure.
+ */
+export function sourcesNote(points: ReadonlyArray<{ refs: readonly SourceRef[] }>): string {
+  const pages = points.reduce((n, p) => n + p.refs.length, 0);
+  if (!pages) return '';
+  const head = `${String(pages)} page${pages === 1 ? '' : 's'} from ${String(points.length)} publisher${points.length === 1 ? '' : 's'}`;
+  const refs = points.flatMap((p) => p.refs);
+  const found = refs.filter((r) => r.trace === 'found').length;
+  const missing = refs.filter((r) => r.trace === 'missing').length;
+  const checked = refs.filter((r) => r.trace).length;
+  if (!checked) return `${head} · not checked against their pages yet · tap one to see its quote`;
+  return `${head} · ${String(found)} quote${found === 1 ? '' : 's'} found on ${found === 1 ? 'its page' : 'their pages'}${missing ? `, ${String(missing)} not found` : ''} · tap one to see it`;
 }
 
 /** A source page's site, for its link ("consumerfinance.gov"). */
