@@ -6,6 +6,8 @@
  * source, and a finding resting on them says whether it's verified,
  * supported or unverified.
  */
+import { inBackground } from './background.js';
+import type { getContext } from '../context.js';
 import { answerTracePages, evidenceQuote, traceQuote, type NotebookEntry, type NotebookStore, type SourceTraceStatus } from '@some-useful-agents/core';
 
 /** At most this many pages read per press, a few at a time. */
@@ -54,4 +56,40 @@ export function traceWords(o: TraceOutcome): string {
     o.noQuote ? `${n(o.noQuote, 'source had no quote', 'sources had no quote')}` : '',
     o.left ? `${String(o.left)} left for next time` : '',
   ].filter(Boolean).join(' · ');
+}
+
+/** Traces running on their own now, by notebook (a Check step waits for its notebook's before tracing what's left). */
+const tracing = new Map<string, Promise<void>>();
+
+/** The notebook's trace running on its own, when there is one (resolves when it's done; never rejects). */
+export function tracingNow(notebookId: string): Promise<void> | undefined {
+  return tracing.get(notebookId);
+}
+
+/**
+ * Trace a notebook's new sources on their own, whatever kind it is: after a
+ * step that filed pages with quotes, each page not traced yet is read and its
+ * quote looked for (code only, no model, ADR-0082), in the background so the
+ * next step doesn't wait. Every page is traced once; a second call while one
+ * runs goes after it. Not for an experiment's copy, or when the dashboard says
+ * to wait (tests).
+ */
+export function traceOnItsOwn(ctx: ReturnType<typeof getContext>, store: NotebookStore, notebookId: string): void {
+  if (ctx.notebookTraceWait) return;
+  const nb = store.get(notebookId);
+  if (!nb || nb.experimentRun) return;
+  const untraced = () => answerTracePages(store.entries(notebookId, 1000)).filter((e) => !e.trace).length;
+  if (!untraced()) return;
+  const run: Promise<void> = (tracing.get(notebookId) ?? Promise.resolve()).then(async () => {
+    // 30 pages a round: on until none is left (each round traces what it reads, so it ends).
+    for (let left = untraced(), round = 0; left && round < 20; round++) {
+      const t = await traceAnswerSources(store, notebookId, ctx.notebookTrace);
+      const now = untraced();
+      if (now >= left || !t.left) break;
+      left = now;
+    }
+  }).catch(() => { /* the notebook is gone, or a page read failed: a Check step traces what's left */ })
+    .finally(() => { if (tracing.get(notebookId) === run) tracing.delete(notebookId); });
+  tracing.set(notebookId, run);
+  inBackground(ctx, 'traceOnItsOwn', run);
 }

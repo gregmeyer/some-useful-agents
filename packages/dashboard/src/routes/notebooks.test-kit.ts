@@ -45,13 +45,15 @@ export const S = {
 let t: TestContext | undefined;
 
 /** `straightThrough`: steps run on by themselves, as they do for you; otherwise they wait for Start and Continue (the cards these tests press). */
-export async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean; straightThrough?: boolean } = {}) {
+export async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean; straightThrough?: boolean; traceOnItsOwn?: boolean } = {}) {
   t = await createTestContext({ port: PORT, prefix: 'sua-notebooks-route-', extra: ({ dbPath }) => ({
     packsStore: new PacksStore(dbPath),
     dashboardsStore: new DashboardsStore(dbPath),
   }) });
   const ctx = t.ctx;
   if (!opts.straightThrough) ctx.notebookStepsWait = true;
+  // Pages aren't read on their own after a step unless a test asks (the harness turns it off: no network in tests).
+  if (opts.traceOnItsOwn) ctx.notebookTraceWait = false;
   S.dir = t.dir; S.ctx = ctx; S.runStore = ctx.runStore; S.agentStore = ctx.agentStore;
   ctx.inboxStore = InboxStore.fromHandle(ctx.runStore.databaseHandle());
   ctx.agentStore.createAgent({
