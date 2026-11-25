@@ -204,7 +204,7 @@ describe('a question asked in sua\'s bar starts the answer', () => {
     const store = NotebookStore.fromHandle(S.runStore.databaseHandle());
     expect(store.get(id)).toMatchObject({ title: 'Headphones for flights', asked: 'Best noise-cancelling headphones under $300 for flights' });
     const said = inbox.listResponses(thread.id).map((r) => r.body);
-    expect(said.at(-1)).toBe(`It's under way: [Headphones for flights](/notebooks/${id}). I'm starting with **Find 5 pairs** and will go straight through; its page fills in as I go.`);
+    expect(said.at(-1)).toBe(`It's under way: [Headphones for flights](/notebooks/${id}). I'm starting with **Find 5 pairs**, and I'll say here when it's done.`);
     // Its own greeting started the first step: no Start card.
     for (let i = 0; i < 200 && store.get(id)!.steps?.[0]?.status !== 'met'; i++) await new Promise((r) => setTimeout(r, 25));
     expect(store.get(id)!.steps![0].status).not.toBe('todo');

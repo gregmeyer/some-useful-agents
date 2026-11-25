@@ -28,9 +28,19 @@ export const INBOX_BADGE_JS = `
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
         if (!d || typeof d.count !== 'number') return;
-        if (d.count > 0) {
+        // An answer that just finished: the pill names it and opens it (unless you're on it already).
+        var done = d.done && location.pathname !== d.done.href ? d.done : null;
+        if (done) {
+          countEl.textContent = '✓';
+          if (labelEl) labelEl.textContent = 'Done: ' + (done.title.length > 36 ? done.title.slice(0, 35) + '…' : done.title);
+          toast.setAttribute('href', done.href);
+          toast.setAttribute('title', 'Open the answer');
+          toast.hidden = false;
+        } else if (d.count > 0) {
           countEl.textContent = String(d.count);
           if (labelEl) labelEl.textContent = d.count === 1 ? 'needs you' : 'need you';
+          toast.setAttribute('href', '/inbox');
+          toast.removeAttribute('title');
           toast.hidden = false;
         } else { toast.hidden = true; }
       })

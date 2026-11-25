@@ -184,7 +184,7 @@ export function startAskedNotebook(ctx: Ctx, input: { ask: string; title?: strin
     else {
       const nb = out.notebook;
       const first = nb.steps?.[0];
-      say(`It's under way: [${nb.title}](/notebooks/${encodeURIComponent(nb.id)}).${first ? ` I'm starting with **${first.title}** and will go straight through; its page fills in as I go.` : ''}`);
+      say(`It's under way: [${nb.title}](/notebooks/${encodeURIComponent(nb.id)}).${first ? ` I'm starting with **${first.title}**, and I'll say here when it's done.` : ''}`);
     }
     then?.(out);
   }));

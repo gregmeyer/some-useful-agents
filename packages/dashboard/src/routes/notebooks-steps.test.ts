@@ -435,7 +435,8 @@ describe('a step added in front of done ones', () => {
     postStepCard(ctx, nb, s1, { have: 4, want: 4, met: true, missing: [] });
     const thread = nb.conversationId!;
     const said = InboxStore.fromHandle(S.runStore.databaseHandle()).listResponses(thread).map((r) => r.body).join('\n');
-    expect(said).toContain('Next is **Choose talking points**');
+    expect(said).toContain('One step is yours: **Choose talking points**.');
+    expect(said).toContain(`[Open the answer →](/notebooks/${nb.id})`);
     expect(said).not.toContain('Next is **Find 5 themes**');
     const cards = () => InboxStore.fromHandle(S.runStore.databaseHandle()).listResponses(thread).filter((r) => r.role === 'action' && r.body.startsWith('Start step')).length;
     const before = cards();

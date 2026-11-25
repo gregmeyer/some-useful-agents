@@ -1,4 +1,6 @@
 import { attachPick } from './given-file.js';
+import { stepsCard } from './steps-card.js';
+import { pageName } from '../lib/notebook-edit.js';
 import { prepareViewForRender, viewToMessages, type ViewComponent } from '@some-useful-agents/core';
 import { parseCardSkills } from '../lib/skill-proposals.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
@@ -223,6 +225,11 @@ function collectReferencedAgents(message: InboxMessage, responses: InboxResponse
   return out;
 }
 
+/** A notebook's "Step i of N is done" message: progress the steps card shows too. */
+function stepNews(r: InboxResponse): boolean {
+  return r.role === 'triage' && /^Step \d+ of \d+ is done: /.test(r.body);
+}
+
 /** A card the notebook retired, not one you skipped: nothing to do with it any more. */
 function retiredByNotebook(r: InboxResponse): boolean {
   if (r.role !== 'action') return false;
@@ -415,15 +422,17 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     renderConversationEntry(r, currentTargetYaml, inlineActionWidgets, agentTrust,
       isGrouped(responses, i, (x) => (x.role === 'action' ? undefined : x.role)), runBehaviors, agentConversation,
       { answered: answeredBy(i), imgHosts: opts.imgHosts ?? [] });
-  // Cards a notebook retired (its steps moved on, or a newer card asks the same) fold into one quiet line, open to see them.
+  // Cards a notebook retired (its steps moved on, or a newer card asks the same) fold into one quiet line, open to see them;
+  // so do two or more "Step i of N is done" messages in a row (the steps card and the Done message say where it stands).
   const timeline: SafeHtml[] = [];
   for (let i = 0; i < responses.length;) {
     let j = i;
-    while (j < responses.length && retiredByNotebook(responses[j])) j++;
-    if (j === i) { timeline.push(entry(responses[i], i)); i++; continue; }
+    while (j < responses.length && (retiredByNotebook(responses[j]) || stepNews(responses[j]))) j++;
+    const news = responses.slice(i, j).filter(stepNews).length;
+    if (j === i || (news > 0 && news < 2 && j - i === news)) { timeline.push(entry(responses[i], i)); i++; continue; }
     const n = j - i;
     timeline.push(html`<details class="thread-fold">
-      <summary class="thread-fold__summary">${n === 1 ? 'A step card the notebook moved past' : `${String(n)} step cards the notebook moved past`}</summary>
+      <summary class="thread-fold__summary">${news ? `Show each step (${String(news)})` : n === 1 ? 'A step card the notebook moved past' : `${String(n)} step cards the notebook moved past`}</summary>
       ${renderThread(responses.slice(i, j).map((r, k) => entry(r, i + k)), { className: 'thread-fold__list' })}
     </details>`);
     i = j;
@@ -529,12 +538,19 @@ function renderThreadNotebook(c: NotebookCard): SafeHtml {
         ? html`<img class="${['ib-notebook__cover', pictureClass(c.coverKind, c.coverShape)].filter(Boolean).join(' ')}" src="${c.cover}" alt="" loading="lazy">`
         : html`<span class="ib-notebook__cover ib-notebook__cover--none" aria-hidden="true"></span>`}
       <span class="ib-notebook__body">
-        <span class="ib-notebook__kicker">Notebook</span>
+        <span class="ib-notebook__kicker">${kindOf(nb)}</span>
         <span class="ib-notebook__title">${nb.title}</span>
         <span class="ib-notebook__facts">${facts}${c.best ? html` · best <strong>${c.best}</strong>${c.bestName ? html` ${c.bestName}` : html``}` : html``}</span>
       </span>
-      <span class="ib-notebook__open">Open notebook →</span>
-    </a></div>`;
+      <span class="ib-notebook__open">Open the answer →</span>
+    </a>
+    ${nb.steps?.length ? html`<div class="ib-notebook__steps">${stepsCard(nb)}</div>` : html``}</div>`;
+}
+
+/** The kind of answer, for the card's kicker: its ready-made page's name, else "Answer". */
+function kindOf(nb: NotebookCard['nb']): string {
+  const name = pageName(nb.layout);
+  return name === 'Made for this answer' ? 'Answer' : name;
 }
 
 /**

@@ -1205,7 +1205,8 @@ describe("a step's news reopens a closed conversation", () => {
       inbox.updateStatus(thread, closed);
       await post(`/notebooks/${nb.id}/run`);
       await settle(nb.id);
-      expect(inbox.listResponses(thread).some((r) => r.body.includes('Step 1 of 2 is done: **Find 1 company**'))).toBe(true);
+      // Its last step of sua's: the Done message, with the step that's yours.
+      expect(inbox.listResponses(thread).some((r) => r.body.startsWith('Done') && r.body.includes('One step is yours: **Pick 1**.'))).toBe(true);
       // Closed: back in "need your reply". Open (sua may be mid-turn): untouched.
       expect(inbox.get(thread)!.status).toBe(closed === 'triaged' ? 'triaged' : 'awaiting_user');
     }

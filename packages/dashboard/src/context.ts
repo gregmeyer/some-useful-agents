@@ -267,6 +267,8 @@ export interface DashboardContext {
   notebookQuestionFrom?: Map<string, string>;
   /** Tests: what a notebook's question has spent, instead of summing its runs. */
   notebookQuestionSpend?: (notebookId: string) => number;
+  /** The question (its start, as notebookQuestionFrom) each notebook last said Done for: Done is said once a question. */
+  notebookDoneSaid?: Map<string, string>;
   notebookPipelines?: Map<string, { agentId: string; step: number; of: number; startedAt: number; runId?: string; /** Runs going at once (a source step reads pages side by side): Stop cancels each. */ runIds?: Set<string>; stopped?: boolean; again?: boolean }>;
   /** Notebooks being set up (fields, stages) right now. */
   notebookSetups?: Set<string>;
