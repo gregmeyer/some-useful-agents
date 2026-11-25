@@ -16,6 +16,7 @@ export * from './usage.js';
 export * from './spend-limits.js';
 export * from './human-questions.js';
 export * from './notebooks.js';
+export * from './notebook-bundle.js';
 export * from './attach-file-types.js';
 export * from './experiments.js';
 export * from './experiment-measures.js';
@@ -119,7 +120,7 @@ export {
   type ToolDefinitionParsed,
 } from './tool-schema.js';
 export { ToolStore } from './tool-store.js';
-export { checkUserToolYaml, saveUserTool, removeUserTool, assertRemovableUserTool, agentsUsingTool, UserToolError, type CheckedUserTool } from './user-tools.js';
+export { checkUserToolYaml, saveUserTool, removeUserTool, assertRemovableUserTool, agentsUsingTool, toolIdsUsed, UserToolError, type CheckedUserTool } from './user-tools.js';
 export { resolveToolCallInputs, commandToolEnv, substituteToolPrompt, reservedToolInputName, userToolErrors, userToolWarnings, nodeRunsShell, isUserRunTool, isCommandTool, ToolInputError, TOOL_INPUT_NAME_RE, TOOL_INPUT_MAX_CHARS, type ToolLookup } from './user-tool-inputs.js';
 export {
   PacksStore,
