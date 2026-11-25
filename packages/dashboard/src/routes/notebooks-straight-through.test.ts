@@ -95,3 +95,43 @@ describe('steps run straight through', () => {
     expect(nb.steps!.map((x) => x.status)).toEqual(['met', 'todo']);
   });
 });
+
+// A question asked in sua's bar: sua proposes `notebook-ask`, which runs on
+// its own; the answer is drafted, made and started, and linked in the thread.
+describe('a question asked in sua\'s bar starts the answer', () => {
+  it('is a card that runs on its own and needs the question', async () => {
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const { accepted, rejected } = parseProposedActions([
+      { type: 'notebook-ask', rationale: 'Find out about the headphones', inputs: { ASK: 'Best noise-cancelling headphones under $300 for flights', TITLE: 'Headphones for flights' } },
+      { type: 'notebook-ask', inputs: { ASK: '  ' } },
+    ], [], []);
+    expect(accepted).toEqual([expect.objectContaining({ agentId: 'notebook-ask', ctaLabel: 'Find out', inputs: { ASK: 'Best noise-cancelling headphones under $300 for flights', TITLE: 'Headphones for flights' } })]);
+    expect(rejected[0].reason).toMatch(/needs inputs.ASK/);
+    const app = await makeApp({ straightThrough: true });
+    const { getContext } = await import('../context.js');
+    const { isAutoApproved } = await import('./inbox-engine.js');
+    expect(isAutoApproved(getContext(app.locals), 'notebook-ask')).toBe(true);
+  });
+
+  it('drafts it, makes it, starts it, and links it in the conversation it was asked in', async () => {
+    const app = await makeApp({ straightThrough: true });
+    const { getContext } = await import('../context.js');
+    const { startAskedNotebook } = await import('../lib/notebook-request.js');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const ctx = getContext(app.locals);
+    const inbox = InboxStore.fromHandle(S.runStore.databaseHandle());
+    const thread = inbox.add({ priority: 'medium', source: 'manual', title: 'Headphones', body: 'Best noise-cancelling headphones under $300 for flights' })!;
+    S.finderReply = () => '<notebook>{"entries":[{"kind":"option","title":"Pair A"},{"kind":"option","title":"Pair B"},{"kind":"option","title":"Pair C"},{"kind":"option","title":"Pair D"},{"kind":"option","title":"Pair E"}]}</notebook>';
+    const out = await new Promise<{ notebook?: { id: string } } | { error: string }>((res) => startAskedNotebook(ctx, { ask: 'Best noise-cancelling headphones under $300 for flights', title: 'Headphones for flights', threadId: thread.id }, res));
+    expect('notebook' in out).toBe(true);
+    const id = (out as { notebook: { id: string } }).notebook.id;
+    const store = NotebookStore.fromHandle(S.runStore.databaseHandle());
+    expect(store.get(id)).toMatchObject({ title: 'Headphones for flights', asked: 'Best noise-cancelling headphones under $300 for flights' });
+    const said = inbox.listResponses(thread.id).map((r) => r.body);
+    expect(said.at(-1)).toBe(`It's under way: [Headphones for flights](/notebooks/${id}). I'm starting with **Find 5 pairs** and will go straight through; its page fills in as I go.`);
+    // Its own greeting started the first step: no Start card.
+    for (let i = 0; i < 200 && store.get(id)!.steps?.[0]?.status !== 'met'; i++) await new Promise((r) => setTimeout(r, 25));
+    expect(store.get(id)!.steps![0].status).not.toBe('todo');
+    S.finderReply = undefined;
+  });
+});

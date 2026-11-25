@@ -38,6 +38,10 @@ Both are under **Manage**, in the column at the right of a notebook's **Edit** p
 
 ## Starting one
 
+**Ask sua.** The quickest way is to ask your question in sua's bar ("Which noise-cancelling headphones under $300 are best for flights?", "I'm meeting Acme's CEO on Thursday, what should I know?"). When it needs research, sua answers with a **Look into** card that runs on its own: it drafts the notebook from your words (about a minute), makes it and starts it. Its steps then run straight through, and sua links the notebook in the same conversation ("It's under way: …"). Nothing to check or press, unless it gets stuck or needs something from you. A quick question sua can answer directly stays a reply. If you have a notebook like it already, sua offers that first. Spend stays under your run and day limits ([cost](cost.md)).
+
+To check the setup before anything runs, use **New notebook** instead:
+
 ![Start a notebook: one sentence becomes a draft you can edit](images/new-notebook-draft.png)
 
 **+ New notebook** (on Home's shelf or the Notebooks page) opens **Start a notebook**:

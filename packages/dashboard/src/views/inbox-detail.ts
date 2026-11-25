@@ -199,7 +199,7 @@ const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
  * surface the real agents the conversation is about.
  */
 const NON_SUBJECT_AGENT_IDS: ReadonlySet<string> = new Set([
-  '_resolve-thread', 'agent-editor', 'agent-compose', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'view-redesign', 'board-build', 'edition-ask', TOOL_REFACTOR_APPLY, 'tool-refactor',
+  '_resolve-thread', 'agent-editor', 'agent-compose', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-ask', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'view-redesign', 'board-build', 'edition-ask', TOOL_REFACTOR_APPLY, 'tool-refactor',
   'agent-analyzer', 'agent-catalog-search', 'agent-builder',
 ]);
 
@@ -919,6 +919,8 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
                         ? html`${meta.status === 'completed' ? 'Worked out' : 'Work out'} what that changes in the notebook`
                       : meta.agentId === 'notebook-correct-apply'
                         ? html`${meta.status === 'completed' ? 'Corrected' : 'Correct'} <span class="mono">${meta.inputs.NOTEBOOK_TITLE ?? meta.inputs.NOTEBOOK ?? ''}</span>`
+                      : meta.agentId === 'notebook-ask'
+                        ? html`${meta.status === 'completed' ? 'Looking into' : 'Look into'} <span class="mono">${meta.inputs.TITLE ?? meta.inputs.ASK ?? ''}</span>`
                       : meta.agentId === 'notebook-create'
                         ? (meta.inputs.LIKE
                           ? html`${meta.status === 'completed' ? 'Created a notebook' : 'Create a notebook'} set up like <span class="mono">${meta.inputs.LIKE_TITLE ?? meta.inputs.LIKE}</span>`
@@ -941,7 +943,7 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
       : html``}
     ${meta.agentId === 'notebook-photo' && meta.status === 'proposed' && /^https?:\/\//i.test(meta.inputs.IMAGE ?? '') ? html`<figure class="act-card__pic"><img src="${meta.inputs.IMAGE}" alt="${meta.inputs.ALT ?? 'The picture to use'}" loading="lazy" referrerpolicy="no-referrer">${meta.inputs.CREDIT ? html`<figcaption>${meta.inputs.CREDIT}</figcaption>` : html``}</figure><p class="act-card__note">sua keeps a copy in the notebook; the page never loads it from that site. Ask to go back to its sources' photos any time.</p>` : html``}
     ${meta.agentId === TOOL_REFACTOR_APPLY ? renderToolRefactor(meta) : html``}
-    ${[TOOL_REFACTOR_APPLY, 'tool-refactor', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply'].includes(meta.agentId) ? html`` : (meta.agentId === 'agent-editor' || meta.agentId === 'agent-compose') && meta.inputs.NEW_YAML
+    ${[TOOL_REFACTOR_APPLY, 'tool-refactor', 'notebook-ask', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply'].includes(meta.agentId) ? html`` : (meta.agentId === 'agent-editor' || meta.agentId === 'agent-compose') && meta.inputs.NEW_YAML
       // Against the agent as it was when the fix was proposed (older cards: as it is now).
       ? html`${meta.agentId === 'agent-compose' && meta.status === 'proposed'
         ? html`<p class="act-card__note">Turns on <span class="mono">${meta.inputs.HELPER_ID ?? ''}</span>, a new agent other agents can use too${meta.inputs.HELPER_ABOUT ? html`: ${meta.inputs.HELPER_ABOUT}` : html`.`} ${meta.fork ? html`` : html`Saves <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> as a new version that calls it; roll back any time from Versions. `}If that save fails, <span class="mono">${meta.inputs.HELPER_ID ?? ''}</span> stays a draft.</p>`
