@@ -791,6 +791,22 @@ An [experiment](experiments.md) measures what changes what an agent produces. **
 
 ## Notebooks from elsewhere
 
+### Send a copy to another machine
+
+To move a notebook to sua on your other machine (laptop to desktop), save it as a **notebook file** and import it there. The copy then lives on its own; nothing keeps the two in step.
+
+- **Save it:** **Download / share → To another sua → Notebook file** on the notebook, or `sua notebook export <id> [file]`. It's one `<title>.suanb` file (gzipped JSON) with everything the notebook keeps: its setup and steps, its page, its options and their facts and history, pictures (including a person's photo), what sua wrote, and what you gave it (a pasted résumé travels too). It also carries the agents of yours it runs, the agents they call, your tools they use, and the names of the secrets those agents need. Never their values.
+- **Not in it:** the conversation it was talked about in (the copy starts a new one), its runs and their files, and the undo histories.
+- **Import it:** **New notebook → Have a notebook file from another sua? Import it** (`/notebooks/import`), or `sua notebook import <file>`. Before anything is saved it shows what will happen:
+  - agents and tools it runs that aren't here are added; ones already here as in the copy are used;
+  - one of yours that differs here is kept, and the notebook runs yours;
+  - a shipped agent that's been removed here is named, to install from the examples;
+  - secrets its agents need that this machine doesn't have are named, to add in Settings → Secrets;
+  - when a notebook with its id is already here, the copy gets a new one (`-2`), and its links point to the copy.
+- **Its schedule comes in off**, so two machines don't both fill it. Turn it on in the copy if this machine should.
+- A note on the copy says where it came from and when. If the import can't finish, nothing is saved.
+
+
 ### Reading one
 
 What a notebook learned isn't stuck on its page. The built-in [`notebook-read`](tools/notebook-read.md) tool reads it: what it's for, the facts about who it's about with their sources, what it wrote, its options with facts and check results, and its notes. Archived notebooks can be read too.

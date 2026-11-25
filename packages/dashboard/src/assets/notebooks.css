@@ -1344,3 +1344,12 @@ body.has-sua-panel .nb-toast { display: none; }
 .nb-hero__addpanel { display: grid; gap: var(--space-3); margin-top: var(--space-2); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-muted); }
 .nb-hero__addpart + .nb-hero__addpart { border-top: 1px solid var(--color-border); padding-top: var(--space-3); }
 .nb-given--fresh { margin: var(--space-3) 0 var(--space-4); }
+/* Import a notebook file (views/notebook-import.ts). */
+.nb-import { max-width: 760px; }
+.nb-import__plan { margin-top: var(--space-4); padding: var(--space-4); }
+.nb-import__title { margin: 0 0 var(--space-1); font-size: var(--font-size-lg); }
+.nb-import__list { margin: var(--space-3) 0; padding-left: var(--space-6); font-size: var(--font-size-sm); display: grid; gap: var(--space-1); }
+.nb-import__warn { color: var(--color-warn); }
+.nb-import__go { display: flex; gap: var(--space-2); align-items: center; }
+.nb-import__status { margin-top: var(--space-2); }
+.nbd-import { margin-top: var(--space-3); font-size: var(--font-size-sm); }

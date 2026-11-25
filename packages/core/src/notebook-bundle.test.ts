@@ -130,6 +130,20 @@ describe('a notebook file', () => {
     expect(a.notebooks.entries(id, 100).some((e) => e.id === optionId)).toBe(true);
   });
 
+  it('uses an agent here that matches the copy, whatever its version number', () => {
+    const a = machine();
+    const { id } = seed(a);
+    // Bump job-finder's version on the first machine without changing it in a way that matters.
+    const f = a.agents.getAgent('job-finder')!;
+    a.agents.upsertAgent({ ...f, nodes: [...f.nodes, { id: 'x', type: 'shell', command: 'echo x', dependsOn: ['enrich'] }] }, 'cli', 'v2');
+    a.agents.upsertAgent({ ...f }, 'cli', 'v3 = v1 again');
+    const bundle = exportNotebookBundle(a, id)!;
+    const b = machine();
+    importNotebookBundle(b, bundle);
+    // Installed at v1 here, v3 there: the same agent.
+    expect(checkNotebookBundle(b, bundle).agents.find((x) => x.id === 'job-finder')).toMatchObject({ action: 'same' });
+  });
+
   it('keeps an agent of yours that differs here, and says so', () => {
     const a = machine();
     const { id } = seed(a);

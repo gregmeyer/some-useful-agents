@@ -194,6 +194,7 @@ export function renderNotebookNew(opts: {
         <input type="hidden" name="statement" value="" data-nbd-skip-text>
         <button type="submit" class="nbd-skip__btn">Skip the draft: start it and talk it through with sua →</button>
       </form>
+      <p class="nbd-import"><a href="/notebooks/import">Have a notebook file from another sua? Import it →</a></p>
     </div>
   `));
 }

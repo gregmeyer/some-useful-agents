@@ -153,7 +153,10 @@ describe('notebooks pages', () => {
     expect(menu).toContain(`href="/notebooks/${meet.id}/brief.pdf" download title="The brief as a PDF file named after the notebook, ready to send: its pictures inside it, page numbers, no print dialog" aria-label="Download the brief as PDF">PDF</a>`);
     expect(menu).toContain(`aria-label="Download the TL;DR picture as PNG">PNG</a>`);
     // …and the TL;DR card's switch: Auto unless you chose.
-    expect(menu.match(/class="nb-share__row"/g)).toHaveLength(4);
+    // …and, last, To another sua: the notebook file.
+    expect(menu.match(/class="nb-share__row"/g)).toHaveLength(5);
+    expect(menu.indexOf('To another sua')).toBeGreaterThan(menu.indexOf('The findings as a spreadsheet'));
+    expect(menu).toContain(`href="/notebooks/${meet.id}/export.suanb" download`);
     expect(menu).toContain(`action="/notebooks/${meet.id}/tldr-card"`);
     expect(menu).toMatch(/class="nb-share__mode is-on"[^>]*aria-pressed="true">Auto</);
     expect(menu.indexOf('To share')).toBeLessThan(menu.indexOf('The findings as a spreadsheet'));
