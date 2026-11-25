@@ -82,7 +82,7 @@ export type SurfaceOverride = z.infer<typeof overrideSchema>;
  */
 export const HOME_PARTS = ['today', 'brief', 'next-up', 'ask', 'housekeeping', 'reads', 'notebooks'] as const;
 export type HomePart = typeof HOME_PARTS[number];
-export const HOME_PART_TITLES: Record<HomePart, string> = { today: 'Today', brief: "Today's brief", 'next-up': 'Next up', ask: 'Ask sua', housekeeping: 'Housekeeping', reads: "Today's reads", notebooks: 'Your notebooks' };
+export const HOME_PART_TITLES: Record<HomePart, string> = { today: 'Today', brief: "Today's brief", 'next-up': 'Next up', ask: 'Ask sua', housekeeping: 'Housekeeping', reads: "Today's reads", notebooks: 'Your answers' };
 /** Which column a part is in; a part moves within its own. */
 export const HOME_PART_COLUMN: Record<HomePart, 'main' | 'rail'> = { today: 'main', brief: 'main', 'next-up': 'main', ask: 'main', housekeeping: 'main', reads: 'rail', notebooks: 'rail' };
 

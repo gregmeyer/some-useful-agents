@@ -259,11 +259,14 @@ describe("Home's page parts (move, hide, show)", () => {
   it('are the defaults until you change one: the main column, then the side column', async () => {
     const { surfaceParts, DEFAULT_HOME_SURFACE } = await import('./index.js');
     expect(surfaceParts(DEFAULT_HOME_SURFACE).map((p) => p.id)).toEqual(['today', 'brief', 'next-up', 'ask', 'housekeeping', 'reads', 'notebooks']);
-    expect(DEFAULT_HOME_SURFACE.parts).toBeUndefined();
+    // A new Home shows what needs you and your answers (under the question box); the rest is a Show away.
+    expect(surfaceParts(DEFAULT_HOME_SURFACE).filter((p) => !p.hidden).map((p) => p.id)).toEqual(['today', 'notebooks']);
   });
 
   it('a part moves within its own column, is hidden and shown again, and says who did it', async () => {
-    const { surfaceParts, DEFAULT_HOME_SURFACE } = await import('./index.js');
+    const { surfaceParts, DEFAULT_HOME_SURFACE: NEW_HOME } = await import('./index.js');
+    // A Home with every part shown.
+    const DEFAULT_HOME_SURFACE = { ...NEW_HOME, parts: undefined };
     const now = new Date('2026-11-11T00:00:00Z');
     const moved = applySurfaceOps(DEFAULT_HOME_SURFACE, [{ op: 'movePart', part: 'ask', index: 0 }], 'user-conversation', { now });
     expect(surfaceParts(moved).map((p) => p.id)).toEqual(['ask', 'today', 'brief', 'next-up', 'housekeeping', 'reads', 'notebooks']);

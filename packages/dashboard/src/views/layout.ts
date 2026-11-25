@@ -54,14 +54,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
 <header class="topbar">
   ${/* The brand is Home, and Home is the inbox: one link, not two. */ ''}
   <a class="topbar__brand ${opts.activeNav === 'home' || opts.activeNav === 'inbox' ? 'is-active' : ''}" href="/" title="Home: your inbox" ${opts.activeNav === 'home' || opts.activeNav === 'inbox' ? html`aria-current="page"` : html``}>sua</a>
-  <nav class="topbar__nav">
-    <a href="/notebooks" class="${opts.activeNav === 'notebooks' ? 'is-active' : ''}">Answers</a>
-    <a href="/agents" class="${opts.activeNav === 'agents' || opts.activeNav === 'tools' || opts.activeNav === 'nodes' || opts.activeNav === 'runs' || opts.activeNav === 'packs' ? 'is-active' : ''}">Agents</a>
-    <a href="/experiments" class="${opts.activeNav === 'experiments' ? 'is-active' : ''}">Experiments</a>
-    <a href="/pulse" class="${opts.activeNav === 'pulse' ? 'is-active' : ''}">Pulse</a>
-    <a href="/settings" class="${opts.activeNav === 'settings' ? 'is-active' : ''}">Settings</a>
-    <a href="/help" class="${opts.activeNav === 'help' ? 'is-active' : ''}">Help</a>
-  </nav>
+  ${topbarNav(opts.activeNav)}
   <div class="topbar__right">
     <a class="topbar__needs" data-inbox-toast href="/inbox" aria-live="polite" hidden>
       <span class="topbar__needs-count" data-inbox-count></span><span data-inbox-label>need you</span>
@@ -92,4 +85,30 @@ ${renderInboxModalShell()}
 <script src="/assets/dashboard.js" defer></script>
 </body>
 </html>`;
+}
+
+/**
+ * The top bar's links: Answers (what you asked sua to find out) and Settings,
+ * then More for the rest (Agents, Experiments, Pulse, Help). The brand is
+ * Home. More shows as current on any page under it.
+ */
+export function topbarNav(active: string | undefined): SafeHtml {
+  const agents = active === 'agents' || active === 'tools' || active === 'nodes' || active === 'runs' || active === 'packs';
+  const more: Array<{ href: string; label: string; hint: string; on: boolean }> = [
+    { href: '/agents', label: 'Agents', hint: 'The agents that do the work: their runs, tools and schedules', on: agents },
+    { href: '/experiments', label: 'Experiments', hint: 'Compare versions of an agent or an answer side by side', on: active === 'experiments' },
+    { href: '/pulse', label: 'Pulse', hint: 'Every agent run, as it happens', on: active === 'pulse' },
+    { href: '/help', label: 'Help', hint: 'What sua is and how it works', on: active === 'help' },
+  ];
+  const moreOn = more.some((m) => m.on);
+  return html`<nav class="topbar__nav">
+    <a href="/notebooks" class="${active === 'notebooks' ? 'is-active' : ''}">Answers</a>
+    <a href="/settings" class="${active === 'settings' ? 'is-active' : ''}">Settings</a>
+    <details class="topbar__more" data-topbar-more>
+      <summary class="${moreOn ? 'is-active' : ''}">More${moreOn ? html`<span class="topbar__more-now"> · ${more.find((m) => m.on)!.label}</span>` : html``}</summary>
+      <div class="topbar__more-panel">
+        ${more.map((m) => html`<a href="${m.href}" class="${m.on ? 'is-active' : ''}" ${m.on ? html`aria-current="page"` : html``}><span class="topbar__more-label">${m.label}</span><span class="topbar__more-hint">${m.hint}</span></a>`) as unknown as SafeHtml[]}
+      </div>
+    </details>
+  </nav>`;
 }

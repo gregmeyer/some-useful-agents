@@ -20,6 +20,12 @@ export const DEFAULT_HOME_SURFACE: SurfaceDoc = {
     { id: 'drafts-folded', type: 'collapse', match: { idPrefix: 'agent:', kinds: ['decision'] }, label: 'drafts stay folded' },
   ],
   overrides: [],
+  // A new Home leads with the question box (drawn above the parts), then what needs you and your answers;
+  // the rest is a Show away (Adjust Home). A Home you've arranged keeps its own parts.
+  parts: [
+    { id: 'today' }, { id: 'brief', hidden: true }, { id: 'next-up', hidden: true }, { id: 'ask', hidden: true },
+    { id: 'housekeeping', hidden: true }, { id: 'reads', hidden: true }, { id: 'notebooks' },
+  ],
 };
 
 /**

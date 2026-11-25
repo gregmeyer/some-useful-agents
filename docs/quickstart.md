@@ -1,6 +1,8 @@
 # Quickstart
 
-30 minutes to your first running agent. If you want the 90-second summary: install, `sua init`, `sua agent run hello`, `sua dashboard start`. Open `http://127.0.0.1:3000/`.
+Ask a question; get back a researched answer you can check, laid out the same clear way every time. The 90-second version: install, `sua init`, `sua dashboard start`, open `http://127.0.0.1:3000/`, connect a model, and type a question in **Ask a question** on Home. sua works out how to research it, goes straight through, and lists every source with the quote it rests on.
+
+The rest of this page is the longer road: about 30 minutes to your first agent of your own.
 
 ## Prerequisites
 
@@ -82,11 +84,13 @@ Click it — the dashboard stores the cookie and bookmarks `http://127.0.0.1:300
 
 **Keep it running.** `sua dashboard start` runs in the foreground. To run sua in the background, with schedules firing, use `sua daemon start` (and `sua daemon status`, `sua daemon stop`). Agent schedules fire only while the scheduler is running.
 
-From here you can:
+**Ask your first question.** Home leads with **Ask a question**. Type one ("Which noise-cancelling headphones under $300 are best for flights?", "Prepare me for a meeting with someone at Acme", "How do I back up my laptop every night?") or tap an example. sua replies in the panel, works out how to research it (about a minute), and starts. Its page fills in as it goes. Every answer lists its sources: tap one to see the quote it rests on and whether that quote was found on the page. **Print** gives you a page to print or save as a PDF, and the box at the foot asks a follow-up. All your answers are under **Answers** in the top bar ([Notebooks](notebooks.md) has the detail).
 
-- Start on `/start` — four starter agents, one per pattern
+From here you can also:
+
+- Start on `/start` (under **More → Agents**) — four starter agents, one per pattern
 - Ask **What do you want to do?** on `/agents`: sua points you to the agents that do it (or offers to build one); below that, the agents you use and every agent grouped by what it does
-- Start a notebook at `/notebooks/new` for a goal you'll keep at over time — a car to buy, a job to find ([Notebooks](notebooks.md))
+- Set an answer up yourself at **Answers → + Ask a question** (`/notebooks/new`): a draft of its steps to check before it starts
 - Watch a run live at `/runs/:id`: each node's output, tool calls, cost and budget
 - Talk to an agent on its **Chat** tab; replies stream in as they're written
 - See every agent's latest result on **Pulse** (`/pulse`), run any tile in place, and arrange it with **✎ Arrange**; or describe a whole board with **＋ New board** and sua builds it from your agents ([Boards](boards.md))

@@ -44,6 +44,30 @@
   font-weight: var(--weight-semibold);
 }
 
+/* More: the rest of sua (Agents, Experiments, Pulse, Help), a short menu under the bar. */
+.topbar { position: relative; }
+.topbar__more > summary {
+  list-style: none; cursor: pointer;
+  font-size: var(--font-size-sm); color: var(--color-text-muted); font-weight: var(--weight-medium);
+  padding: var(--space-2) 0; white-space: nowrap;
+}
+.topbar__more > summary::-webkit-details-marker { display: none; }
+.topbar__more > summary::before { content: none; }
+.topbar__more > summary::after { content: " ▾"; font-size: var(--font-size-xs); }
+.topbar__more[open] > summary::after { content: " ▴"; }
+.topbar__more > summary.is-active { color: var(--color-text); font-weight: var(--weight-semibold); }
+.topbar__more-now { color: var(--color-text-subtle); font-weight: var(--weight-medium); }
+.topbar__more-panel {
+  position: absolute; top: calc(100% - var(--space-2)); z-index: 60;
+  display: grid; gap: var(--space-1); min-width: 16rem; max-width: calc(100vw - 2rem);
+  padding: var(--space-2); background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-md, 0 8px 24px rgb(0 0 0 / 0.3));
+}
+.topbar__more-panel a { display: grid; gap: 2px; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); }
+.topbar__more-panel a:hover, .topbar__more-panel a:focus-visible { background: var(--color-surface-raised); }
+.topbar__more-label { color: var(--color-text); font-weight: var(--weight-medium); }
+.topbar__more-hint { color: var(--color-text-subtle); font-size: var(--font-size-xs); font-weight: var(--weight-regular, 400); }
+
 /* The right cluster owns the auto-margin so the "needs you" pill always hugs
    the theme toggle on the right — and the toggle stays right-anchored when the
    pill is hidden. (Previously both carried margin-left:auto, which stranded the
@@ -1854,7 +1878,7 @@
    drops its shortcut hint. */
 @media (max-width: 640px) {
   .topbar { gap: var(--space-3); padding: 0 var(--space-4); }
-  .topbar__nav { flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; gap: var(--space-3); }
+  .topbar__nav { flex: 1 1 auto; min-width: 0; gap: var(--space-3); }
   .topbar__nav::-webkit-scrollbar { display: none; }
   .topbar__nav a { white-space: nowrap; }
   .topbar__right { margin-left: 0; flex: none; gap: var(--space-2); }
@@ -1920,3 +1944,22 @@
 .tool-start__lenses { display: flex; gap: var(--space-6); margin-bottom: var(--space-3); font-size: var(--font-size-sm); }
 .tool-start__body select.form-field__input, .tool-start__body textarea { width: 100%; box-sizing: border-box; }
 .tool-start__result .tool-ideas { margin-bottom: 0; }
+
+/* The Agents section's More tab: Start here, Behaviors, Tools, Packs. Shows the one you're on. */
+.tab-strip__more { position: relative; }
+.tab-strip__more > summary {
+  list-style: none; cursor: pointer; padding: var(--space-3) var(--space-4); color: var(--color-text-muted);
+  font-weight: var(--weight-medium); border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.tab-strip__more > summary.is-active { color: var(--color-text); border-bottom-color: var(--color-primary); font-weight: var(--weight-semibold); }
+.tab-strip__more-panel a { border-bottom: 0; margin-bottom: 0; }
+.tab-strip__more > summary::-webkit-details-marker { display: none; }
+.tab-strip__more > summary::before { content: none; }
+.tab-strip__more > summary::after { content: " ▾"; font-size: var(--font-size-xs); }
+.tab-strip__more[open] > summary::after { content: " ▴"; }
+.tab-strip__more-panel {
+  position: absolute; top: 100%; left: 0; z-index: 40; display: grid; min-width: 10rem;
+  padding: var(--space-1); background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-md);
+}
+.tab-strip__more-panel a { padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); }
