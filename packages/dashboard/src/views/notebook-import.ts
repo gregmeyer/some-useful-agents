@@ -44,7 +44,7 @@ export function renderNotebookImport(opts: { flash?: { kind: 'error' | 'ok' | 'i
     <div class="nb-import">
       <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Answers</a> › Import</p>
       <h1 class="nbd__title">Import a notebook</h1>
-      <p class="dim">A notebook file (<span class="mono">.suanb</span>) is a copy of a notebook from another sua: Download / share → Notebook file on that machine. It brings its options, facts, pictures, write-up and steps, and the agents and tools of yours it runs. Once imported it's its own notebook here.</p>
+      <p class="dim">A notebook file (<span class="mono">.suanb</span>) is a copy of a notebook from another sua: More formats → Answer file on that machine. It brings its options, facts, pictures, write-up and steps, and the agents and tools of yours it runs. Once imported it's its own notebook here.</p>
       <label class="form-field">
         <span class="form-field__label">The notebook file</span>
         <input type="file" accept=".suanb,application/gzip" class="form-field__input" data-nb-import-file>

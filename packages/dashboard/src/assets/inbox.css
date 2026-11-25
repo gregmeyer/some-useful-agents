@@ -3462,3 +3462,8 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 /* The shared-tool card (lib/tool-refactor.ts): the tool, then one block per agent. */
 .act-card__tool, .act-card__agent-edit { margin: var(--space-2) 0; padding-top: var(--space-2); border-top: 1px solid var(--color-border); }
 .act-card__tool:first-child { border-top: 0; padding-top: 0; }
+
+/* The answers a conversation started, under its title. */
+.ib-answers { margin: var(--space-2) 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.ib-answers__label { font-family: var(--font-mono); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-subtle); margin-right: var(--space-2); }
+.ib-answers__status { color: var(--color-text-subtle); }

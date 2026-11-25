@@ -44,6 +44,8 @@ export interface InboxDetailOptions {
   responses: InboxResponse[];
   /** The notebook this conversation is about, shown as a card under the title. */
   notebook?: NotebookCard;
+  /** The answers asked in this conversation (sua's bar, a follow-up), listed under the title. */
+  answers?: ReadonlyArray<{ id: string; title: string; status: string }>;
   /** For a `question` item: the question a run is waiting on (core human-questions.ts). */
   question?: HumanQuestion;
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
@@ -494,6 +496,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
         </header>
         ${headerMeta}
         ${opts.notebook ? renderThreadNotebook(opts.notebook) : html``}
+        ${threadAnswers(opts.answers ?? [], opts.notebook?.nb.id)}
         ${flashBlock}
         ${bodyBlock}
         ${approvalBlock}
@@ -510,6 +513,13 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
 }
 
 /** A notebook's conversation: the notebook as a card that opens it. */
+/** The answers this conversation started, each a link (the one it's about, shown as its card, left out). */
+function threadAnswers(answers: ReadonlyArray<{ id: string; title: string; status: string }>, cardId?: string): SafeHtml {
+  const shown = answers.filter((a) => a.id !== cardId);
+  if (!shown.length) return html``;
+  return html`<p class="ib-answers"><span class="ib-answers__label">Answers from this conversation</span> ${shown.map((a, i) => html`${i ? ' · ' : ''}<a href="/notebooks/${encodeURIComponent(a.id)}">${a.title}</a>${a.status === 'active' ? html`` : html` <span class="ib-answers__status">(${a.status})</span>`}`) as unknown as SafeHtml[]}</p>`;
+}
+
 function renderThreadNotebook(c: NotebookCard): SafeHtml {
   const { nb } = c;
   const facts = [...countParts(c), c.done ?? ''].filter(Boolean).join(' · ');

@@ -174,6 +174,8 @@ export function startAskedNotebook(ctx: Ctx, input: { ask: string; title?: strin
     if ('error' in drafted) return drafted;
     try {
       const nb = createNotebookFrom(ctx, setupFromDraft(ctx, drafted.text, drafted.draft, input.title));
+      // It links back to the conversation it was asked in, and that conversation lists it.
+      if (input.threadId) { NotebookStore.fromHandle(ctx.runStore.databaseHandle()).setAskedIn(nb.id, input.threadId); return { notebook: NotebookStore.fromHandle(ctx.runStore.databaseHandle()).get(nb.id) ?? nb }; }
       return { notebook: nb };
     } finally { discardDraft(ctx, drafted.draftId); }
   })().catch((err: unknown) => ({ error: err instanceof Error ? err.message : String(err) }));

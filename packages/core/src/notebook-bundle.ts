@@ -101,7 +101,7 @@ export function exportNotebookBundle(stores: BundleStores, id: string, opts: { m
   if (!rows) return undefined;
   const nb = rows.notebooks![0];
   // What only means something on this machine.
-  rows.notebooks = [{ ...nb, conversation_id: null, experiment_id: null, experiment_run_json: null, cadence_fired_at: null, archived_at: null }];
+  rows.notebooks = [{ ...nb, conversation_id: null, asked_in: null, experiment_id: null, experiment_run_json: null, cadence_fired_at: null, archived_at: null }];
   rows.notebook_attachments = (rows.notebook_attachments ?? []).map((r) => ({ ...r, thread_id: null }));
 
   const agents: NotebookBundle['agents'] = [];

@@ -1434,6 +1434,8 @@ export function executeNotebookCreate(
   const made = startNotebookFrom(ctx, meta.inputs);
   if ('error' in made) return { status: 'failed', refusalReason: made.error };
   const { notebook: nb, from } = made;
+  // It links back to the conversation it was started in, and that conversation lists it.
+  if (threadId) notebooksOf(ctx).setAskedIn(nb.id, threadId);
   // What was attached in the conversation it was started from goes on it.
   const attached = threadId ? fileThreadAttachments(ctx, threadId, nb.id) : [];
   const first = nb.steps?.[0];
