@@ -102,6 +102,15 @@ export const APP_ASK_JS = `
   document.addEventListener('keydown', function (e) {
     var meta = e.metaKey || e.ctrlKey;
     var isK = meta && (e.key === 'k' || e.key === 'K');
+    // Cmd-I opens (or closes) the inbox drawer too, like Cmd-K. Not in a rich-text editor, where it means italic.
+    var isI = meta && !e.shiftKey && !e.altKey && (e.key === 'i' || e.key === 'I');
+    if (isI && window.suaPanel) {
+      var ae = document.activeElement;
+      if (ae && ae.isContentEditable) return;
+      e.preventDefault();
+      window.suaPanel.toggle();
+      return;
+    }
     var isSlash = !meta && !e.altKey && !e.shiftKey && e.key === '/';
     if (isK || isSlash) {
       // Never hijack a keystroke while a modal is up, and "/" only when the
