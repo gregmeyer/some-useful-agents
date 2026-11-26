@@ -1044,6 +1044,27 @@ its words made to fit any time it's used:
   once they save. Each later request ("call it Meeting prep", "drop the
   third check") is the same card again with the whole template.
 
+Making a template FROM SKILLS ("build a comparison template for picking a
+CRM", "make a template from evaluate-software for choosing a data
+warehouse", "a template that runs this skill"): the template drafter turns
+skills (SKILLS) and a job into a whole template, checked before they see
+it. Propose ONE `template-draft`; it runs without approval (it changes
+nothing) and posts a card with the template to save:
+`{ "type": "template-draft", "rationale": "…",
+   "inputs": { "ASK": "<the job, in their words: pick a CRM for a 5-person sales team>",
+               "SKILLS": ["<skill name>", …],
+               "MODE": "<a mode the skill names, only when they said one: quick>",
+               "NAME": "<a template's name, only when changing one>" } }`
+- SKILLS: the skills that say how this kind of work is done, from SKILLS,
+  with any a skill's description says it's used with (evaluate-software
+  with software-rubric). None fits: say so, and offer to write one
+  (skill-draft) first.
+- A change to a template made this way ("make job fit 30", "add a gate for
+  SSO") is template-draft again with its NAME and the change in ASK.
+- In your follow-up turn, say the draft takes a minute and nothing is
+  saved until they approve the card. Once saved, they start notebooks from
+  it like any template.
+
 
 ════════════════════════════════════════════════════════════════
 IN A NOTEBOOK'S CONVERSATION — fill it in as you talk

@@ -28,7 +28,7 @@ const post = (app: Parameters<typeof request>[0], p: string, body: Record<string
 const store = () => SkillStore.fromHandle(t!.ctx.runStore.databaseHandle());
 
 const PASTED = `---
-name: evaluate-software
+name: choose-vendors
 description: "Evaluate software for a job, with evidence."
 ---
 
@@ -37,8 +37,8 @@ Select a defensible path to an outcome.`;
 
 describe('a pasted skill', () => {
   it('reads SKILL.md frontmatter, or a skill page as copied, into its parts', () => {
-    expect(readPastedSkill(PASTED)).toEqual({ name: 'evaluate-software', description: 'Evaluate software for a job, with evidence.', body: '## Objective\nSelect a defensible path to an outcome.' });
-    expect(readPastedSkill('Metadata\nname\nevaluate-software\ndescription\nEvaluate software.\nEvaluate software\nObjective…')).toEqual({ name: 'evaluate-software', description: 'Evaluate software.', body: 'Evaluate software\nObjective…' });
+    expect(readPastedSkill(PASTED)).toEqual({ name: 'choose-vendors', description: 'Evaluate software for a job, with evidence.', body: '## Objective\nSelect a defensible path to an outcome.' });
+    expect(readPastedSkill('Metadata\nname\nchoose-vendors\ndescription\nEvaluate software.\nEvaluate software\nObjective…')).toEqual({ name: 'choose-vendors', description: 'Evaluate software.', body: 'Evaluate software\nObjective…' });
     expect(readPastedSkill('Just rules.')).toEqual({ body: 'Just rules.' });
   });
 });
@@ -59,9 +59,9 @@ describe('/skills', () => {
     const app = await makeApp();
     const res = await post(app, '/skills/new', { name: '', description: '', body: PASTED });
     expect(res.status).toBe(303);
-    expect(res.headers.location).toMatch(/^\/skills\/evaluate-software\?flash=/);
-    expect(store().get('evaluate-software')).toMatchObject({ version: 1, description: 'Evaluate software for a job, with evidence.' });
-    const page = await get(app, '/skills/evaluate-software');
+    expect(res.headers.location).toMatch(/^\/skills\/choose-vendors\?flash=/);
+    expect(store().get('choose-vendors')).toMatchObject({ version: 1, description: 'Evaluate software for a job, with evidence.' });
+    const page = await get(app, '/skills/choose-vendors');
     expect(page.text).toContain('YOURS · v1');
     expect(page.text).toContain('Delete skill');
   });

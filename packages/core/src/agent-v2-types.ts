@@ -617,6 +617,8 @@ export interface Agent {
    * A name with no skill fails the run. See docs/skills.md.
    */
   skills?: string[];
+  /** The input that names more skills for a run (comma- or space-separated). See docs/skills.md. */
+  skillsFromInput?: string;
 }
 
 /**
@@ -735,6 +737,8 @@ export interface AgentVersionDag {
   behaviors?: string[];
   /** See Agent.skills. */
   skills?: string[];
+  /** See Agent.skillsFromInput. */
+  skillsFromInput?: string;
   /** CSP allowlist contributions + inbox execution capabilities — see Agent.permissions. */
   permissions?: { imgSrc?: string[]; inboxRunnable?: boolean };
   /** See Agent.allowedSubAgents. */

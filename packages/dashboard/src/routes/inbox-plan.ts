@@ -545,6 +545,19 @@ export function parseProposedActions(
       accepted.push({ kind: 'action', status: 'proposed', agentId: type, effect: 'read', inputs: { ASK: ask.slice(0, 2000), ...(name ? { NAME: name.slice(0, 64) } : {}), ...(ids ? { AGENT_IDS: ids.slice(0, 600) } : {}) }, rationale: rationaleRaw || undefined, ctaLabel: 'Draft it' });
       continue;
     }
+    // `template-draft` has the template-drafter turn skills into a notebook
+    // template for a job (changing nothing), then posts a `template-save`
+    // card (lib/template-actions.ts).
+    if (type === 'template-draft') {
+      const raw = e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs) ? e.inputs as Record<string, unknown> : {};
+      const ask = typeof raw.ASK === 'string' ? raw.ASK.trim() : '';
+      const skills = Array.isArray(raw.SKILLS) ? raw.SKILLS.filter((x): x is string => typeof x === 'string').join(',') : typeof raw.SKILLS === 'string' ? raw.SKILLS : '';
+      const mode = typeof raw.MODE === 'string' ? raw.MODE.trim() : '';
+      const name = typeof raw.NAME === 'string' ? raw.NAME.trim() : '';
+      if (!ask || !skills.trim()) { rejected.push({ agentId: type, reason: 'template-draft needs inputs.ASK (the job, in their words) and SKILLS (the skills to follow, by name)' }); continue; }
+      accepted.push({ kind: 'action', status: 'proposed', agentId: type, effect: 'read', inputs: { ASK: ask.slice(0, 2000), SKILLS: skills.slice(0, 300), ...(mode ? { MODE: mode.slice(0, 40) } : {}), ...(name ? { NAME: name.slice(0, 80) } : {}) }, rationale: rationaleRaw || undefined, ctaLabel: 'Draft it' });
+      continue;
+    }
     // `skill-save` with SKILL + AGENT_IDS adds a skill you have to agents (a
     // card to approve). A new or changed skill comes from skill-draft instead.
     if (type === 'skill-save') {

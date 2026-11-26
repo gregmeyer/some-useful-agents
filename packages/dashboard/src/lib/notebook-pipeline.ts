@@ -197,7 +197,7 @@ export function pipelineInputs(agent: Pick<Agent, 'inputs'>, nb: Notebook, entri
     else if (n === 'SEARCHES' && job?.step.kind === 'find') out[name] = String(findSearches(job.want - job.have));
     else if (n === 'OPTIONS' && entries) out[name] = optionsInput(nb, entries, job?.step.kind === 'check', job?.step.top);
     // An agent that files directly needs the notebook's field keys and roles.
-    else if (n === 'FIELDS' || n === 'NOTEBOOK_FIELDS') out[name] = JSON.stringify(nb.fields.map((f) => ({ key: f.key, label: f.label, type: f.type, ...(f.role ? { role: f.role } : {}), ...(f.unit ? { unit: f.unit } : {}) })));
+    else if (n === 'FIELDS' || n === 'NOTEBOOK_FIELDS') out[name] = JSON.stringify(nb.fields.map((f) => ({ key: f.key, label: f.label, type: f.type, ...(f.role ? { role: f.role } : {}), ...(f.unit ? { unit: f.unit } : {}), ...(f.weight !== undefined ? { weight: f.weight, ...(f.anchors ? { anchors: f.anchors } : {}), ...(f.axis ? { axis: f.axis } : {}) } : {}) })));
   }
   return out;
 }
@@ -467,8 +467,8 @@ export function directBlock(output: string): string | undefined {
     const v = JSON.parse(block) as { entries?: unknown; facts?: unknown; needs?: unknown };
     // It did nothing because it needs something the notebook doesn't have: its own word on that, never a keeper's reading.
     if (typeof v.needs === 'string' && v.needs.trim()) return `<notebook>${block}</notebook>`;
-    // Entries, or checks on options it already has (a checker's own verified block).
-    const checks = Array.isArray(v.facts) && v.facts.some((f) => !!f && typeof f === 'object' && ('checked' in f || 'ruleOut' in f));
+    // Entries, or checks or facts on options it already has (a checker's or a scorer's own verified block).
+    const checks = Array.isArray(v.facts) && v.facts.some((f) => !!f && typeof f === 'object' && ('checked' in f || 'ruleOut' in f || (!!(f as { data?: unknown }).data && typeof (f as { data?: unknown }).data === 'object' && Object.keys((f as { data: object }).data).length > 0)));
     return (Array.isArray(v.entries) && v.entries.length > 0) || checks ? `<notebook>${block}</notebook>` : undefined;
   } catch { return undefined; }
 }

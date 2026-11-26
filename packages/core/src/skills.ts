@@ -122,6 +122,19 @@ export function loadSkills(store?: SkillStore, repoDir?: string): LoadSkillsResu
   return loaded;
 }
 
+/**
+ * The skills a run uses: the agent's own, then the ones its `skillsFromInput`
+ * input names for this run ("evaluate-software, software-rubric"). Pure.
+ */
+export function runSkillNames(agent: { skills?: readonly string[]; skillsFromInput?: string; inputs?: Readonly<Record<string, { default?: unknown }>> }, inputs: Readonly<Record<string, string>>): string[] {
+  const own = agent.skills ?? [];
+  const from = agent.skillsFromInput;
+  const given = from ? inputs[from] ?? agent.inputs?.[from]?.default : undefined;
+  const raw = typeof given === 'string' ? given : '';
+  const chosen = raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+  return [...new Set([...own, ...chosen])];
+}
+
 /** Names and descriptions, for catalogs and pickers. */
 export function skillsCatalog(loaded: LoadSkillsResult = loadShippedSkills()): Array<{ name: string; description: string }> {
   return [...loaded.byName.values()].map(({ name, description }) => ({ name, description }));

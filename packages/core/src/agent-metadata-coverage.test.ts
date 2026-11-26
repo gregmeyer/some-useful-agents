@@ -67,6 +67,8 @@ export const METADATA_EXEMPT_AGENT_IDS: Readonly<Record<string, string>> = {
   'view-designer': 'View editor only: proposes a better view for one agent, never proposed',
   'tool-drafter': 'New tool only: drafts a tool from a description, never proposed',
   'skill-drafter': 'skill-draft only: writes a skill from a conversation, never proposed',
+  'template-drafter': 'template-draft only: drafts a template from skills, never proposed',
+  'software-scorer': "a template's source step: scores a notebook's options, never proposed",
   'tool-suggester': 'New tool only: suggests tools to make from an agent, an input or an outcome, never proposed',
   'tool-refactorer': "sua's tool-refactor only: drafts the tool several agents share, never proposed",
   'agent-retooler': "sua's tool-refactor only: rewrites one agent to call the shared tool, never proposed",

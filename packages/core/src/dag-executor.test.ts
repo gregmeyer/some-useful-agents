@@ -2674,6 +2674,33 @@ describe('skills (skills: [...])', () => {
     expect(run.error).toContain('no-such-skill');
     expect(spawned).toEqual([]);
   });
+
+  it('adds the skills its skillsFromInput input names for this run, after its own', async () => {
+    const both = () => ({ byName: new Map([...loaded().byName, ['evaluate-software', { name: 'evaluate-software', description: 'd', body: 'Gates first.', file: '/y/SKILL.md' }]]), problems: [] });
+    const agent = makeAgent({
+      skills: ['research-shape'], skillsFromInput: 'SKILLS',
+      inputs: { SKILLS: { type: 'string', default: '' } },
+      nodes: [{ id: 'ask', type: 'llm-prompt', prompt: 'Draft it.' }],
+    });
+    let preamble = '';
+    const ok = await executeAgentDag(agent, { triggeredBy: 'cli', inputs: { SKILLS: 'evaluate-software, research-shape' } }, {
+      runStore, loadSkills: both,
+      spawnNode: async (_node, _env, opts) => { preamble = (opts as { behaviorPreamble?: string }).behaviorPreamble ?? ''; return { result: 'ok', exitCode: 0 }; },
+    });
+    expect(ok.status).toBe('completed');
+    expect(preamble.indexOf('## research-shape')).toBeLessThan(preamble.indexOf('## evaluate-software\n\nGates first.'));
+    expect(preamble.match(/## research-shape/g)).toHaveLength(1);
+    const bad = await executeAgentDag(agent, { triggeredBy: 'cli', inputs: { SKILLS: 'not-a-skill' } }, { runStore, loadSkills: both, spawnNode: async () => ({ result: 'ok', exitCode: 0 }) });
+    expect(bad.status).toBe('failed');
+    expect(bad.error).toContain('not-a-skill');
+  });
+
+  it('skillsFromInput must name one of its inputs', async () => {
+    const { parseAgent } = await import('./agent-yaml.js');
+    const yaml = (extra: string) => ['id: picker', 'name: picker', 'source: local', extra, 'skillsFromInput: SKILLS', 'nodes:', '  - id: a', '    type: llm-prompt', '    prompt: hi'].join('\n');
+    expect(() => parseAgent(yaml(''))).toThrow(/not one of this agent's inputs/);
+    expect(parseAgent(yaml('inputs:\n  SKILLS:\n    type: string\n    default: ""')).skillsFromInput).toBe('SKILLS');
+  });
 });
 
 describe('agent memory (memory: on)', () => {

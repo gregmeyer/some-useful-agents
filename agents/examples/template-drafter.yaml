@@ -1,0 +1,156 @@
+# Template Drafter — turns know-how (skills) into a notebook template, drafted
+# from scratch rather than saved from a notebook (docs/notebooks.md
+# "Templates from a skill"). Route-dispatched only, by sua's `template-draft`
+# (dashboard lib/template-actions.ts); never proposed in triage.
+#
+# Generic: the skills it follows are chosen each run (SKILLS, through
+# skillsFromInput), so evaluate-software + software-rubric make a comparison
+# template, and another skill makes another kind. Its <template> block is
+# checked in code (cleanTemplateSetup: weights add to 100, each scored
+# criterion has anchors and an axis, at most 6 steps and 4 asks, every
+# step's agent installed) and shown on a card; nothing is saved until you
+# approve it.
+
+id: template-drafter
+name: Template Drafter
+description: >
+  Drafts a notebook template (what it's for, what it asks, its checks,
+  scored criteria, steps and page) from the skills it's given and the job
+  someone describes, as one <template> block to approve.
+status: active
+source: examples
+skillsFromInput: SKILLS
+
+inputs:
+  SKILLS:
+    type: string
+    required: true
+    description: The skills to follow, by name, comma-separated (evaluate-software, software-rubric).
+  JOB:
+    type: string
+    required: true
+    description: The job the template is for, in their words ("pick a CRM for a 5-person sales team").
+  MODE:
+    type: string
+    required: false
+    default: ""
+    description: A mode the skills define (quick, standard), when they said one.
+  CONVERSATION:
+    type: string
+    required: false
+    default: ""
+    description: The conversation so far (latest last), for what they already said.
+  AGENTS:
+    type: string
+    required: false
+    default: "(none)"
+    description: Agents a step can name, one per line (id, then what it does).
+  LAYOUTS:
+    type: string
+    required: false
+    default: ""
+    description: The ready-made pages a template can use, one per line (id, then when it fits).
+  TEMPLATES:
+    type: string
+    required: false
+    default: ""
+    description: The templates they already have, by name, so a new one gets its own.
+  CURRENT:
+    type: string
+    required: false
+    default: ""
+    description: The template being changed, as its name and setup JSON. Empty for a new one.
+  FIX:
+    type: string
+    required: false
+    default: ""
+    description: Why the previous draft couldn't be used, to fix this time.
+
+nodes:
+  - id: draft
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 240
+    outputContract:
+      mustMatch: '<template name="[^"]+" description="[^"]*">[\s\S]*?</template>'
+      description: one <template name description> block holding the setup JSON
+    prompt: |
+      You draft one notebook template for sua, a local agent runner, by
+      following the know-how above. A template is a notebook's setup with no
+      findings: each notebook started from it asks for what's missing, then
+      works through its steps. Turn the know-how into that setup for this
+      job; don't do the research itself.
+
+      The job: {{inputs.JOB}}
+      Mode (may be empty; use the know-how's default): {{inputs.MODE}}
+
+      The conversation so far (it may hold details of the job):
+      {{inputs.CONVERSATION}}
+
+      Agents a step can name (never invent an id):
+      {{inputs.AGENTS}}
+
+      Ready-made pages ("layout"):
+      {{inputs.LAYOUTS}}
+
+      Templates they have (a new one needs another name):
+      {{inputs.TEMPLATES}}
+
+      The template to change (empty when it's a new one; keep its name and
+      everything they didn't ask to change):
+      {{inputs.CURRENT}}
+
+      Fix this from your last draft (may be empty): {{inputs.FIX}}
+
+      The setup is JSON with these keys:
+      - "statement": one sentence, what each notebook is for. When the
+        know-how gives a form for it (a job statement), use that form, with
+        what this job says filled in and the rest left general.
+      - "params": limits that hold every time (0–6 short phrases). Nothing
+        that changes from one use to the next: that's an ask.
+      - "criteria": 2–4 "done when" checks, the last naming the decision or
+        what's written.
+      - "asks": at most 4 things each new notebook asks for before it runs,
+        the material facts the know-how says to collect that this job
+        doesn't settle (their stack, the volume, the budget, the deadline):
+        [{"label": "…", "why": "…", "optional": true}]. "optional": false
+        waits for it; true shows a box and goes on without it.
+      - "checks": at most 8 pass/fail sentences every option is held to,
+        each one a page can show is met or not (the know-how's gates or
+        mandatory requirements).
+      - "fields": the facts noted for each option, each {"key":
+        lowercase_snake, "label", "type": money|number|text|url|date,
+        "unit"?, "role"?, "better"?}. Roles, at most one each: "price",
+        "org", "link", "place", "when". Include its name or vendor (org) and
+        its website (link).
+        A **scored criterion** (when the know-how scores options against a
+        rubric) is a number field with "weight" (the weights of all scored
+        criteria add to exactly 100), "anchors" (exactly 5 strings: what 0,
+        1, 2, 3 and 4 mean for THIS job, each a sentence someone could
+        check), and "axis": "suitability" (how well it does the job) or
+        "feasibility" (how easy it is to adopt). Never give a scored
+        criterion a role.
+      - "stages": 3–5 stages an option goes through ("Found", "Checked",
+        "Scored", "Shortlisted", "Chosen").
+      - "steps": the work in order, at most 6, each {"title", "kind",
+        "agentId"?, "target"?, "facts"?, "shape"?}. Kinds: "find" (search
+        for options; "target": how many), "check" (the checks above;
+        no agentId uses sua's checker), "source" (look up facts a search
+        won't give; "facts": the keys it fills; "agentId": an agent above
+        made for those facts, e.g. one that scores criteria), "write"
+        ("shape": "writeup" writes up the field: the lay of the land, the
+        top options and why, what to do next; no agentId), "decide" (they
+        pick; "target": how many). A find step with no agentId uses sua's
+        finder.
+      - "layout": a ready-made page's id from the list above that fits, or
+        leave it out.
+
+      Reply with exactly these two blocks, the setup as JSON inside the first:
+
+      <template name="Pick a CRM for a small sales team" description="One line: what a notebook from it does.">
+      {"statement": "…", "params": [], "criteria": [], "asks": [], "checks": [], "fields": [], "stages": [], "steps": [], "layout": "…"}
+      </template>
+      <why>One sentence: what it covers, and what the know-how asked for that a template can't hold.</why>
+
+      The name: at most 60 characters, no person's or company's name, no
+      double quotes. The description: one line, no double quotes.

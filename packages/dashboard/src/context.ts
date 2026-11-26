@@ -394,6 +394,8 @@ export interface DashboardContext {
   toolRefactorRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests: the skill-drafter's reply, instead of running it (lib/skill-actions.ts). */
   skillDrafterRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Tests: the template-drafter's reply, instead of running it (lib/template-actions.ts). */
+  templateDrafterRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests: stand in for the agent-retooler agent, once per agent. */
   agentRetoolerRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /**

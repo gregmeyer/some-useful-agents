@@ -1,0 +1,211 @@
+# Software Scorer — a notebook source step's agent (docs/notebooks.md
+# "Scored against weighted criteria"): scores each option 0–4 on the
+# notebook's weighted criteria, from evidence it finds, the software-rubric
+# skill's way. A comparison template's source step names it.
+#
+#   prep ── web (research-fanout, 3 at once) ── score (no tools) ── finish
+#
+# A score is kept only when code finds its quote on the page it cites
+# (finish); anything else stays unknown, never 0 or a guess. It files its
+# own <notebook> block (scores with their source, quote and confidence),
+# so no keeper reads it.
+
+id: software-scorer
+name: Software Scorer
+description: >
+  Scores a notebook's options 0–4 on its weighted criteria from evidence it
+  finds, keeping only scores whose quote is on the page they cite; the rest
+  stay unknown.
+status: active
+source: examples
+mcp: false
+skills: [software-rubric]
+
+inputs:
+  NOTEBOOK:
+    type: string
+    required: false
+    default: ""
+    description: What the notebook is for and where it stands.
+  STEP:
+    type: string
+    required: false
+    default: ""
+    description: This step's job (which facts are still missing).
+  OPTIONS:
+    type: string
+    required: false
+    default: "[]"
+    description: The options, as JSON [{id, name, facts, sources, text}].
+  FIELDS:
+    type: string
+    required: false
+    default: "[]"
+    description: The notebook's fields, as JSON; the scored criteria carry weight, anchors and axis.
+
+nodes:
+  # 1. Which options still lack which scores, and what to look for on each.
+  - id: prep
+    type: shell
+    timeout: 30
+    command: |
+      python3 - <<'PY'
+      import json, os
+      def load(name, default):
+          try:
+              v = json.loads(os.environ.get(name) or "")
+              return v if isinstance(v, type(default)) else default
+          except ValueError:
+              return default
+      fields = [f for f in load("FIELDS", []) if isinstance(f, dict)]
+      crit = [f for f in fields if isinstance(f.get("weight"), (int, float)) and f.get("key")]
+      options = [o for o in load("OPTIONS", []) if isinstance(o, dict) and o.get("id") and o.get("name")]
+      todo = []
+      for o in options:
+          have = o.get("facts") if isinstance(o.get("facts"), dict) else {}
+          missing = [f["key"] for f in crit if have.get(f.get("label")) in (None, "")]
+          if missing:
+              todo.append({"id": str(o["id"]), "name": str(o["name"])[:200], "missing": missing,
+                           "sources": [s for s in (o.get("sources") or []) if isinstance(s, str)][:3]})
+      todo = todo[:8]
+      def anchors(f):
+          a = f.get("anchors") if isinstance(f.get("anchors"), list) else []
+          return "; ".join(f"{i}: {str(x)[:160]}" for i, x in enumerate(a[:5]))
+      ask = [{"key": f["key"], "label": f.get("label") or f["key"],
+              "hint": f"what a current page says that bears on this ({anchors(f)})" if anchors(f) else "what a current page says that bears on this"}
+             for f in crit if any(f["key"] in t["missing"] for t in todo)]
+      print(json.dumps({
+          "ok": bool(todo and ask),
+          "why": "" if crit else "it has no weighted criteria to score",
+          "items_json": json.dumps([{"subject": t["name"], "hint": f"its own site: {t['sources'][0]}" if t["sources"] else ""} for t in todo]),
+          "ask_json": json.dumps(ask),
+          "todo": todo,
+          "criteria": [{"key": f["key"], "label": f.get("label") or f["key"], "weight": f["weight"], "anchors": f.get("anchors") or []} for f in crit],
+      }))
+      PY
+
+  # 2. Evidence for each option, three at a time, each answer with its page and words.
+  - id: web
+    type: agent-invoke
+    dependsOn: [prep]
+    onlyIf: { upstream: prep, field: ok, equals: true }
+    optional: true
+    agentInvokeConfig:
+      agentId: research-fanout
+      inputMapping:
+        ITEMS: "$upstream.prep.items_json"
+        ASK: "$upstream.prep.ask_json"
+        CONTEXT: "Gathering evidence to score software for: {{inputs.NOTEBOOK}}. For each criterion, say what a page you opened shows about it, with its exact words: the product's current documentation, pricing or security pages first, then independent reviews. Note the edition or plan it applies to. When no page shows it, leave it under not_found; never guess."
+        DEPTH: "quick"
+        MAX_ITEMS: "8"
+
+  # 3. Evidence → 0–4 against each criterion's anchors. No tools: it scores
+  #    only what the research found.
+  - id: score
+    type: llm-prompt
+    dependsOn: [prep, web]
+    onlyIf: { upstream: prep, field: ok, equals: true }
+    maxTurns: 1
+    timeout: 180
+    prompt: |
+      Score software options against a notebook's weighted criteria, the
+      software-rubric way above. What the notebook is for:
+      {{inputs.NOTEBOOK}}
+
+      The options and the criteria each still needs, then each criterion's
+      weight and what 0, 1, 2, 3 and 4 mean (anchors, in order):
+      {{upstream.prep.result}}
+
+      What the research found for each option (each answer with the page
+      it came from and the words on it):
+      {{upstream.web.result}}
+
+      For each option and each criterion it still needs, give a score only
+      when an answer above supports one: copy its page address as "source"
+      and its words exactly as "quote" (at least 15 characters, from that
+      answer). No supporting answer: leave that criterion out (it stays
+      unknown); never score from what you know or assume. Confidence: high
+      for current primary documentation for the edition in question, medium
+      for independent corroboration, low for a vendor's claim alone.
+
+      Reply with one short line on how it went, then ONLY this block:
+      <scores>[{"option": "<option id>", "key": "<criterion key>", "score": 3, "source": "https://…", "quote": "the exact words", "confidence": "medium", "why": "one line against the anchor"}]</scores>
+
+  # 4. Code checks each quote on the page it cites before anything is kept,
+  #    and files the scores directly.
+  - id: finish
+    type: shell
+    dependsOn: [prep, web, score]
+    timeout: 150
+    command: |
+      python3 << 'PYEOF'
+      import html, json, re, unicodedata, urllib.request
+      from sua_helpers import upstream, last_json, tagged_json
+
+      prep = last_json(upstream("PREP"), "todo") or {}
+      if not prep.get("ok"):
+          why = prep.get("why") or "every option already has its scores"
+          print(f"Nothing to score: {why}.")
+          print("<notebook>" + json.dumps({"entries": [{"kind": "note", "title": f"Nothing to score: {why}"}], "summary": f"Nothing to score: {why}."}) + "</notebook>")
+          raise SystemExit(0)
+
+      REPL = {"“": '"', "”": '"', "‘": "'", "’": "'", " ": " ", "—": "-", "–": "-", "…": "..."}
+      def norm(s):
+          s = unicodedata.normalize("NFKC", "".join(REPL.get(ch, ch) for ch in (s or "")))
+          return re.sub(r"\s+", " ", s).strip().lower()
+
+      def page_text(url, cache={}):
+          if url in cache:
+              return cache[url]
+          text = ""
+          if len(cache) < 40 and re.match(r"^https?://", url or ""):
+              try:
+                  req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (sua software-scorer)"})
+                  with urllib.request.urlopen(req, timeout=8) as r:
+                      raw = r.read(2_000_000).decode(r.headers.get_content_charset() or "utf-8", "replace")
+                  raw = re.sub(r"<(script|style|noscript)[\s\S]*?</\1>", " ", raw, flags=re.I)
+                  text = norm(html.unescape(re.sub(r"<[^>]+>", " ", raw)))
+              except Exception:
+                  text = ""
+          cache[url] = text
+          return text
+
+      todo = {t["id"]: t for t in prep.get("todo") or []}
+      keys = {c["key"] for c in prep.get("criteria") or []}
+      scores = tagged_json(upstream("SCORE"), "scores")
+      scores = [s for s in scores if isinstance(s, dict)] if isinstance(scores, list) else []
+      facts, kept, unread, unquoted = {}, 0, 0, 0
+      for s in scores:
+          oid, key = str(s.get("option") or ""), str(s.get("key") or "")
+          if oid not in todo or key not in keys or key not in todo[oid]["missing"]:
+              continue
+          v = s.get("score")
+          if isinstance(v, bool) or not isinstance(v, (int, float)) or v != int(v) or not 0 <= v <= 4:
+              continue
+          quote, source = str(s.get("quote") or "").strip(), str(s.get("source") or "").strip()
+          if len(quote) < 15 or not source.startswith(("http://", "https://")):
+              unquoted += 1
+              continue
+          text = page_text(source)
+          if not text:
+              unread += 1
+              continue
+          if norm(quote) not in text:
+              unquoted += 1
+              continue
+          conf = s.get("confidence") if s.get("confidence") in ("high", "medium", "low") else "low"
+          facts.setdefault(oid, {})[key] = {"value": int(v), "source": source[:500], "quote": quote[:300], "checked": True, "confidence": conf}
+          kept += 1
+
+      left = []
+      if unread:
+          left.append(f"{unread} whose page couldn't be read")
+      if unquoted:
+          left.append(f"{unquoted} whose words weren't on the page cited")
+      summary = f"Scored {kept} criteri{'on' if kept == 1 else 'a'} across {len(facts)} option{'' if len(facts) == 1 else 's'}, each quote found on its page" + (f"; left unknown: {', '.join(left)}" if left else "") + "."
+      block = {"facts": [{"id": oid, "data": d} for oid, d in facts.items()], "summary": summary}
+      if not facts:
+          block["entries"] = [{"kind": "note", "title": summary}]
+      print(summary)
+      print("<notebook>" + json.dumps(block) + "</notebook>")
+      PYEOF
