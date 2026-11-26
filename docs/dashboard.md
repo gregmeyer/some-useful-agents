@@ -38,11 +38,21 @@ The top bar: `sua · Answers · Settings · More`. The `sua` brand is Home. **An
 
 Asking sua opens the answer in a panel beside the page, not over it, so you can keep looking at the tile or run you're asking about. **Ask sua** in the top bar, or **Cmd/Ctrl+K**, opens the panel (your last thread, or a box to start a new one) and closes it again. The panel stays open as you move between pages, per browser tab.
 
-- With no thread open, the panel is your inbox. One field searches as you type and asks sua when you press Enter. Below it, **Today · Open · Chats · Done** (with counts) and your threads, 25 at a time: on Today grouped into **Waiting on you** and **Keeps failing**, elsewhere into Today / This week / Earlier. Each row has a dot and a one-word tag for what it needs (**Approve**, **Answer**, **Failing**). It opens on Today when something is waiting. Pick a thread to read and reply in the panel; **← Inbox** goes back to the list where you left it. The list updates as threads change.
-- **+** starts a new conversation: a box to ask sua and a few starting points.
+- With no thread open, the panel is your inbox.
+  - **Search:** one field searches as you type and asks sua when you press Enter. While it's focused and empty, a few things to ask show under it.
+  - **Tabs:** **Today · Open · Chats · Done**, underlined, with counts.
+  - **Threads:** 25 at a time. On Today they're grouped by Home's regions (**NEEDS YOU · 9**, with the breakdown as its tooltip); elsewhere into Today / This week / Earlier.
+  - **Each row:**
+    - what it is, in small caps (**ANSWER**, **DIGEST**, **CHAT · weather**, **FAILING · ashby-jobs**, **DRAFT**…), and how long ago;
+    - its title (without the "Answer: " a notebook's conversation is stored with);
+    - one line of where it stands (sua's last words; yours start "You: "; a Done reads "Done · 7 options · 4 sources · one step is yours").
+  - **The dot:** amber when it needs you, pulsing teal while it's being answered, hollow otherwise.
+  - **On Today:** a card waiting on you is pressed from its row as quiet text (**Apply fix · Not now**). **⋯** (on hover) moves, pins or hides it, and says why it's there.
+  - It opens on Today when something is waiting. Pick a thread to read and reply in the panel; **← Inbox** goes back to the list where you left it. The list updates as threads change.
+- **The panel bar** reads **INBOX**, with **+** (a new conversation: a box to ask sua and a few starting points) and **⋯** (**Widen**, **Minimize**, **Refresh**, **Open full inbox**).
 - **The paperclip** beside Send attaches a file to your message (or drop a file on the box): PDF, plain text, Markdown or Word (.docx), as allowed under **Settings → General → Files sua takes**. sua gets its name and the start of its text; in a notebook's conversation it is added to the notebook as something you gave it. Only the text is kept. See [Adding a file or a paste](notebooks.md#adding-a-file-or-a-paste-it-didnt-ask-for).
-- A conversation shows its title on one line, then its state (Your turn, sua replied, Resolved…), who it's with and how old it is. **⋯** holds Star, Tags, **Ask sua to look again**, Summarize, Resolve / Dismiss / Reopen and **Open full page**. Messages show who said them (You, sua, the agent); status notes are quieter. Proposed actions are cards that say what they'll do and whether they only read or change something, with the inputs under **Details** and **Run it** / **Not now** (or **Apply fix**, with the changes to the agent folded under "+N −M"). **↻** beside the search reloads the list, which otherwise updates by itself.
-- **↗** opens the thread in the inbox; **⤢** widens the panel and **⤡** puts it back; **–** minimizes it to a pill in the corner, which lights up when a reply lands.
+- A conversation shows its title on one line, then its state (Your turn, sua replied, Resolved…), who it's with and how old it is. **⋯** holds Star, Tags, **Ask sua to look again**, Summarize, Resolve / Dismiss / Reopen and **Open full page**. Messages show who said them (You, sua, the agent); status notes are quieter. Proposed actions are cards that say what they'll do and whether they only read or change something, with the inputs under **Details** and **Run it** / **Not now** (or **Apply fix**, with the changes to the agent folded under "+N −M"). **Refresh** in the bar's ⋯ reloads the list, which otherwise updates by itself.
+- **↗** opens the thread in the inbox; **Widen** (in ⋯) widens the panel and puts it back; **Minimize** shrinks it to a pill in the corner, which lights up when a reply lands.
 - On wide screens the page makes room for the panel; on narrower ones it slides over the page; on a phone it fills the screen. **Esc** closes it while you're in it.
 
 On Home the same inbox fills the page instead (below), so it's one inbox at two widths.

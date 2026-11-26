@@ -180,7 +180,9 @@ describe('Home\'s history and reasons (S6)', () => {
     const items = ['a', 'b', 'c'].map((id) => ({ ...base, id: `agent:${id}:failing`, title: id }));
     const doc = applySurfaceOps({ ...DEFAULT_HOME_SURFACE, rules: [] }, [{ op: 'addRule', rule: { id: 'f', type: 'promote', match: { kinds: ['alert'] }, label: 'failures first' } }], 'user');
     const html = render(renderToday({ compiled: compileSurface(doc, items), version: 1, goal: 'g', needsCount: 3, doc, items }, true));
-    expect(html.match(/panel-row__why/g)?.length).toBe(1);
+    // Why each row is where it is: its tooltip and the first line of its ⋯ menu, not a line on the row.
+    expect(html.match(/panel-row__why/g)).toBeNull();
+    expect(html.match(/<p class="panel-row__menu-why">/g)?.length).toBe(3);
   });
 });
 

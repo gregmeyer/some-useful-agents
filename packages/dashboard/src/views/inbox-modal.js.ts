@@ -1695,6 +1695,37 @@ export const INBOX_MODAL_JS = `
     var el = e.target;
     if (el && el.hasAttribute && el.hasAttribute('data-panel-search')) syncAskRow(el.value);
   });
+  // Things to ask: shown under the search field while you're in it and it's empty, gone otherwise (a pick lands before blur hides them).
+  // Only when you put yourself there (a click or Tab), not when the panel focuses it on opening.
+  var lastPointer = 0;
+  document.addEventListener('pointerdown', function () { lastPointer = Date.now(); }, true);
+  document.addEventListener('focusin', function (e) {
+    var el = e.target;
+    if (!el || !el.hasAttribute || !el.hasAttribute('data-panel-search')) return;
+    if (!e.relatedTarget && Date.now() - lastPointer > 600) return;
+    var suggest = listHost.querySelector('[data-panel-suggest]');
+    if (suggest) suggest.hidden = !!String(el.value || '').trim();
+  });
+  document.addEventListener('focusout', function (e) {
+    var el = e.target;
+    if (!el || !el.hasAttribute || !el.hasAttribute('data-panel-search')) return;
+    setTimeout(function () {
+      var suggest = listHost.querySelector('[data-panel-suggest]');
+      var a = document.activeElement;
+      if (suggest && !(a && suggest.contains(a)) && !(a && a.hasAttribute && a.hasAttribute('data-panel-search'))) suggest.hidden = true;
+    }, 180);
+  });
+  // The panel bar's ⋯: a pick closes it, and so does a click anywhere else.
+  document.addEventListener('click', function (e) {
+    var menus = document.querySelectorAll('[data-panelbar-more]');
+    for (var i = 0; i < menus.length; i++) {
+      var m = menus[i];
+      if (!m.open) continue;
+      var inside = m.contains(e.target);
+      var pick = inside && e.target.closest && e.target.closest('[role="menuitem"]');
+      if (!inside || pick) m.open = false;
+    }
+  }, true);
   document.addEventListener('keydown', function (e) {
     var el = e.target;
     if (!el || !el.hasAttribute || !el.hasAttribute('data-panel-search')) return;

@@ -9,6 +9,7 @@
 import type { CompiledEntry, Item, ItemAction } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 import { formatAge } from './components.js';
+import { displayTitle, itemEyebrow } from '../lib/inbox-kind.js';
 import type { HomeSurface } from '../lib/home-surface.js';
 
 type Dot = 'approve' | 'answer' | 'fail' | undefined;
@@ -56,6 +57,7 @@ function rowMenu(e: CompiledEntry): SafeHtml {
     <details class="panel-row__menu" data-inbox-menu>
       <summary class="panel-row__menu-btn" aria-label="Move or hide “${e.item.title}”" title="Move or hide">⋯</summary>
       <div class="inbox-modal__menu-panel panel-row__menu-list">
+        ${e.reasons[0] ? html`<p class="panel-row__menu-why"><span class="panel-row__menu-why-label">Why it's here</span>${e.reasons[0]}</p>` : html``}
         ${e.pinned ? op('unpin', 'Unpin') : op('pin', 'Pin to top')}
         ${e.pinned ? html`` : html`${op('up', 'Move up')}${op('down', 'Move down')}`}
         ${op('dismiss', 'Dismiss')}
@@ -73,24 +75,27 @@ function rowActs(item: Item): SafeHtml {
   const at = (verb: 'run' | 'skip', a: { threadId: string; responseId: string }) => `/inbox/${encodeURIComponent(a.threadId)}/actions/${encodeURIComponent(a.responseId)}/${verb}`;
   return html`
     <span class="panel-row__acts">
-      <form method="POST" action="${at('run', approve)}" data-item-act class="item-pane__form"><button type="submit" class="btn btn--sm btn--primary">${approve.label}</button></form>
-      ${skip && skip.type === 'skip' ? html`<form method="POST" action="${at('skip', skip)}" data-item-act class="item-pane__form"><button type="submit" class="btn btn--sm btn--ghost">${skip.label}</button></form>` : html``}
+      <form method="POST" action="${at('run', approve)}" data-item-act class="item-pane__form"><button type="submit" class="panel-row__act panel-row__act--go">${approve.label}</button></form>
+      ${skip && skip.type === 'skip' ? html`<form method="POST" action="${at('skip', skip)}" data-item-act class="item-pane__form"><button type="submit" class="panel-row__act">${skip.label}</button></form>` : html``}
     </span>`;
 }
 
-function row(e: CompiledEntry, wide: boolean, why = shownWhy(e)): SafeHtml {
+// A row (the inbox cleanup): what it is (mono eyebrow, with a count or progress where it has one) and when; the title;
+// one line of where it stands. The dot says only whether it needs you. Why it's here is its tooltip and the first line of ⋯.
+function row(e: CompiledEntry, wide: boolean, _why = shownWhy(e)): SafeHtml {
   const { item } = e;
   const dot = dotOf(item);
+  const extra = tagOf(item);
+  const eyebrow = [itemEyebrow(item), /^(?:Approve|Answer|Failing|Draft|Missed|Building)$/.test(extra) ? '' : extra, e.pinned ? 'PINNED' : ''].filter(Boolean).join(' · ');
   return html`
     <li class="panel-row ${wide ? 'panel-row--wide' : ''} ${e.pinned ? 'is-pinned' : ''}" data-item-id="${item.id}" data-item-title="${item.title}"${e.pinned ? unsafeHtml(' data-pinned') : unsafeHtml('')} draggable="true">
-      ${wide ? html`<input type="checkbox" class="panel-row__select" data-panel-select value="${item.subject.threadId ?? item.id}" aria-label="Select “${item.title}”">` : html``}
+      ${wide ? html`<input type="checkbox" class="panel-row__select" data-panel-select value="${item.subject.threadId ?? item.id}" aria-label="Select “${displayTitle(item.title)}”">` : html``}
       <button type="button" class="panel-row__main" data-panel-thread-id="${rowTarget(item)}" title="${e.reasons[0] ?? ''}">
-        <span class="panel-row__dot ${dot ? `panel-row__dot--${dot}` : ''}" aria-hidden="true"></span>
-        <span class="panel-row__title ${dot && !e.collapsed ? 'is-strong' : ''}">${item.title}</span>
+        <span class="panel-row__dot ${dot ? 'panel-row__dot--needs' : ''}" aria-hidden="true"></span>
+        <span class="panel-row__eyebrow">${eyebrow}</span>
         <span class="panel-row__age">${formatAge(item.provenance.at)}</span>
+        <span class="panel-row__title ${dot && !e.collapsed ? 'is-strong' : ''}">${displayTitle(item.title)}</span>
         <span class="panel-row__latest">${dot && item.summary ? html`<span class="panel-row__ask">${item.summary}</span>` : item.summary ?? ''}</span>
-        <span class="panel-row__tag ${dot ? `panel-row__tag--${dot}` : ''}">${e.pinned ? html`<span class="panel-row__pin">Pinned</span>` : html``}${tagOf(item)}</span>
-        ${why ? html`<span class="panel-row__why">${why}</span>` : html``}
       </button>
       ${rowActs(item)}
       ${rowMenu(e)}
@@ -160,6 +165,11 @@ export function needsYouCount(today: HomeSurface): number {
   return entries.filter((e) => !e.collapsed && !e.item.id.endsWith(':draft')).length;
 }
 
+/** How many rows in Needs you are something to act on (not folded, not drafts): the region head's count. */
+function needsYouRows(entries: readonly CompiledEntry[]): number {
+  return entries.filter((e) => !e.collapsed && !e.item.id.endsWith(':draft')).length;
+}
+
 export function needsBreakdown(entries: readonly CompiledEntry[]): string {
   const n = (pred: (e: CompiledEntry) => boolean) => entries.filter(pred).length;
   const failing = n((e) => /:(failing|outcome)$/.test(e.item.id) || (e.item.id.startsWith('thread:') && e.item.kind === 'alert'));
@@ -200,8 +210,7 @@ function todayBody(today: HomeSurface, wide: boolean, quiet?: SafeHtml, bare = f
     ${quiet && !regions.some((r) => r.id === 'needs-you') ? allClear(quiet) : html``}
     ${regions.filter((r) => r.id !== 'all-good').map((r) => html`
       <section class="panel-group" data-surface-region="${r.id}">
-        <h3 class="panel-group__label">${r.title}</h3>
-        ${r.id === 'needs-you' ? html`<p class="panel-group__why">${needsBreakdown(r.entries)}</p>` : html``}
+        <h3 class="panel-group__label"${r.id === 'needs-you' ? html` title="${needsBreakdown(r.entries)}"` : html``}>${r.title}${r.id === 'needs-you' ? html` <span class="panel-group__count">· ${String(needsYouRows(r.entries))}</span>` : html``}</h3>
         <ul class="panel-group__rows" data-panel-group>${regionRows(r.entries, wide) as unknown as SafeHtml[]}</ul>
         ${r.more ? html`<p class="panel-home__morecount">${String(r.more)} more</p>` : html``}
       </section>`) as unknown as SafeHtml[]}

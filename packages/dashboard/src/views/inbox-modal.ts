@@ -18,8 +18,16 @@ export function renderInboxModalShell(): SafeHtml {
           <button type="button" class="inbox-modal__panelbar-back" data-panel-back>← Inbox</button>
           <span class="inbox-modal__panelbar-title" data-panel-title>Inbox</span>
           <button type="button" class="inbox-modal__panelbar-btn inbox-modal__panelbar-btn--new" data-panel-new aria-label="New conversation" title="New conversation">+</button>
-          <button type="button" class="inbox-modal__panelbar-btn" data-panel-wide aria-label="Widen" title="Widen"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"></path></svg></button>
-          <button type="button" class="inbox-modal__panelbar-btn" data-panel-min aria-label="Minimize" title="Minimize">–</button>
+          ${/* The rest of the panel's controls, one click away (the inbox cleanup): widen, minimize, refresh, the full inbox. */ ''}
+          <details class="inbox-modal__panelbar-more" data-panelbar-more>
+            <summary class="inbox-modal__panelbar-btn" aria-label="More" title="More">⋯</summary>
+            <div class="inbox-modal__panelbar-menu" role="menu">
+              <button type="button" class="inbox-modal__panelbar-item" role="menuitem" data-panel-wide>Widen</button>
+              <button type="button" class="inbox-modal__panelbar-item" role="menuitem" data-panel-min>Minimize</button>
+              <button type="button" class="inbox-modal__panelbar-item" role="menuitem" data-panel-refresh>Refresh</button>
+              <a class="inbox-modal__panelbar-item" role="menuitem" href="/inbox">Open full inbox</a>
+            </div>
+          </details>
         </div>
         <button type="button" class="inbox-modal__close" data-inbox-modal-close aria-label="Close">×</button>
         <div class="inbox-modal__panes">
