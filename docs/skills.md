@@ -34,6 +34,20 @@ a missing one.
 
 ## Writing a skill
 
+### In the dashboard
+
+**Agents → More → Skills** (`/skills`) lists every skill: whether sua ships it, you wrote it, or it's your copy of a shipped one, its size against 6 KB, and the agents that use it.
+
+- **New skill:** a name, a line on what it's for, and the know-how. Paste a whole SKILL.md (frontmatter included) into the text box and the name and description fill in. The size counts as you type.
+- **Edit:** saving keeps the last text as a version; **Restore** on a skill's page brings an old one back as the newest. Editing a skill sua ships saves **your copy**, which agents use instead; **Go back to sua's version** drops it.
+- **Used by:** add the skill to an agent, or take it off one. Either saves a new version of the agent.
+- **Delete skill:** only one you wrote, and only once no agent lists it.
+
+Nothing is saved that an agent couldn't run with: the same checks as a file (name, description, 6 KB, no `{{…}}`), and every agent that lists the skill keeps its skills under 16 KB together, whether you add one or make one longer.
+
+### As a file
+
+
 `agents/examples/skills/<name>/SKILL.md`:
 
 ```markdown

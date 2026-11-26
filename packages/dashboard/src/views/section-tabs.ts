@@ -1,7 +1,7 @@
 import { html, type SafeHtml } from './html.js';
 
 /** The Agents section groups the building blocks + executions + scheduling. */
-export type AgentsSection = 'start' | 'agents' | 'behaviors' | 'tools' | 'runs' | 'packs' | 'scheduled';
+export type AgentsSection = 'start' | 'agents' | 'behaviors' | 'skills' | 'tools' | 'runs' | 'packs' | 'scheduled';
 
 /**
  * In-page tab strip for the Agents section, mirroring the Settings shell's
@@ -22,7 +22,7 @@ export function sectionTabs(active: AgentsSection): SafeHtml {
     <a href="${href}" class="${active === id ? 'is-active' : ''}">${label}</a>
   `;
   // Agents, Runs and Scheduled are what you open most; the building blocks are under More (it shows which one you're on).
-  const more: Array<[AgentsSection, string, string]> = [['start', '/start', 'Start here'], ['behaviors', '/behaviors', 'Behaviors'], ['tools', '/tools', 'Tools'], ['packs', '/packs', 'Packs']];
+  const more: Array<[AgentsSection, string, string]> = [['start', '/start', 'Start here'], ['behaviors', '/behaviors', 'Behaviors'], ['skills', '/skills', 'Skills'], ['tools', '/tools', 'Tools'], ['packs', '/packs', 'Packs']];
   const on = more.find(([id]) => id === active);
   return html`
     <nav class="tab-strip" aria-label="Agents section">
