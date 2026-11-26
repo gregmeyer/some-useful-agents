@@ -2247,7 +2247,9 @@ describe('the conversation view, redesigned', () => {
     expect(menu).toContain('data-inbox-tag-add');
     expect(menu).toContain('Ask sua to look again');
     expect(menu).toContain('Open full page');
-    expect(res.text).toContain('thread-status thread-status--open');
+    // Its state on the one meta line, no pill.
+    expect(res.text).toContain('<span class="thread-meta__status">');
+    expect(res.text).not.toMatch(/class="(thread-status|inbox-pill|inbox-agent-chip)[ "]/);
     expect(res.text).toContain('<span class="inbox-msg__who">sua</span>');
     expect(res.text).not.toContain('Triage agent');
     expect(res.text).not.toContain('Ask triage');

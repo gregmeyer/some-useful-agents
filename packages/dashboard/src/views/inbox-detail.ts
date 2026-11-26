@@ -1,4 +1,5 @@
 import { attachPick } from './given-file.js';
+import { displayTitle, eyebrowOf } from '../lib/inbox-kind.js';
 import { stepsCard } from './steps-card.js';
 import { pageName } from '../lib/notebook-edit.js';
 import { prepareViewForRender, viewToMessages, type ViewComponent } from '@some-useful-agents/core';
@@ -286,11 +287,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   // every action's target across the conversation. Replaces the single
   // agent link so a multi-agent thread surfaces all of them at a glance.
   const referencedAgents = collectReferencedAgents(message, responses);
-  const agentChips = referencedAgents.length > 0 ? html`
-    <span class="inbox-modal__agents" aria-label="Agents in this thread">
-      ${referencedAgents.map((id) => html`<a href="/agents/${id}" class="inbox-agent-chip" title="Agent ${id}">${id}</a>`) as unknown as SafeHtml[]}
-    </span>
-  ` : html``;
+  // (Who it's with is plain links on the meta line now, not chips.)
 
   // Tight meta band: priority dot + status + agent chips + run link + tags,
   // with age pushed to the right. Tags share this band (one fewer vertical
@@ -298,17 +295,18 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   // One quiet line under the title (mockup screen 16): what state it's in,
   // who it's with, when. Tags show only when there are some; adding one,
   // starring and the rest live in the ⋯ menu.
-  const headerMeta = html`
-    <div class="inbox-modal__meta">
-      <span class="thread-status thread-status--${message.status}">${THREAD_STATUS[message.status] ?? message.status}</span>
-      ${pendingCommitment ? html`<span class="inbox-modal__commitment" title="sua is working on it">${pendingCommitment}…</span>` : html``}
-      ${referencedAgents.length > 0 ? html`<span class="thread-with">with ${agentChips}</span>` : html``}
-      ${message.runId ? html`<a href="/runs/${message.runId}" class="inbox-modal__link mono">run ${message.runId.slice(0, 8)}</a>` : html``}
-      <span class="inbox-modal__age">· ${formatAge(new Date(message.createdAt).toISOString())}</span>
-      ${message.starred ? html`<span class="thread-starred" title="Starred">★</span>` : html``}
-    </div>
-    ${message.tags.length > 0 ? html`<div class="thread-tags">${message.tags.map((t) => html`<span class="inbox-pill">${t}</span>`) as unknown as SafeHtml[]}</div>` : html``}
-  `;
+  // One meta line (the inbox cleanup): its state (warn only when it's waiting on you), what sua is on, who it's with
+  // (plain links), its run, its age, its tags. No pills.
+  const sep = html`<span class="thread-meta__sep" aria-hidden="true"> · </span>`;
+  const metaBits: SafeHtml[] = [
+    html`<span class="thread-meta__status${message.status === 'awaiting_user' ? ' is-needs' : ''}">${THREAD_STATUS[message.status] ?? message.status}</span>`,
+    ...(pendingCommitment ? [html`<span class="inbox-modal__commitment" title="sua is working on it">${pendingCommitment}…</span>`] : []),
+    ...(referencedAgents.length > 0 ? [html`<span class="thread-with" aria-label="Agents in this thread">with ${referencedAgents.map((id, i) => html`${i ? ', ' : ''}<a href="/agents/${id}" class="thread-meta__agent" title="Agent ${id}">${id}</a>`) as unknown as SafeHtml[]}</span>`] : []),
+    ...(message.runId ? [html`<a href="/runs/${message.runId}" class="inbox-modal__link">run ${message.runId.slice(0, 8)}</a>`] : []),
+    html`<span class="inbox-modal__age">${formatAge(new Date(message.createdAt).toISOString())}</span>`,
+    ...(message.tags.length > 0 ? [html`<span class="thread-meta__tags">${message.tags.map((t) => `#${t}`).join(' ')}</span>`] : []),
+  ];
+  const headerMeta = html`<p class="inbox-modal__meta thread-meta">${metaBits.map((b, i) => html`${i ? sep : html``}${b}`) as unknown as SafeHtml[]}</p>`;
 
   // Star control sits in the title row, top-right (mirrors the
   // modal-shell ✕ close button alignment).
@@ -497,20 +495,20 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
         ? html`<span hidden data-agent-conversation="${message.agentId}"${agentTurn ? html` data-agent-run="${agentTurn.runId}"` : html``}></span>`
         : html``}
       <div class="inbox-detail__header">
+        <p class="thread-eyebrow">${eyebrowOf(message)}</p>
         <header class="inbox-modal__title-row">
-          <h3 id="inbox-modal-title" class="inbox-modal__title">${message.title}</h3>
+          <h3 id="inbox-modal-title" class="inbox-modal__title">${displayTitle(message.title)}</h3>
           <div class="inbox-modal__title-actions">
+            ${starControl}
             ${actionsMenu}
           </div>
         </header>
         ${headerMeta}
         ${opts.notebook ? renderThreadNotebook(opts.notebook) : html``}
-        ${threadAnswers(opts.answers ?? [], opts.notebook?.nb.id)}
         ${flashBlock}
         ${bodyBlock}
         ${approvalBlock}
-        ${contextBlock}
-        ${summaryBlock}
+        ${detailsFold([threadAnswers(opts.answers ?? [], opts.notebook?.nb.id), contextBlock, summaryBlock])}
       </div>
       <div class="inbox-detail__thread">
         ${timelineBlock}
@@ -519,6 +517,13 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
       ${opts.question ? renderQuestionPanel(message.id, opts.question) : composer}
     </div>
   `;
+}
+
+/** One fold for the rest (the inbox cleanup): the answers it started, its context and its summary, when it has any. */
+function detailsFold(parts: readonly SafeHtml[]): SafeHtml {
+  const kept = parts.filter((p) => String(p).trim());
+  if (!kept.length) return html``;
+  return html`<details class="thread-details"><summary class="thread-details__summary">Details (${String(kept.length)})</summary><div class="thread-details__body">${kept as unknown as SafeHtml[]}</div></details>`;
 }
 
 /** A notebook's conversation: the notebook as a card that opens it. */

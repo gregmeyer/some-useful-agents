@@ -21,7 +21,8 @@ const actionResponse = (id: string, agentId: string, status: InboxActionMeta['st
 });
 
 function chipIds(html: string): string[] {
-  return [...html.matchAll(/class="inbox-agent-chip"[^>]*>([^<]+)</g)].map((m) => m[1].trim());
+  // Who it's with: plain links on the meta line now (the inbox cleanup), one per agent.
+  return [...html.matchAll(/class="thread-meta__agent"[^>]*>([^<]+)</g)].map((m) => m[1].trim());
 }
 
 describe('inbox thread agent chips', () => {
