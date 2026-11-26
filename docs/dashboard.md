@@ -36,7 +36,7 @@ The top bar: `sua · Answers · Settings · More`. The `sua` brand is Home. **An
 
 ### The conversation panel
 
-Asking sua opens the answer in a panel beside the page, not over it, so you can keep looking at the tile or run you're asking about. **Ask sua** in the top bar, or **Cmd/Ctrl+K**, opens the panel (your last thread, or a box to start a new one) and closes it again. The panel stays open as you move between pages, per browser tab.
+Asking sua opens the answer in a panel beside the page, not over it, so you can keep looking at the tile or run you're asking about. **Ask sua** in the top bar, or **Cmd/Ctrl+K** (or **Cmd/Ctrl+I**), opens the panel (your last thread, or a box to start a new one) and closes it again. The panel stays open as you move between pages, per browser tab.
 
 - With no thread open, the panel is your inbox.
   - **Search:** one field searches as you type and asks sua when you press Enter. While it's focused and empty, a few things to ask show under it.
