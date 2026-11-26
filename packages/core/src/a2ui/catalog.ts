@@ -182,6 +182,13 @@ const SUA_COMPONENTS = [
       yBand: CS.DynamicValue.optional(),
       xBetter: z.enum(['higher', 'lower']).optional(),
       yBetter: z.enum(['higher', 'lower']).optional(),
+      /** A 2x2: both axes 0–100 (`percent`), lines at xMid/yMid, a word in each corner (top-left, top-right, bottom-left, bottom-right), the point marked by `bestBy` (e.g. `leader`). */
+      domain: z.enum(['data', 'percent']).optional(),
+      xMid: z.number().optional(),
+      yMid: z.number().optional(),
+      quadrants: z.array(z.string().max(40)).length(4).optional(),
+      bestBy: z.string().max(64).optional(),
+      bestLabel: Str.optional(),
     }).strict(),
   },
   {
@@ -381,6 +388,12 @@ const SUA_COMPONENTS = [
     summary: 'One number on each of the last days, as columns with the value over each and the day under it, the latest marked: `days` is an array of {label, value, text?} oldest first (label: "Mon" or "Today"; text: the value as it should read, "6" or "-1.46%"). `title` says what is counted ("Matches, last 7 days"). For a count that changes from day to day; needs three or more days.',
     example: { id: 'week', component: 'DayBars', days: { path: '/board/figures/lead/days' }, title: 'Matches, last 7 days' },
     schema: Common.extend({ days: CS.DynamicValue, title: Str.optional() }).strict(),
+  },
+  {
+    name: 'Scorecard',
+    summary: 'A comparison\'s scorecard, worked out in code: options by weighted criteria (each 0–4, or — when unknown, never zero), the gates (passes ✓, fails ✗, not known ?), the score as a range out of 100, how much is known, provisional and ruled-out rows with why, the leader, and weights that would put another option first. Bind `card` to /notebook/scorecard and `options` to /notebook/options (for each score\'s source).',
+    example: { id: 'score', component: 'Scorecard', card: { path: '/notebook/scorecard' }, options: { path: '/notebook/options' } },
+    schema: Common.extend({ card: CS.DynamicValue, options: CS.DynamicValue.optional(), empty: Str.optional() }).strict(),
   },
   {
     name: 'Compare',

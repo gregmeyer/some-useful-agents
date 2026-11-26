@@ -556,6 +556,8 @@ The scorecard is worked out in code, not by a model (`/notebooks/<id>/data.json`
 
 In the setup text a criterion reads `Job fit: number, weight 25, suitability`. Change the weight there; what each score means is kept.
 
+**The Comparison page** (a ready-made page under Edit → How it looks, and what a comparison template uses): where it stands beside done-when, then the **Scorecard** (each option's score as a range out of 100, how much is known, its gates, and its 0–4 on each criterion, — for unknown, each linked to its source), then **Fit and feasibility**, a 2x2 of suitability by feasibility with lines at 50 and a word in each corner (where each falls, not a decision; an option with too little known on a side isn't placed), then the recommendation and proof plan, what it rests on, and each option's evidence and how it was found under one fold. The scorecard and the 2x2 wait until the notebook has weighted criteria.
+
 ### Templates
 
 A notebook you run again and again (a job search, a car search, a comp set) can be kept as a template, and new ones started from it by asking sua. To run one again just once, with nothing changed, **Clear and run again** on its Edit page does it without a template.

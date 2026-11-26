@@ -59,7 +59,8 @@ describe('a widget with one wrong part', () => {
   it('the guide shows each component\'s properties', () => {
     expect(chatWidgetGuide()).toContain('"component":"StatStrip"');
     // Raised from 4100 for forms (A2UI 1.0: inputs, a Button's checks and userMessage): about 900 characters of prompt for a new kind of answer.
-    expect(chatWidgetGuide().length).toBeLessThan(5100);
+    // Raised to 5200 for Scatter's 2x2 (domain, xMid/yMid, quadrants, bestBy): a comparison's fit against feasibility.
+    expect(chatWidgetGuide().length).toBeLessThan(5200);
     expect(chatWidgetGuide()).not.toMatch(/"\/(notebook|outputs|series)\//); // every example binds /data
   });
 });

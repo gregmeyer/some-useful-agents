@@ -590,6 +590,10 @@ const Scatter = define('Scatter', 'sua-a2ui-scatter',
     xLabel: Str.optional(), yLabel: Str.optional(), xFormat: z.enum(['number', 'money']).optional(), yFormat: z.enum(['number', 'money']).optional(),
     xBand: CommonSchemas.DynamicValue.optional(), yBand: CommonSchemas.DynamicValue.optional(),
     xBetter: z.enum(['higher', 'lower']).optional(), yBetter: z.enum(['higher', 'lower']).optional(),
+    // A 2x2 (a comparison's suitability by feasibility): both axes 0–100, lines at the middles,
+    // a word in each corner (top-left, top-right, bottom-left, bottom-right), and the point marked by `bestBy`.
+    domain: z.enum(['data', 'percent']).optional(), xMid: z.number().optional(), yMid: z.number().optional(),
+    quadrants: z.array(z.string().max(40)).length(4).optional(), bestBy: z.string().max(64).optional(), bestLabel: Str.optional(),
   }).strict(),
   css`
     .plot { position: relative; }
@@ -605,6 +609,8 @@ const Scatter = define('Scatter', 'sua-a2ui-scatter',
     .dot.hot { fill-opacity: 1; stroke: var(--color-text); stroke-width: 2; }
     .dot.best.hot { stroke: var(--color-primary); }
     .halo { fill: var(--color-primary); fill-opacity: .18; }
+    .mid { stroke: var(--color-border-strong, var(--color-border)); stroke-dasharray: 3 3; }
+    .quad { fill: var(--color-text-muted); font: 600 10px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
     .lbl { fill: var(--color-text); font: 600 11px var(--font-sans, system-ui); paint-order: stroke; stroke: var(--color-surface); stroke-width: 3px; }
     .lbl.dim { opacity: 0; }
     .tip { position: absolute; z-index: 1; pointer-events: none; max-width: 300px; padding: var(--space-2, 8px) var(--space-3, 12px);
@@ -625,8 +631,12 @@ const Scatter = define('Scatter', 'sua-a2ui-scatter',
     @media (hover: none) { .legend .hint.mouse { display: none; } .legend .hint.touch { display: inline-flex; } }
     .empty { color: var(--color-text-muted); font-size: var(--font-size-sm); }`,
   function (p) {
-    const n = (Array.isArray(p.points) ? p.points : []).filter((o) => Number.isFinite(Number(getPath(o, p.x))) && Number.isFinite(Number(getPath(o, p.y)))).length;
-    if (n === 0) return html`<p class="empty">Nothing to plot yet: options need ${p.xLabel ?? p.x} and ${p.yLabel ?? p.y}.</p>`;
+    const placed = (o) => getPath(o, p.x) != null && getPath(o, p.y) != null && Number.isFinite(Number(getPath(o, p.x))) && Number.isFinite(Number(getPath(o, p.y)));
+    const all = Array.isArray(p.points) ? p.points : [];
+    const n = all.filter(placed).length;
+    // A 2x2 leaves out a point it can't support; it says how many.
+    const unplaced = p.quadrants ? all.filter((o) => !o?.ruledOut && !placed(o)).length : 0;
+    if (n === 0) return html`<p class="empty">Nothing to plot yet: options need ${p.xLabel ?? p.x} and ${p.yLabel ?? p.y}${p.quadrants ? ', with enough of each known' : ''}.</p>`;
     const banded = (b) => b && typeof b.min === 'number';
     const anyOut = (Array.isArray(p.points) ? p.points : []).some((o) => o?.ruledOut);
     // `href` names each point's link (a path on this dashboard): a click opens it.
@@ -644,6 +654,7 @@ const Scatter = define('Scatter', 'sua-a2ui-scatter',
         <span>${swatch('')} in the running</span>
         ${anyOut ? html`<span>${swatch('out')} ruled out</span>` : nothing}
         ${banded(p.xBand) || banded(p.yBand) ? html`<span>${swatch('band')} your limits</span>` : nothing}
+        ${unplaced ? html`<span>${unplaced} not placed: too little known</span>` : nothing}
         ${linked
           ? html`<span class="hint mouse">hover for details, click to open</span><span class="hint touch">tap a dot, then Open →</span>`
           : html`<span class="hint">hover or tap a dot for details</span>`}
@@ -657,18 +668,21 @@ const Scatter = define('Scatter', 'sua-a2ui-scatter',
       const band = (b) => (b && typeof b.min === 'number' && typeof b.max === 'number' ? b : undefined);
       const xb = band(p.xBand); const yb = band(p.yBand);
       const xMoney = p.xFormat === 'money'; const yMoney = p.yFormat === 'money';
-      const pts = (Array.isArray(p.points) ? p.points : []).map((o) => ({ o, x: Number(getPath(o, p.x)), y: Number(getPath(o, p.y)) }))
+      const pts = (Array.isArray(p.points) ? p.points : []).filter((o) => getPath(o, p.x) != null && getPath(o, p.y) != null)
+        .map((o) => ({ o, x: Number(getPath(o, p.x)), y: Number(getPath(o, p.y)) }))
         .filter((d) => Number.isFinite(d.x) && Number.isFinite(d.y));
       const W = 520, H = 260, L = 48, R = 14, T = 26, B = 30;
       const xs = [...pts.map((d) => d.x), ...(xb ? [xb.min, xb.max] : [])];
       const ys = [...pts.map((d) => d.y), ...(yb ? [yb.min, yb.max] : [])];
       const pad = (lo, hi) => { const s = hi - lo || Math.abs(hi) || 1; return [lo - s * 0.08, hi + s * 0.08]; };
-      const [x0, x1] = pad(Math.min(...xs), Math.max(...xs)); const [y0, y1] = pad(Math.min(...ys), Math.max(...ys));
+      const pct = p.domain === 'percent';
+      const [x0, x1] = pct ? [0, 100] : pad(Math.min(...xs), Math.max(...xs)); const [y0, y1] = pct ? [0, 100] : pad(Math.min(...ys), Math.max(...ys));
       const sx = (v) => L + ((v - x0) / (x1 - x0)) * (W - L - R);
       const sy = (v) => H - B - ((v - y0) / (y1 - y0)) * (H - T - B);
       const inside = (d) => (!xb || (d.x >= xb.min && d.x <= xb.max)) && (!yb || (d.y >= yb.min && d.y <= yb.max));
       const ybetter = p.yBetter ?? 'lower';
-      const best = pts.filter((d) => !d.o?.ruledOut).sort((a, b) => (Number(inside(b)) - Number(inside(a))) || (ybetter === 'lower' ? a.y - b.y : b.y - a.y))[0];
+      const best = p.bestBy ? pts.find((d) => !d.o?.ruledOut && getPath(d.o, p.bestBy))
+        : pts.filter((d) => !d.o?.ruledOut).sort((a, b) => (Number(inside(b)) - Number(inside(a))) || (ybetter === 'lower' ? a.y - b.y : b.y - a.y))[0];
       const nameOf = (d) => String(p.label ? getPath(d.o, p.label) ?? '' : '') || String(d.o?.title ?? '').split(',')[0];
       const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, 'aria-hidden': 'true' });
       for (const v of niceTicks(y0, y1)) {
@@ -679,6 +693,16 @@ const Scatter = define('Scatter', 'sua-a2ui-scatter',
       if (xb || yb) {
         const bx0 = sx(xb ? xb.min : x0); const bx1 = sx(xb ? xb.max : x1); const by0 = sy(yb ? yb.max : y1); const by1 = sy(yb ? yb.min : y0);
         svg.append(svgEl('rect', { class: 'band', x: bx0, y: by0, width: bx1 - bx0, height: by1 - by0 }));
+      }
+      // The 2x2's lines and its corners' words; where a point falls is shown, not decided.
+      if (typeof p.xMid === 'number') svg.append(svgEl('line', { class: 'mid', x1: sx(p.xMid), x2: sx(p.xMid), y1: sy(y1), y2: sy(y0) }));
+      if (typeof p.yMid === 'number') svg.append(svgEl('line', { class: 'mid', x1: sx(x0), x2: sx(x1), y1: sy(p.yMid), y2: sy(p.yMid) }));
+      if (Array.isArray(p.quadrants) && p.quadrants.length === 4) {
+        const [tl, tr, bl, br] = p.quadrants;
+        svg.append(svgEl('text', { class: 'quad', x: L + 6, y: T + 10 }, tl));
+        svg.append(svgEl('text', { class: 'quad', x: W - R - 6, y: T + 10, 'text-anchor': 'end' }, tr));
+        svg.append(svgEl('text', { class: 'quad', x: L + 6, y: H - B - 6 }, bl));
+        svg.append(svgEl('text', { class: 'quad', x: W - R - 6, y: H - B - 6, 'text-anchor': 'end' }, br));
       }
       svg.append(svgEl('text', { class: 'axis', x: W - R, y: H - 4, 'text-anchor': 'end' }, `${p.xLabel ?? p.x} →`));
       svg.append(svgEl('text', { class: 'axis', x: 4, y: 12 }, `${p.yLabel ?? p.y}`));
@@ -776,6 +800,7 @@ const Scatter = define('Scatter', 'sua-a2ui-scatter',
 
 /** What the highlighted point is called in the legend and its note: "best price", "best pay". */
 function bestWord(p) {
+  if (p.bestBy) return String(p.bestLabel ?? 'leader');
   const y = String(p.yLabel ?? p.y).toLowerCase();
   return `best ${y}`;
 }
@@ -2152,6 +2177,84 @@ const Compare = define('Compare', 'sua-a2ui-compare',
       <tbody>${keys.map((k) => html`<tr><td class="k">${fields.find((x) => x.key === k)?.label ?? k}</td>${shown.map((o) => html`<td>${fmt(k, getPath(o, `fields.${k}`))}</td>`)}</tr>`)}</tbody></table></div>`;
   });
 
+// A comparison's scorecard (core notebook-scorecard.ts, worked out in code):
+// options by weighted criteria, each 0–4 or — (unknown, never zero), the gates
+// (the notebook's checks), the score as a range out of 100 and how much is
+// known. Provisional and ruled-out rows say why. Weights that would put
+// another option first are listed under it.
+const Scorecard = define('Scorecard', 'sua-a2ui-scorecard',
+  Common.extend({ card: CommonSchemas.DynamicValue, options: CommonSchemas.DynamicValue.optional(), empty: Str.optional() }).strict(),
+  css`
+    :host { display: block; }
+    .wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); line-height: 1.4; }
+    th { text-align: left; vertical-align: bottom; padding: 0 10px 8px 0; border-bottom: 2px solid var(--color-text); font: 600 11px/1.3 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-muted); }
+    th .w { display: block; font-weight: 400; letter-spacing: 0; text-transform: none; }
+    th.c { font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--color-text); min-width: 4.5rem; max-width: 7rem; white-space: normal; }
+    th.c .w { color: var(--color-text-muted); }
+    th.n, td.n { text-align: center; }
+    td { vertical-align: top; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--color-border); color: var(--color-text); }
+    td.name { min-width: 9rem; font-weight: 600; overflow-wrap: anywhere; }
+    td.name .rank { font: 400 var(--font-size-xs) var(--font-mono); color: var(--color-text-muted); margin-right: 4px; }
+    td.name .why { display: block; font: 400 var(--font-size-xs)/1.4 var(--font-mono); color: var(--color-text-muted); }
+    td.name .why.warn { color: var(--color-warn); }
+    td.n { font-family: var(--font-mono); white-space: nowrap; }
+    td.n a { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--color-text-muted); }
+    .unknown { color: var(--color-text-muted); }
+    .gates { font-family: var(--font-mono); white-space: nowrap; }
+    .gates .fail { color: var(--color-warn); }
+    .gates .unk { color: var(--color-text-muted); }
+    .score { min-width: 8rem; font-family: var(--font-mono); white-space: nowrap; }
+    .track { position: relative; height: 6px; margin-top: 4px; background: var(--color-surface-raised); border-radius: 2px; }
+    .lo { position: absolute; left: 0; top: 0; bottom: 0; background: var(--color-text-muted); border-radius: 2px; }
+    .hi { position: absolute; top: 0; bottom: 0; border: 1px dashed var(--color-text-muted); border-left: 0; box-sizing: border-box; }
+    tr.lead .lo { background: var(--color-primary); }
+    tr.lead td.name { color: var(--color-primary); }
+    tr.out td { color: var(--color-text-muted); }
+    tr.out .lo { background: var(--color-border); }
+    .known.short { color: var(--color-warn); }
+    tr:last-child td { border-bottom: 0; }
+    .head, .foot { margin: 0 0 8px; font: 600 11px/1.5 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-muted); }
+    .foot { margin: 10px 0 0; font: var(--font-size-sm)/1.5 var(--font-sans, system-ui); letter-spacing: 0; text-transform: none; color: var(--color-text); }
+    .foot ul { margin: 4px 0 0; padding-left: 18px; }
+    .empty { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }`,
+  (p) => {
+    const card = p.card && typeof p.card === 'object' ? p.card : undefined;
+    const crit = Array.isArray(card?.criteria) ? card.criteria : [];
+    const rows = Array.isArray(card?.rows) ? card.rows : [];
+    if (!crit.length || !rows.length) return html`<p class="empty">${p.empty ?? 'Nothing scored yet: options need scores on the criteria.'}</p>`;
+    const opts = new Map((Array.isArray(p.options) ? p.options : []).map((o) => [o?.id, o]));
+    const nameOf = (id) => { const o = opts.get(id); return o?.name ?? o?.title ?? rows.find((r) => r.id === id)?.title ?? id; };
+    const min = Number(card.minCoverage ?? 80);
+    const gatesOf = (r) => {
+      const g = Array.isArray(r.gates) ? r.gates : [];
+      if (!g.length) return html`<span class="unk">—</span>`;
+      return html`${g.map((x) => html`<span class=${x.status === 'pass' ? '' : x.status === 'fail' ? 'fail' : 'unk'} title=${`${x.check}: ${x.status === 'pass' ? 'passes' : x.status === 'fail' ? 'fails' : 'not known yet'}`}>${x.status === 'pass' ? '✓' : x.status === 'fail' ? '✗' : '?'}</span>`)}`;
+    };
+    const cell = (r, c, i) => {
+      const v = Array.isArray(r.scores) ? r.scores[i] : null;
+      if (v === null || v === undefined) return html`<td class="n unknown" title="${c.label}: not known yet">—</td>`;
+      const meta = opts.get(r.id)?.factMeta?.[c.key];
+      const anchor = Array.isArray(c.anchors) ? c.anchors[Math.round(v)] : undefined;
+      const title = [anchor ? `${v} — ${anchor}` : `${v} of 4`, meta?.quote ? `“${meta.quote}”` : '', meta?.confidence ? `${meta.confidence} confidence` : ''].filter(Boolean).join(' · ');
+      return html`<td class="n" title=${title}>${meta?.source && /^https?:\/\//.test(meta.source) ? html`<a href=${meta.source} target="_blank" rel="noopener noreferrer">${v}</a>` : v}</td>`;
+    };
+    const bar = (r) => html`<div class="track" aria-hidden="true"><span class="lo" style="width:${Math.max(0, Math.min(100, r.lower))}%"></span>${r.upper > r.lower ? html`<span class="hi" style="left:${r.lower}%;width:${Math.min(100, r.upper) - r.lower}%"></span>` : nothing}</div>`;
+    const range = (r) => (r.upper > r.lower ? `${r.lower}–${r.upper}` : `${r.lower}`);
+    const leader = card.leader;
+    const reversals = Array.isArray(card.reversals) ? card.reversals : [];
+    return html`<p class="head">Scored 0–4 · — is unknown, never zero · out of 100 · definitive needs ${min}% known</p>
+      <div class="wrap"><table><thead><tr><th>Option</th><th>Score</th><th class="n">Known</th><th>Gates</th>${crit.map((c) => html`<th class="n c" title=${Array.isArray(c.anchors) ? c.anchors.map((a, i) => `${i} ${a}`).join('\n') : nothing}>${c.label}<span class="w">${c.weight}</span></th>`)}</tr></thead>
+      <tbody>${rows.map((r) => html`<tr class="${r.status === 'disqualified' ? 'out' : ''} ${r.id === leader ? 'lead' : ''}">
+        <td class="name">${r.rank ? html`<span class="rank">${r.rank}</span>` : nothing}${nameOf(r.id)}${r.why ? html`<span class="why ${r.status === 'disqualified' ? 'warn' : ''}">${r.status === 'provisional' ? `provisional · ${r.why}` : `out · ${r.why}`}</span>` : nothing}</td>
+        <td class="score">${range(r)}${bar(r)}</td>
+        <td class="n known ${r.coverage < min ? 'short' : ''}">${Math.round(r.coverage)}%</td>
+        <td class="gates">${gatesOf(r)}</td>
+        ${crit.map((c, i) => cell(r, c, i))}</tr>`)}</tbody></table></div>
+      <div class="foot">${leader ? html`<strong>${nameOf(leader)}</strong> leads.` : html`No definitive leader yet: the first option is provisional.`}
+        ${reversals.length ? html`<ul>${reversals.map((x) => html`<li>With ${String(x.weights).replace(/^Equal weights$/, 'equal weights')}, ${nameOf(x.leader)} would lead instead.</li>`)}</ul>` : leader ? html` Plausible changes to the weights don't change that.` : nothing}</div>`;
+  });
+
 // A notebook page's header is drawn by the page itself (its buttons are forms
 // the page's scripts handle); in the layout it only says how. Nothing here.
 const NotebookHeader = define('NotebookHeader', 'sua-a2ui-notebook-header',
@@ -2467,7 +2570,7 @@ const VegaChart = define('VegaChart', 'sua-a2ui-vega-chart',
     disconnectedCallback() { A2uiLitElement.prototype.disconnectedCallback?.call(this); this._view?.finalize?.(); },
   });
 
-export const suaComponents = [VegaChart, Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, AnswerSections, RunbookLesson, Figure, Lead, Bars, Compare, Changes, Stories, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile, Picture, DayBars];
+export const suaComponents = [VegaChart, Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, AnswerSections, RunbookLesson, Figure, Lead, Bars, Compare, Scorecard, Changes, Stories, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile, Picture, DayBars];
 export const suaCatalog = new Catalog(SUA_CATALOG_ID, '1.0',
   [...basicCatalog.components.values(), ...suaComponents],
   // sua's own functions (join, relativeTime, formatRange, count) beside the basic ones (ADR-0087).

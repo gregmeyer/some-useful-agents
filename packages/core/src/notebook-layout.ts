@@ -88,6 +88,7 @@ export const NOTEBOOK_LAYOUT_FLAGS = {
   bars: 'It has numbers but no map (no price and measure both): bars by the deciding field stand in for the map.',
   lesson: 'Its runbook was written as a lesson (ADR-0097): goals, what you\'ll need, a final check, key points and a self-check.',
   needs: 'Its runbook says what to have ready, as items to tick.',
+  scored: 'It scores its options on weighted criteria (/notebook/scorecard, and each option\'s suitability and feasibility for a 2x2).',
 } as const;
 export type NotebookLayoutFlag = keyof typeof NOTEBOOK_LAYOUT_FLAGS;
 
@@ -514,6 +515,49 @@ const RUNBOOK: ViewComponent[] = [
   { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
 ];
 
+/**
+ * A comparison (the evaluate-software skill): where it stands, then the
+ * scorecard worked out in code (weighted criteria, gates, a range out of 100,
+ * how much is known), the 2x2 of suitability by feasibility, the write-up
+ * (recommendation, implementation brief, proof plan) and what it rests on;
+ * the options' evidence, the timeline and the search log under one fold.
+ */
+const COMPARISON: ViewComponent[] = [
+  { id: 'root', component: 'Column', children: ['top', 'score_p', 'grid_p', 'writeup_p', 'rests_p', 'detail_d'] },
+  { id: 'top', component: 'Columns', children: ['story', 'rail'], widths: [2, 1] },
+  { id: 'story', component: 'Column', children: ['lay', 'callout'] },
+  { id: 'rail', component: 'Column', children: ['steps_panel'] },
+  { id: 'lay', component: 'Callout', label: { path: '/notebook/answer/label' }, text: { path: '/notebook/answer/text' }, next: { path: '/notebook/answer/next' }, nextLabel: { path: '/notebook/answer/nextLabel' }, when: 'answered' },
+  { id: 'callout', component: 'Callout', label: 'Where it stands', text: { path: '/notebook/summary' }, next: { path: '/notebook/next' }, when: '!answered' },
+  panel('steps_panel', 'Done when', 'steps'),
+  { id: 'steps', component: 'Steps', steps: { path: '/notebook/steps' }, label: 'Progress' },
+  { ...panel('score_p', 'Scorecard', 'scorecard', 'weighted, out of 100; — is unknown'), treatment: 'feature', when: 'scored' },
+  { id: 'scorecard', component: 'Scorecard', card: { path: '/notebook/scorecard' }, options: { path: '/notebook/options' } },
+  { ...panel('grid_p', 'Fit and feasibility', 'grid', 'where each falls, not a decision'), treatment: 'feature', when: 'scored' },
+  {
+    id: 'grid', component: 'Scatter', points: { path: '/notebook/options' }, x: 'feasibility', y: 'suitability', label: 'name', href: 'page',
+    xLabel: 'Feasibility', yLabel: 'Suits the job', domain: 'percent', xMid: 50, yMid: 50, xBetter: 'higher', yBetter: 'higher',
+    quadrants: ['Suits, hard to adopt', 'Suits, easy to adopt', 'Neither', 'Easy, suits less'], bestBy: 'leader', bestLabel: 'leader',
+  },
+  ...answerSectionsPart('writeup_p').map((c) => (c.id === 'writeup_p' ? { ...c, title: 'Recommendation and proof plan' } : { ...c, rubric: 'auto' })),
+  { ...panel('rests_p', 'What it rests on', 'rests'), treatment: 'feature', when: 'answered' },
+  {
+    id: 'rests', component: 'Agenda', title: 'Key findings', points: { path: '/notebook/findings' }, questions: { path: '/notebook/openQuestions' },
+    questionsLabel: 'Still open', maxQuestions: 5, check: false, empty: 'No findings yet.',
+  },
+  { id: 'detail_d', component: 'Disclosure', label: 'Each option, its evidence and how it was found', child: 'detail' },
+  { id: 'detail', component: 'Column', children: ['options_p', 'time_panel', 'cov_panel'] },
+  panel('options_p', 'Options', 'options', { path: '/notebook/shortlistNote' }),
+  {
+    id: 'options', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' },
+    layout: 'table', sort: L('sort'), actions: true, stageChips: L('stageChips'), csvHref: L('csvHref'),
+  },
+  panel('time_panel', 'How we got here', 'timeline', 'newest first'),
+  { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, maxItems: 8, filters: true, search: true },
+  panel('cov_panel', SEARCH_LOG, 'coverage', { path: '/notebook/coverage/when' }),
+  { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' } },
+];
+
 export const NOTEBOOK_LAYOUT_PRESETS: readonly NotebookLayoutPreset[] = [
   {
     id: 'shortlist',
@@ -561,6 +605,12 @@ export const NOTEBOOK_LAYOUT_PRESETS: readonly NotebookLayoutPreset[] = [
     label: 'Plan',
     when: 'Making a plan in order (a trip or itinerary, a week of meals or workouts, a move, a project): the plan day by day or step by step, what to book or do first, what\'s still open, then what it draws on.',
     layout: { preset: 'plan', components: PLAN },
+  },
+  {
+    id: 'comparison',
+    label: 'Comparison',
+    when: 'Choosing software, a vendor or a path against a rubric (weighted criteria, must-pass gates, evidence for each score): the scorecard, fit against feasibility, the recommendation and how to prove it.',
+    layout: { preset: 'comparison', components: COMPARISON },
   },
   {
     id: 'watch',
