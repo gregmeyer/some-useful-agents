@@ -1091,7 +1091,7 @@ const ProfileCard = define('ProfileCard', 'sua-a2ui-profile-card',
     .cover { grid-template-columns: 160px minmax(0, 1fr); gap: 16px 24px; }
     .cover .pic { width: 160px; height: 160px; }
     .cover .mono { font-size: 56px; }
-    .cover .name { font: 700 var(--font-size-2xl, 28px)/1.15 var(--font-display, var(--font-mono)); letter-spacing: -.01em; }
+    .cover .name { font: 700 var(--font-size-2xl, 28px)/1.15 var(--font-display, var(--font-mono)); letter-spacing: -.01em; overflow-wrap: break-word; hyphens: auto; min-width: 0; }
     .cover .line { font-size: var(--font-size-md, 14px); }
     .cover .about { -webkit-line-clamp: 5; font-size: var(--font-size-md, 14px); }
     .pull { grid-column: 1 / -1; margin: 4px 0 0; padding: 0 0 0 20px; position: relative; font: 500 var(--font-size-lg, 17px)/1.45 var(--font-display, var(--font-sans)); color: var(--color-text); text-wrap: balance; }

@@ -45,4 +45,12 @@ describe('the inbox styles', () => {
   it("an answer's ask card steps aside while the sua drawer is open", () => {
     expect(css('notebooks.css')).toMatch(/body\.has-sua-panel \[data-nb-askcard\] \{ display: none; \}/);
   });
+  it('with the drawer open the answer takes the full width; the Sources rail follows it', () => {
+    const nb = css('notebooks.css');
+    expect(nb).toContain('body.has-sua-panel .nb-body { grid-template-columns: minmax(0, 1fr); }');
+    expect(nb).toContain('body.has-sua-panel .nb-body__side { position: static; }');
+  });
+  it("a briefing's cover name wraps inside its column", () => {
+    expect(css('a2ui-sua.js')).toMatch(/\.cover \.name \{[^}]*overflow-wrap: break-word/);
+  });
 });
