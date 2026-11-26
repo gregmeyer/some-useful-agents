@@ -86,7 +86,8 @@ nodes:
       - Keys and tokens are never inputs: read them from an environment
         variable the calling step declares as a secret, and say which in the
         description.
-      - No sudo, no rm -rf, nothing that installs software or writes files.
+      - Nothing run as root, nothing that deletes files, nothing that
+        installs software or writes files.
       - The id is lowercase words joined by - and isn't one listed above.
 
       Reply with exactly:

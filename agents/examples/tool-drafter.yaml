@@ -49,8 +49,8 @@ nodes:
 
       Rules for a command tool:
       - Each input arrives as an environment variable named exactly as
-        declared. Always quote it: "$url", never $url. Never use eval or
-        bash -c on an input.
+        declared. Always quote it: "$url", never $url. Never run an input
+        as code (no evaluating it, no handing it to bash -c).
       - Input names: letters, digits and _ only (start with a letter), and
         not PATH, HOME, USER, SHELL, TMPDIR, or anything ending in _proxy or
         starting with UPSTREAM_ or SUA_.
@@ -58,7 +58,8 @@ nodes:
         (e.g. {"count": 3}). Build it with jq or python3 when values may hold
         quotes or newlines (python3 -c 'import json,os; print(json.dumps({...}))').
       - Use only common tools: bash, curl, jq, python3 (standard library),
-        sed, awk. No sudo, no rm -rf, nothing that installs software.
+        sed, awk. Nothing run as root, nothing that deletes files, nothing
+        that installs software.
       - Never write a key or password in the command. If it needs one, read
         it from an environment variable (e.g. "$GITHUB_TOKEN") and say in the
         description that the step calling it must declare that secret.
