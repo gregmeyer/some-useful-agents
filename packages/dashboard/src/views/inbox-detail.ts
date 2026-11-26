@@ -204,7 +204,7 @@ const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
  * surface the real agents the conversation is about.
  */
 const NON_SUBJECT_AGENT_IDS: ReadonlySet<string> = new Set([
-  '_resolve-thread', 'agent-editor', 'agent-compose', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-ask', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'view-redesign', 'board-build', 'edition-ask', TOOL_REFACTOR_APPLY, 'tool-refactor',
+  '_resolve-thread', 'agent-editor', 'agent-compose', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-ask', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'view-redesign', 'board-build', 'edition-ask', TOOL_REFACTOR_APPLY, 'tool-refactor', 'skill-draft', 'skill-save', 'skill-drafter',
   'agent-analyzer', 'agent-catalog-search', 'agent-builder',
 ]);
 
@@ -958,6 +958,10 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
                           : html`${meta.status === 'completed' ? 'Created a notebook' : 'Create a notebook'} from <span class="mono">${meta.inputs.TEMPLATE_NAME ?? meta.inputs.TEMPLATE ?? ''}</span>`)
                       : meta.agentId === 'notebook-rerun'
                         ? html`${meta.status === 'completed' ? 'Ran' : 'Run'} <span class="mono">${meta.inputs.NOTEBOOK_TITLE ?? meta.inputs.NOTEBOOK ?? ''}</span> again as a new notebook`
+              : meta.agentId === 'skill-draft'
+                ? html`${meta.status === 'completed' ? 'Drafting' : 'Draft'} ${meta.inputs.NAME ? html`a change to the skill <span class="mono">${meta.inputs.NAME}</span>` : html`a skill`}`
+              : meta.agentId === 'skill-save'
+                ? (() => { const n = parseCardSkills(meta.inputs.NEW_SKILLS)[0]?.name ?? meta.inputs.SKILL ?? ''; const done = meta.status === 'completed'; return meta.inputs.NEW_SKILLS ? html`${done ? 'Saved' : 'Save'} the skill <span class="mono">${n}</span>` : html`${done ? 'Added' : 'Add'} the skill <span class="mono">${n}</span> to ${(meta.inputs.AGENT_IDS ?? '').split(',').filter(Boolean).length === 1 ? html`<span class="mono">${meta.inputs.AGENT_IDS}</span>` : html`${String((meta.inputs.AGENT_IDS ?? '').split(',').filter(Boolean).length)} agents`}`; })()
               : meta.agentId === 'agent-schedule'
                 ? html`Change when <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> runs`
                 : html`Run <span class="mono">${meta.agentId}</span>`}
@@ -974,7 +978,8 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
       : html``}
     ${meta.agentId === 'notebook-photo' && meta.status === 'proposed' && /^https?:\/\//i.test(meta.inputs.IMAGE ?? '') ? html`<figure class="act-card__pic"><img src="${meta.inputs.IMAGE}" alt="${meta.inputs.ALT ?? 'The picture to use'}" loading="lazy" referrerpolicy="no-referrer">${meta.inputs.CREDIT ? html`<figcaption>${meta.inputs.CREDIT}</figcaption>` : html``}</figure><p class="act-card__note">sua keeps a copy in the notebook; the page never loads it from that site. Ask to go back to its sources' photos any time.</p>` : html``}
     ${meta.agentId === TOOL_REFACTOR_APPLY ? renderToolRefactor(meta) : html``}
-    ${[TOOL_REFACTOR_APPLY, 'tool-refactor', 'notebook-ask', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply'].includes(meta.agentId) ? html`` : (meta.agentId === 'agent-editor' || meta.agentId === 'agent-compose') && meta.inputs.NEW_YAML
+    ${meta.agentId === 'skill-save' ? renderSkillSave(meta) : html``}
+    ${[TOOL_REFACTOR_APPLY, 'tool-refactor', 'skill-draft', 'skill-save', 'notebook-ask', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply'].includes(meta.agentId) ? html`` : (meta.agentId === 'agent-editor' || meta.agentId === 'agent-compose') && meta.inputs.NEW_YAML
       // Against the agent as it was when the fix was proposed (older cards: as it is now).
       ? html`${meta.agentId === 'agent-compose' && meta.status === 'proposed'
         ? html`<p class="act-card__note">Turns on <span class="mono">${meta.inputs.HELPER_ID ?? ''}</span>, a new agent other agents can use too${meta.inputs.HELPER_ABOUT ? html`: ${meta.inputs.HELPER_ABOUT}` : html`.`} ${meta.fork ? html`` : html`Saves <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> as a new version that calls it; roll back any time from Versions. `}If that save fails, <span class="mono">${meta.inputs.HELPER_ID ?? ''}</span> stays a draft.</p>`
@@ -1227,6 +1232,16 @@ function renderToolRefactor(meta: InboxActionMeta): SafeHtml {
   return html`${toolBlock}${edits as unknown as SafeHtml[]}
     ${card.leftOut.length ? html`<p class="act-card__note">Left out: ${card.leftOut.map((l, i) => html`${i ? ', ' : ''}<span class="mono">${l.agentId}</span> (${l.why})`) as unknown as SafeHtml[]}.</p>` : html``}
     ${proposed ? html`<p class="act-card__note">Everything here is saved together, or nothing is. Each agent is saved as a new version you can roll back from Versions; what each one gives back stays the same.</p>` : html``}`;
+}
+
+/** sua's "Save the skill" card: the skill (new, or what changes) and the agents it's added to. */
+function renderSkillSave(meta: InboxActionMeta): SafeHtml {
+  const proposed = meta.status === 'proposed';
+  const ids = (meta.inputs.AGENT_IDS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+  const skills = parseCardSkills(meta.inputs.NEW_SKILLS);
+  return html`${skills.length ? renderSkillChanges(meta.inputs.NEW_SKILLS, false) : meta.inputs.SKILL ? html`<p class="act-card__skill-head"><span class="act-card__change-what">Skill</span> <a class="mono" href="/skills/${encodeURIComponent(meta.inputs.SKILL)}">${meta.inputs.SKILL}</a></p>` : html``}
+    ${ids.length ? html`<p class="act-card__skill-head"><span class="act-card__change-what">Added to</span> ${ids.map((id, i) => html`${i ? ', ' : ''}<a class="mono" href="/agents/${encodeURIComponent(id)}">${id}</a>`) as unknown as SafeHtml[]}</p>` : html``}
+    ${proposed ? html`<p class="act-card__note">${skills.some((s) => s.base?.source === 'shipped') ? 'Saved as your copy; the shipped one stays as it is. ' : skills.length ? 'Saved as a new version you can restore from its page. ' : ''}${ids.length ? `Each agent it's added to is saved as a new version. ` : ''}${skills.length ? 'Every agent that lists it gets the new text.' : ''}</p>` : html``}`;
 }
 
 /**

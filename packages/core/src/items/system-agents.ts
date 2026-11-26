@@ -5,6 +5,9 @@
  */
 export const SYSTEM_AGENT_IDS: ReadonlySet<string> = new Set([
   'inbox-triage',
+  'skill-drafter',
+  'skill-draft',
+  'skill-save',
   'inbox-learning-extractor',
   'agent-analyzer',
   'agent-editor',

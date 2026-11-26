@@ -66,6 +66,15 @@ When a step researches a list (companies, options, people), use …
 
 Skills ship with the examples, so an npm install has them too.
 
+## From a conversation
+
+sua knows your skills: ask "what skills do I have?", "what does research-shape say?" or "which agents use web-search?" and it answers from them, with a link to each skill's page. A skill you name is read in full.
+
+- **Write one:** "make a skill from this" (after pasting text), "write a skill for how we cite filings". sua hands it to the **skill drafter**, an agent that itself uses the shipped `writing-skills` skill, which keeps it short, one kind of work, rules with their reasons, under 6 KB and with no templates. Drafting changes nothing; it ends in a **Save the skill** card with the text. Say which agents should use it and the card adds it to them too.
+- **Change one:** "add a rule to research-shape: …". The card shows what changes. A shipped skill is saved as your copy.
+- **Use one:** "use web-search in my news agent" gives an **Add the skill** card.
+- **Approving** saves the skill as a new version and each agent as a new version, all or nothing. It's refused, with the reason, if the skill changed since it was drafted or an agent's skills would go over 16 KB together. Take a skill off an agent, or delete one, on its page.
+
 ## Skills sua proposes
 
 When sua builds an agent (agent-builder) or fixes one (agent-analyzer) and the
@@ -108,6 +117,7 @@ sua skill show <name>    # its full text, as agents get it
 | `research-shape` | agent-builder, agent-analyzer | Research a list through research-fanout; never one node over all of it or gather-N copies. |
 | `web-search` | agent-builder, agent-analyzer | Search results come from web-search-links; a model that searches and reads uses the web-search tool; never scrape a search engine. |
 | `shell-steps` | agent-builder, agent-analyzer | Python shell steps import `sua_helpers` (upstream, last_json, emit) instead of their own copies. See [templating](templating.md#shell-helpers-python). |
+| `writing-skills` | skill-drafter | How to write a skill: one kind of work, rules with their reasons, under 6 KB, never a template or a manual. |
 
 ## Skills, behaviors and memory
 

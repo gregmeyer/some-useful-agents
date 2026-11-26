@@ -205,6 +205,20 @@ inputs:
       The operator's notebook templates (a notebook's setup kept to start
       new ones like it) as JSON: id, name, what it's for, limits,
       done-whens, fields, steps, uses.
+  SKILLS:
+    type: string
+    required: false
+    default: "[]"
+    description: >
+      The operator's skills (know-how their agents share) as JSON: name,
+      what it's for, where it's from, size, the agents that use it, link.
+  SKILLS_LINKED:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Skills the latest message names, read in full (name, what it's for,
+      text). Empty when none is.
   HOME_SURFACE:
     type: string
     required: false
@@ -450,6 +464,12 @@ nodes:
 
       Their notebook templates (see NOTEBOOK TEMPLATES):
       {{inputs.TEMPLATES}}
+
+      Their skills (see SKILLS):
+      {{inputs.SKILLS}}
+
+      Skills the latest message names, read in full (see SKILLS):
+      {{inputs.SKILLS_LINKED}}
 
       Their experiments (see EXPERIMENTS):
       {{inputs.EXPERIMENTS}}

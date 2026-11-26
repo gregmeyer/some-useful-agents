@@ -1,0 +1,81 @@
+# Skill Drafter — writes or changes a skill from a conversation (docs/skills.md
+# "From a conversation"). Route-dispatched only, by sua's `skill-draft`
+# (dashboard lib/skill-actions.ts); never proposed in triage. It uses the
+# writing-skills skill itself. Its <skill> block is checked like any skill
+# (6 KB, no templates, name format) and shown on a card; nothing is saved
+# until you approve it.
+
+id: skill-drafter
+name: Skill Drafter
+description: >
+  Writes a skill (know-how several agents share) from what someone asked,
+  or changes one they have, as one <skill> block to approve.
+status: active
+source: examples
+skills: [writing-skills]
+
+inputs:
+  ASK:
+    type: string
+    required: true
+    description: What the skill should cover, or what to change, in their words.
+  CONVERSATION:
+    type: string
+    required: false
+    default: ""
+    description: The conversation so far (latest last), for what they already said or pasted.
+  SKILLS:
+    type: string
+    required: true
+    description: The skills that exist, one per line (name and what it's for).
+  CURRENT:
+    type: string
+    required: false
+    default: ""
+    description: The skill being changed, in full (name, description, text). Empty for a new one.
+  FIX:
+    type: string
+    required: false
+    default: ""
+    description: Why the previous draft couldn't be used, to fix this time.
+
+nodes:
+  - id: draft
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 180
+    outputContract:
+      mustMatch: '<skill name="[a-z0-9-]+" description="[^"]+">[\s\S]*?</skill>'
+      description: one <skill name description> block
+    prompt: |
+      You write one skill for sua, a local agent runner, following the
+      writing-skills know-how above.
+
+      What they asked: {{inputs.ASK}}
+
+      The conversation so far (it may hold the text they want as a skill;
+      keep its substance, fit it to the rules):
+      {{inputs.CONVERSATION}}
+
+      Skills that already exist (never reuse a name for a new one):
+      {{inputs.SKILLS}}
+
+      The skill to change (empty when it's a new one; keep its name):
+      {{inputs.CURRENT}}
+
+      Fix this from your last draft (may be empty): {{inputs.FIX}}
+
+      Hard limits, checked before anyone sees it:
+      - The text is at most 6 KB. Longer source material is cut to its rules;
+        if it truly needs more, write the part that matters most and say in
+        <why> what to put in a second skill.
+      - No double-brace placeholders anywhere in the text.
+      - name: lowercase words joined by hyphens, at most 64 characters.
+      - description: one line, at most 300 characters, no double quotes.
+
+      Reply with exactly these two blocks:
+
+      <skill name="evaluate-software" description="Evaluate software for a job: gates, a 0–4 rubric with unknown never zero, evidence, a recommendation.">
+      …the text, in Markdown…
+      </skill>
+      <why>One sentence: what it covers, and anything left out or to split off.</why>

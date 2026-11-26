@@ -392,6 +392,8 @@ export interface DashboardContext {
   toolSuggesterRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests: stand in for the tool-refactorer agent (sua's tool-refactor; lib/tool-refactor-draft.ts). */
   toolRefactorRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Tests: the skill-drafter's reply, instead of running it (lib/skill-actions.ts). */
+  skillDrafterRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests: stand in for the agent-retooler agent, once per agent. */
   agentRetoolerRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /**
