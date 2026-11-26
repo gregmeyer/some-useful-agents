@@ -574,6 +574,7 @@ A notebook you run again and again (a job search, a car search, a comp set) can 
   - **Not kept:** options, notes, decision, history and filter labels. Every notebook made from it starts empty.
 - **Templates from a skill:** see [below](#templates-from-a-skill).
 - **Start one with sua:** ask "start a notebook from my Job search template", or use **Start with sua →** next to it on **New notebook**. A template with a subject has a box for it there ("Acme Corp"); without one, sua asks it first. Every `{subject}` is filled in when you approve. A subject given with its website ("Duolingo, duolingo.com") is split: the name is filled in, and the site is kept as that organization's own site, so the notebook becomes a briefing on it. A notebook with no title of its own is named after the template and its subject ("Company briefing: Duolingo"). sua then:
+  - fills in what the template asks for from what you already said (a budget, the tools you use), so its first step doesn't wait for it; the card lists those answers, and the rest show as "asks you for";
   - asks what's different this time, one or two questions per reply and at most 4 in all, each with button answers: the template's own value first ("Remote or Austin, TX"), then likely alternatives, or type your own. It asks about the limits that change between runs (place, level, pay floor, budget), how many to find and a deadline, and skips what you already said. **Use the template as is** skips the rest;
   - offers a **Create notebook** card showing the template, the title, the limits, done-whens and checks (before → after when they change: a check that names a place, level or pay floor changes with it) and the steps.
 - **When you approve it:** the notebook is created empty with the template's setup and this time's changes. A step whose agent is no longer installed falls back to sua's finder or checker, or says it needs an agent. Nothing runs until you start its first step.
@@ -593,7 +594,12 @@ Drafting changes nothing. The draft is checked in code like any template: the we
 
 The drafter is generic: the skills say what goes in. The shipped pair `evaluate-software` and `software-rubric` make a comparison: find 5–8 options (3–5 in quick mode) → check the gates → score each criterion → write up the field → pick one, on the Comparison page.
 
+A template made this way is held to a few more rules, each found on a real run: at most 12 facts in all (scored criteria included), criterion labels of 1–3 words with the detail in the anchors, step titles under 60 characters, no placeholders left in what it's for, and every source step naming its agent (sua has no default one for it).
+
 **Scoring** is the **software scorer**, the source step's agent: for each option still missing scores, it researches the criteria three options at a time (research-fanout), scores what the research found against the anchors (a model with no tools, following `software-rubric`), then keeps a score only when code finds its quote word for word on the page it cites. A score with no page, words that aren't there, or a page that can't be read stays **unknown**, never 0, and the run's note says how many. Each kept score carries its source, quote and confidence (high, medium, low).
+
+
+**What a run costs** (one real run, quick mode, a CRM for a 5-person team, November 2026): drafting the template took under a minute ($0.29 a draft, plus sua's reply). The notebook found 9 options in a minute ($0.63). Its gates step ran three checker passes, about 15 minutes and $3 in all, and settled 21 gate results without finishing any option's six. Scoring took three tries, about 5 minutes and $3.10, and kept 20 of 35 scores: 17 on the first try, then 2, then 1. Most of the rest were dropped because the words weren't on the page cited. The write-up took a minute ($0.34). That's about $8 and 23 minutes of runs. Every option stayed provisional with no leader, as it should with gates unsettled. Pressing **Move on** after the first scoring try saves most of that step's cost.
 
 ### A brief to share
 

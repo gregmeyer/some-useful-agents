@@ -107,6 +107,12 @@ describe('a template drafted from scratch', () => {
   it('is cleaned, and says what is wrong', () => {
     expect(cleanTemplateSetup(setup).problems).toEqual([]);
     expect(cleanTemplateSetup({ ...setup, fields: [crit('job_fit', 50, 'suitability')] }).problems).toContain("The criteria's weights add to 50, not 100.");
+    // Over 12 facts, the rest would be dropped: it says that, not a weight total that only looks wrong.
+    const many = [...Array.from({ length: 8 }, (_, i) => ({ key: `fact_${String(i)}`, label: `Fact ${String(i)}`, type: 'text' })), crit('a_one', 25, 'suitability'), crit('a_two', 25, 'suitability'), crit('a_three', 25, 'feasibility'), crit('a_four', 15, 'feasibility'), crit('a_five', 10, 'feasibility')];
+    const over = cleanTemplateSetup({ ...setup, fields: many }).problems;
+    expect(over).toContain('At most 12 facts in all, scored criteria included (it has 13). Drop or merge some.');
+    expect(over.join(' ')).not.toContain('weights add to');
+    expect(cleanTemplateSetup({ ...setup, steps: [{ title: 'Look up prices', kind: 'source', facts: ['price'] }] }).problems).toContain('Step "Look up prices" looks up facts but names no agent; give it one from the list, or fold those facts into another step.');
     expect(cleanTemplateSetup({ ...setup, fields: [{ ...crit('job_fit', 100, 'suitability'), anchors: ['x'] }] }).problems).toContain('"job fit" needs what 0, 1, 2, 3 and 4 mean.');
     expect(cleanTemplateSetup(setup, { agentInstalled: () => false }).problems).toContain('Step "Score them" needs software-scorer, which isn\'t installed.');
     expect(cleanTemplateSetup({ ...setup, steps: [...setup.steps, ...setup.steps] }).problems).toContain('At most 6 steps (it has 10).');

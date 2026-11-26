@@ -111,6 +111,7 @@ This directory captures the **why** behind architectural choices in
 | [0102](0102-tools-you-add.md) | Tools you add: inputs as environment variables, gated as the shell they run | Accepted |
 | [0103](0103-a-shared-tool-on-one-card.md) | A shared tool and the agents that call it, on one card | Accepted |
 | [0104](0104-claude-aliases-pin-claude-only.md) | A pinned Claude short name applies on Claude only | Accepted |
+| [0105](0105-comparison-scores-in-code.md) | Comparison scores are worked out in code; unknown is null; templates come from skills | Accepted |
 
 ## Template
 

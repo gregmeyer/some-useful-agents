@@ -1702,10 +1702,15 @@ export function cleanTemplateSetup(raw: unknown, opts: { agentInstalled?: (id: s
   const steps = cleanSteps(rawSteps).map((st) => ({ ...st, status: 'todo' as const, tries: 0, note: undefined, doneAt: undefined, stalled: undefined, movedOn: undefined, why: undefined }))
     .map((st) => Object.fromEntries(Object.entries(st).filter(([, v]) => v !== undefined)) as unknown as NotebookStep);
   if (opts.agentInstalled) for (const st of steps) if (st.agentId && !opts.agentInstalled(st.agentId)) problems.push(`Step "${st.title}" needs ${st.agentId}, which isn't installed.`);
+  // A source step has no agent of sua's to fall back on (find and check do): it would only wait.
+  for (const st of steps) if (st.kind === 'source' && !st.agentId) problems.push(`Step "${st.title}" looks up facts but names no agent; give it one from the list, or fold those facts into another step.`);
   if (Array.isArray(x.asks) && x.asks.length > TEMPLATE_ASKS_MAX) problems.push(`At most ${String(TEMPLATE_ASKS_MAX)} asks.`);
   const fields = cleanFields(Array.isArray(x.fields) ? x.fields : []);
+  // Past the limit the rest are dropped, so say that rather than a weight total that only looks wrong.
+  const given = Array.isArray(x.fields) ? x.fields.filter((f) => !!f && typeof f === 'object').length : 0;
+  if (given > MAX_FIELDS) problems.push(`At most ${String(MAX_FIELDS)} facts in all, scored criteria included (it has ${String(given)}). Drop or merge some.`);
   const weighted = fields.filter((f) => f.weight !== undefined);
-  if (weighted.length) {
+  if (weighted.length && given <= MAX_FIELDS) {
     const sum = weighted.reduce((a, f) => a + f.weight!, 0);
     if (Math.abs(sum - 100) > 0.5) problems.push(`The criteria's weights add to ${String(Math.round(sum * 10) / 10)}, not 100.`);
     for (const f of weighted) {
@@ -3786,6 +3791,9 @@ function inferRole(key: string, type: NotebookFieldType): NotebookFieldRole | un
 }
 
 /** Keep only well-formed fields, one per key and at most one per role. */
+/** The most facts a notebook notes for each option (scored criteria included). */
+export const MAX_FIELDS = 12;
+
 export function cleanFields(list: readonly unknown[]): NotebookField[] {
   const out: NotebookField[] = [];
   const roles = new Set<string>();
@@ -3810,7 +3818,7 @@ export function cleanFields(list: readonly unknown[]): NotebookField[] {
     const anchors = weight !== undefined && Array.isArray(x.anchors) ? x.anchors.filter((a): a is string => typeof a === 'string').map((a) => a.replace(/\s+/g, ' ').trim().slice(0, 160)).slice(0, 5) : [];
     const axis = weight !== undefined && (x.axis === 'suitability' || x.axis === 'feasibility') ? x.axis : undefined;
     out.push({ key, label, type, ...(unit ? { unit } : {}), ...(role ? { role } : {}), ...(better ? { better } : {}), ...(range ? { range: true } : {}), ...(weight !== undefined ? { weight, better: 'higher' as const } : {}), ...(anchors.length === 5 ? { anchors } : {}), ...(axis ? { axis } : {}) });
-    if (out.length === 12) break;
+    if (out.length === MAX_FIELDS) break;
   }
   return out;
 }

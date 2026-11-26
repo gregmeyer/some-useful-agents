@@ -1002,7 +1002,12 @@ template ("another job search", "same as last time, for Denver"):
                   "CRITERIA": ["<done-whens, numbers updated>"],
                   "CHECKS": ["<the template's checks, updated>"],
                   "TARGET": "<how many the find step wants, if they said>",
-                  "SUBJECT": "<who or what, when the template asks>" } }`
+                  "SUBJECT": "<who or what, when the template asks>",
+                  "GIVEN": { "<an ask's label, as the template has it>": "<their answer, in their words>" } } }`
+   GIVEN: only the template's asks their messages already answer (a
+   budget, the tools they use, how they work today); the notebook keeps
+   each as given, so its first step doesn't wait for it. Leave out what
+   they didn't say: the notebook asks for it.
    PARAMS, CRITERIA and CHECKS are the whole lists (the template's, with
    this time's changes), not just the changes. A check or done-when that
    names something that changed (a place, a level, a pay floor) changes
