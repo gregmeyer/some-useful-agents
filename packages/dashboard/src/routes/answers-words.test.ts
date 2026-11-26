@@ -80,7 +80,7 @@ describe("an answer's header and its conversation", () => {
     for (let i = 0; i < 200 && !store.askedInThread(conv).length; i++) await new Promise((r) => setTimeout(r, 25));
     const [follow] = store.askedInThread(conv);
     expect(follow).toMatchObject({ asked: 'Which of these fold flat? (following up on “Headphones for flights”)', askedIn: conv });
-    expect(await get(`/notebooks/${nb.id}`)).toContain(`Follow-ups</span> <a href="/notebooks/${follow.id}">${follow.title}</a>`);
+    expect(await get(`/notebooks/${nb.id}`)).toMatch(new RegExp(`<li class="nb-follow__item"><a href="/notebooks/${follow.id}">[^<]+</a><span class="nb-follow__state nb-follow__state--(working|done)">`));
     expect(await get(`/notebooks/${follow.id}`)).toContain(`<a href="/inbox/${conv}" title="The conversation you asked it in">From this conversation →</a>`);
     S.stepsReply = undefined;
   });

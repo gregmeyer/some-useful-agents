@@ -424,8 +424,14 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   let fresh: ReturnType<typeof whatsNew>;
   try { fresh = whatsNew(nb, entries, s.passes(nb.id, 60)); } catch { fresh = undefined; }
   // The follow-ups asked from it: new answers asked in its conversation.
-  let followUps: Array<{ id: string; title: string }> = [];
-  try { followUps = nb.conversationId ? s.askedInThread(nb.conversationId).filter((x) => x.id !== nb.id).map((x) => ({ id: x.id, title: x.title })) : []; } catch { followUps = []; }
+  // Each follow-up with where it stands: done once none of sua's steps is left (a step of yours may wait), else under way.
+  let followUps: Array<{ id: string; title: string; state: 'working' | 'done' }> = [];
+  try {
+    followUps = nb.conversationId ? s.askedInThread(nb.conversationId).filter((x) => x.id !== nb.id).map((x) => ({
+      id: x.id, title: x.title,
+      state: (x.steps ?? []).length && !(x.steps ?? []).some((st) => st.status !== 'done' && st.status !== 'met' && st.kind !== 'decide' && st.kind !== 'narrow') ? 'done' as const : 'working' as const,
+    })) : [];
+  } catch { followUps = []; }
   res.type('html').send(renderNotebookPage({ followUps, nb, unfiled, busy, live, reading: givenReadStates(ctx, nb), givenNotUsed: givenNotUsed(nb, s.passes(nb.id, 60)), liveKey: notebookLiveKey(live), ...(fresh ? { whatsNew: fresh } : {}), ...(coverPhoto ? { cover: coverPhoto } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), stepsKey: stepsKey(ctx, s.get(nb.id) ?? nb), ...(madeBy ? { madeBy } : {}), flash: parseFlash(req) }));
 });
 

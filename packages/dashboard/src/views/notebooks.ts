@@ -927,14 +927,26 @@ export function sourcesRail(entries: readonly NotebookEntry[]): SafeHtml {
   </section>`;
 }
 
-function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: { text: string; at: number }, unfiled: readonly UnfiledRunView[] = [], talkLive?: NotebookTalkLive): SafeHtml {
+function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: { text: string; at: number }, unfiled: readonly UnfiledRunView[] = [], talkLive?: NotebookTalkLive, followUps: readonly FollowUp[] = []): SafeHtml {
   const hasEntries = entries.length > 0;
   const id = encodeURIComponent(nb.id);
+  const canTalk = hasEntries || !!nb.conversationId;
+  const follow = followUpPanel(nb, followUps);
+  const canFollow = !!String(follow).trim();
+  // Which tab opens first: talking to sua while it waits on you or is replying, or while its steps aren't done; a follow-up once they are.
+  const done = !(nb.steps ?? []).some((s) => s.status !== 'done' && s.status !== 'met' && s.kind !== 'decide' && s.kind !== 'narrow');
+  // "Ready when you are" (your step is next) isn't sua asking you something: only a real question or a reply under way opens Tell sua first.
+  const asking = talkLive?.state === 'waiting' && talkLive.kind !== 'step' && !talkLive.stepCards;
+  const talkFirst = !canFollow || (canTalk && (asking || talkLive?.state === 'working' || !done || !nb.steps?.length));
+  const tab = (key: 'follow' | 'talk', label: string, on: boolean) => html`<button type="button" role="tab" class="nb-askcard__tab${on ? ' is-on' : ''}" aria-selected="${on ? 'true' : 'false'}" aria-controls="nb-tab-${key}" data-nb-tab="${key}">${label}</button>`;
   return html`
     ${sourcesRail(entries)}
-    ${hasEntries || nb.conversationId ? html`
-      <section class="nb-side__card nb-talk${talkLive?.state === 'waiting' ? ' is-waiting' : ''}" aria-labelledby="nb-talk-title">
-        <h2 class="nb-side__title" id="nb-talk-title">Talk to sua about this answer</h2>
+    ${canTalk || canFollow ? html`<div class="nb-side__card nb-askcard" data-nb-askcard>
+      ${canTalk && canFollow ? html`<div class="nb-askcard__tabs" role="tablist" aria-label="Ask or tell sua">${tab('follow', 'Ask a follow-up', !talkFirst)}${tab('talk', 'Tell sua about this one', talkFirst)}</div>` : html``}
+      ${canFollow ? html`<div class="nb-askcard__panel" id="nb-tab-follow" role="tabpanel" data-nb-tabpanel="follow"${canTalk && talkFirst ? html` hidden` : html``}>${follow}</div>` : html``}
+    ${canTalk ? html`
+      <section class="nb-askcard__panel nb-talk${talkLive?.state === 'waiting' ? ' is-waiting' : ''}" id="nb-tab-talk" role="tabpanel" data-nb-tabpanel="talk" aria-labelledby="nb-talk-title"${canFollow && !talkFirst ? html` hidden` : html``}>
+        <h2 class="nb-side__title${canFollow ? ' sr-only' : ''}" id="nb-talk-title">Talk to sua about this answer</h2>
         ${talkLive?.state === 'waiting'
           ? html`<div class="nb-talk__waiting" role="status">
               <span class="nb-talk__waiting-label">${waitingStepButtons(talkLive, nb).length ? 'Ready when you are' : waitingWords(talkLive.kind).label}</span>
@@ -947,6 +959,7 @@ function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: {
         ${talkForm(nb, entries)}
         ${nb.conversationId ? html`<button type="button" class="btn btn--sm btn--ghost nb-talk__continue" data-nb-continue="${nb.conversationId}">Continue the conversation</button>` : html``}
       </section>` : html``}
+    </div>` : html``}
     ${unfiled.length ? html`
       <section class="nb-side__card nb-unfiled" aria-labelledby="nb-unfiled-title">
         <h2 class="nb-side__title" id="nb-unfiled-title">Runs not in this answer yet</h2>
@@ -1352,11 +1365,15 @@ export function offersDecide(nb: Pick<Notebook, 'steps' | 'experimentId'>): bool
 }
 
 /** The foot of an answer: Ask a follow-up (a new answer, asked in this one's conversation), and the ones asked so far. */
-export function followUpBox(nb: Pick<Notebook, 'id' | 'archivedAt' | 'experimentRun' | 'experimentId'>, followUps: ReadonlyArray<{ id: string; title: string }>): SafeHtml {
+/** A follow-up asked from an answer, and how far it got. */
+export interface FollowUp { id: string; title: string; state: 'working' | 'done' }
+
+/** Ask a follow-up (beside the answer, a tab of the ask card): the box, and the follow-ups so far with where each stands. */
+export function followUpPanel(nb: Pick<Notebook, 'id' | 'archivedAt' | 'experimentRun' | 'experimentId'>, followUps: readonly FollowUp[]): SafeHtml {
   if (nb.archivedAt || nb.experimentRun || nb.experimentId) return html``;
   return html`<section class="nb-follow" id="nb-follow" aria-labelledby="nb-follow-h">
-    <h2 class="nb-follow__title" id="nb-follow-h">Ask a follow-up</h2>
-    ${followUps.length ? html`<p class="nb-follow__list"><span class="nb-follow__label">Follow-ups</span> ${followUps.map((f, i) => html`${i ? ' · ' : ''}<a href="/notebooks/${encodeURIComponent(f.id)}">${f.title}</a>`) as unknown as SafeHtml[]}</p>` : html``}
+    <h2 class="nb-follow__title sr-only" id="nb-follow-h">Ask a follow-up</h2>
+    ${followUps.length ? html`<ul class="nb-follow__items">${followUps.map((f) => html`<li class="nb-follow__item"><a href="/notebooks/${encodeURIComponent(f.id)}">${f.title}</a><span class="nb-follow__state nb-follow__state--${f.state}">${f.state === 'done' ? 'Done →' : 'Under way'}</span></li>`) as unknown as SafeHtml[]}</ul>` : html``}
     <form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/follow-up" class="nb-follow__form">
       <textarea name="question" class="form-field nb-follow__input" rows="2" required aria-label="Your follow-up question" placeholder="What do you want to find out next?"></textarea>
       <button type="submit" class="btn btn--primary btn--sm">Ask</button>
@@ -1680,7 +1697,7 @@ export function printLinks(nb: Pick<Notebook, 'fields'>, entries: readonly Noteb
 
 const hostOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return 'the link'; } };
 
-export function renderNotebookPage(args: { followUps?: ReadonlyArray<{ id: string; title: string }>; nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; madeBy?: NotebookMadeBy; whatsNew?: WhatsNew; reading?: Record<string, 'working' | 'failed'>; givenNotUsed?: GivenNotUsed; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+export function renderNotebookPage(args: { followUps?: readonly FollowUp[]; nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; madeBy?: NotebookMadeBy; whatsNew?: WhatsNew; reading?: Record<string, 'working' | 'failed'>; givenNotUsed?: GivenNotUsed; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'notebooks', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Answers</a></p>
     ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your answers, Home and Today, and its schedule is off.
@@ -1692,9 +1709,8 @@ export function renderNotebookPage(args: { followUps?: ReadonlyArray<{ id: strin
     ${printLinks(args.nb, args.entries)}
     <div class="nb-body">
       <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-nb-steps="${args.stepsKey ?? ''}" data-nb-live="${args.liveKey ?? ''}" data-nb-running="${args.running || args.busy?.length ? '1' : ''}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp, !!args.running)}</div>
-      <aside class="nb-body__side">${sideForms(args.nb, args.entries, args.lastWord, args.unfiled, args.live?.talk)}</aside>
+      <aside class="nb-body__side">${sideForms(args.nb, args.entries, args.lastWord, args.unfiled, args.live?.talk, args.followUps ?? [])}</aside>
     </div>
-    ${followUpBox(args.nb, args.followUps ?? [])}
   `));
 }
 
