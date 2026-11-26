@@ -112,7 +112,7 @@ function listChange(what: string, before: readonly string[], after: readonly str
   ];
 }
 
-const fieldWords = (f: NotebookField) => [`${f.type}${f.unit ? ` in ${f.unit}` : ''}`, f.range ? 'range' : '', f.role ?? '', f.better ? `${f.better} is better` : ''].filter(Boolean).join(', ');
+const fieldWords = (f: NotebookField) => [`${f.type}${f.unit ? ` in ${f.unit}` : ''}`, f.range ? 'range' : '', f.role ?? '', f.weight !== undefined ? `weight ${String(f.weight)}` : f.better ? `${f.better} is better` : '', f.axis ?? ''].filter(Boolean).join(', ');
 const stepWords = (s: Pick<NotebookStep, 'kind' | 'target' | 'agentId' | 'subject' | 'facts' | 'top' | 'shape'>) =>
   [`${s.kind}${s.target ? ` ${String(s.target)}` : ''}`, s.shape ?? '', s.subject ? `about ${s.subject}` : '', s.facts?.length ? `facts ${s.facts.join(', ')}` : '', s.top ? `top ${String(s.top)}` : '', s.agentId ? `with ${s.agentId}` : ''].filter(Boolean).join('; ');
 
@@ -250,7 +250,13 @@ function parseField(line: string, base: readonly NotebookField[]): NotebookField
   let range = false;
   let role: string | undefined;
   let better: 'higher' | 'lower' | undefined;
+  // A scoring criterion: "weight 25", and the side of the 2x2 it counts toward; what each score means stays as it was.
+  let weight: number | undefined;
+  let axis: string | undefined;
   for (const w of words) {
+    const wt = /^weight\s+(\d+(?:\.\d+)?)$/.exec(w);
+    if (wt) { weight = Number(wt[1]); continue; }
+    if (w === 'suitability' || w === 'feasibility') { axis = w; continue; }
     const t = /^(money|number|text|url|image|date)(?:\s+in\s+(.+))?$/.exec(w);
     if (t) { type = t[1]; unit = t[2]; continue; }
     if (w === 'range') { range = true; continue; }
@@ -258,7 +264,7 @@ function parseField(line: string, base: readonly NotebookField[]): NotebookField
     if (b) { better = b[1] as 'higher' | 'lower'; continue; }
     if ((NOTEBOOK_FIELD_ROLES as readonly string[]).includes(w)) role = w;
   }
-  const raw = { key: was?.key ?? slugKey(label), label, type: type ?? was?.type ?? 'text', ...(unit ? { unit } : {}), ...(range ? { range } : {}), ...(role ? { role } : {}), ...(better ? { better } : {}) };
+  const raw = { key: was?.key ?? slugKey(label), label, type: type ?? was?.type ?? 'text', ...(unit ? { unit } : {}), ...(range ? { range } : {}), ...(role ? { role } : {}), ...(better ? { better } : {}), ...(weight !== undefined ? { weight, axis: axis ?? was?.axis, anchors: was?.anchors } : {}) };
   return cleanFields([raw])[0];
 }
 

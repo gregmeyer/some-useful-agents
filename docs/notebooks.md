@@ -544,6 +544,18 @@ sua's drafter adds a fit score to account-style notebooks ("companies with $10�
 
 Money of a million and up reads short ("$18M–$22M"). Companies get a monogram tile from their company name when there's no picture.
 
+## Scored against weighted criteria
+
+Choosing between software, vendors or anything with a rubric: a **number field with a weight** is a scoring criterion. Each option scores it **0–4** (0 unsuitable, 1 major gaps, 2 partial fit, 3 meets the need, 4 exceeds it in a way that matters), and a criterion can say what each score means for this job and which side of a 2x2 it counts toward (**suitability** or **feasibility**). A missing score is **unknown, never zero**. The notebook's **checks are its gates**: passed, failed or not known yet.
+
+The scorecard is worked out in code, not by a model (`/notebooks/<id>/data.json` → `notebook.scorecard`):
+- **Bounds:** the lower bound counts only known scores (weight × score / 4, out of 100); the upper bound adds the weight still unknown. **Coverage** is the weight that's known.
+- **Gates:** a failed gate puts an option out. An unknown gate, or coverage under 80%, leaves it **provisional**: ranked, never a definitive winner.
+- **Sensitivity:** it tries equal weights and each criterion of weight 15 or more at half and one and a half times, and lists the ones that put a different option first.
+- **The 2x2:** each option's `suitability` and `feasibility` (0–100) come from its scored criteria on that side, and are left out when less than half of that side is known.
+
+In the setup text a criterion reads `Job fit: number, weight 25, suitability`. Change the weight there; what each score means is kept.
+
 ### Templates
 
 A notebook you run again and again (a job search, a car search, a comp set) can be kept as a template, and new ones started from it by asking sua. To run one again just once, with nothing changed, **Clear and run again** on its Edit page does it without a template.

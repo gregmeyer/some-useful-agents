@@ -110,3 +110,15 @@ describe('what an edit changes', () => {
     expect(ABOUT_THE_PAGE.test('add a step to learn about her company')).toBe(false);
   });
 });
+
+describe('a scoring criterion in the setup text', () => {
+  it('says its weight and axis, and keeps them (and what each score means) when edited', () => {
+    const anchors = ['unsuitable', 'major gaps', 'partial fit', 'meets need', 'exceeds need'];
+    const base: NotebookSetup = { ...SETUP, fields: [{ key: 'job_fit', label: 'Job fit', type: 'number', weight: 25, axis: 'suitability', anchors, better: 'higher' }] };
+    const md = notebookToMarkdown(base, undefined);
+    expect(md).toContain('- Job fit: number, weight 25, suitability');
+    const back = notebookFromMarkdown(md.replace('weight 25', 'weight 40'), base, undefined, new Set());
+    if ('error' in back) throw new Error(back.error);
+    expect(back.setup.fields[0]).toMatchObject({ key: 'job_fit', weight: 40, axis: 'suitability', anchors });
+  });
+});

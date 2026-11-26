@@ -17,6 +17,7 @@ import { answerSubjects, evidenceOrigin, parseSourceOrigin, sourceOrigin, source
 import type { DatabaseSync } from 'node:sqlite';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { openStoreDb } from './sqlite-open.js';
+import { scorecard, scoreCriteria, type Scorecard } from './notebook-scorecard.js';
 import type { Item } from './items/types.js';
 
 export type NotebookStatus = 'active' | 'decided' | 'stopped';
@@ -433,6 +434,14 @@ export interface NotebookField {
   better?: 'higher' | 'lower';
   /** For money and numbers: values may be a range ("$150k–$180k"). */
   range?: boolean;
+  /**
+   * A scoring criterion (notebook-scorecard.ts): a number field scored 0–4,
+   * with its weight (1–100), what each score means for this job, and which
+   * side of the 2x2 it counts toward.
+   */
+  weight?: number;
+  anchors?: string[];
+  axis?: 'suitability' | 'feasibility';
 }
 
 /** A value given as a span: a salary band, a price "from … to …". */
@@ -1666,6 +1675,62 @@ export function templateWithEdits(nb: Notebook, edits: NotebookTemplateEdits = {
   const asks = cleanTemplateAsks(edits.asks ?? base.asks ?? []).map((a) => ({ ...a, label: sub(a.label) }));
   if (asks.length) setup.asks = asks; else delete setup.asks;
   return setup;
+}
+
+/**
+ * A template set up from scratch (a drafter agent's, from a skill), not taken
+ * from a notebook: cleaned like a notebook's own parts, with what's wrong
+ * with it. Weighted criteria must add to 100; `agentInstalled` says whether
+ * a step's agent is there to run it.
+ */
+export function cleanTemplateSetup(raw: unknown, opts: { agentInstalled?: (id: string) => boolean } = {}): { setup: NotebookTemplateSetup; problems: string[] } {
+  const x = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const problems: string[] = [];
+  const texts = (v: unknown, max: number, n: number) => {
+    const out: string[] = [];
+    for (const g of Array.isArray(v) ? v : []) {
+      if (typeof g !== 'string') continue;
+      const t = clipWords(g, max);
+      if (t && !out.some((o) => o.toLowerCase() === t.toLowerCase())) out.push(t);
+    }
+    return out.slice(0, n);
+  };
+  const statement = typeof x.statement === 'string' ? x.statement.replace(/\s+/g, ' ').trim().slice(0, 500) : '';
+  if (!statement) problems.push('It needs a statement of what it is for.');
+  const rawSteps = Array.isArray(x.steps) ? x.steps : [];
+  if (rawSteps.length > MAX_STEPS) problems.push(`At most ${String(MAX_STEPS)} steps (it has ${String(rawSteps.length)}).`);
+  const steps = cleanSteps(rawSteps).map((st) => ({ ...st, status: 'todo' as const, tries: 0, note: undefined, doneAt: undefined, stalled: undefined, movedOn: undefined, why: undefined }))
+    .map((st) => Object.fromEntries(Object.entries(st).filter(([, v]) => v !== undefined)) as unknown as NotebookStep);
+  if (opts.agentInstalled) for (const st of steps) if (st.agentId && !opts.agentInstalled(st.agentId)) problems.push(`Step "${st.title}" needs ${st.agentId}, which isn't installed.`);
+  if (Array.isArray(x.asks) && x.asks.length > TEMPLATE_ASKS_MAX) problems.push(`At most ${String(TEMPLATE_ASKS_MAX)} asks.`);
+  const fields = cleanFields(Array.isArray(x.fields) ? x.fields : []);
+  const weighted = fields.filter((f) => f.weight !== undefined);
+  if (weighted.length) {
+    const sum = weighted.reduce((a, f) => a + f.weight!, 0);
+    if (Math.abs(sum - 100) > 0.5) problems.push(`The criteria's weights add to ${String(Math.round(sum * 10) / 10)}, not 100.`);
+    for (const f of weighted) {
+      if (!f.anchors) problems.push(`"${f.label}" needs what 0, 1, 2, 3 and 4 mean.`);
+      if (!f.axis) problems.push(`"${f.label}" needs an axis (suitability or feasibility).`);
+    }
+  }
+  const layout = cleanLayout(x.layout);
+  const setup: NotebookTemplateSetup = {
+    statement,
+    params: texts(x.params, 200, 20),
+    criteria: texts(x.criteria, 200, 10),
+    fields,
+    checks: texts(x.checks, CHECK_MAX, 8),
+    stages: texts(x.stages, 40, 8),
+    steps,
+    cadence: typeof x.cadence === 'string' ? x.cadence.trim().slice(0, 40) : '',
+    pipeline: texts(x.pipeline, 80, 6),
+    ...(layout ? { layout } : {}),
+  };
+  const sub = x.subject as { label?: unknown; example?: unknown } | undefined;
+  if (sub && typeof sub.label === 'string' && typeof sub.example === 'string' && sub.label.trim() && sub.example.trim()) setup.subject = { label: sub.label.trim().slice(0, 80), example: sub.example.trim().slice(0, 80) };
+  const asks = cleanTemplateAsks(x.asks);
+  if (asks.length) setup.asks = asks;
+  return { setup, problems };
 }
 
 /** "8 fields · 4 steps · 5 checks": what a template sets up. */
@@ -3218,6 +3283,24 @@ export class NotebookStore {
     return this.getTemplate(id)!;
   }
 
+  /**
+   * Keep a setup drafted from scratch as a template (cleanTemplateSetup), not
+   * one taken from a notebook. Throws with what's wrong when it isn't sound.
+   */
+  saveTemplateSetup(name: string, raw: unknown, opts: { description?: string; agentInstalled?: (id: string) => boolean; now?: string } = {}): NotebookTemplate {
+    const clean = name.replace(/\s+/g, ' ').trim().slice(0, 60);
+    if (!clean) throw new Error('A template needs a name.');
+    const { setup, problems } = cleanTemplateSetup(raw, opts);
+    if (problems.length) throw new Error(problems.join(' '));
+    const id = notebookSlug(clean);
+    const now = opts.now ?? new Date().toISOString();
+    const description = opts.description?.replace(/\s+/g, ' ').trim().slice(0, 300) || describeTemplateSetup(setup);
+    this.db.prepare(`INSERT INTO notebook_templates (id, name, description, setup_json, from_notebook, uses, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, 0, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description, setup_json = excluded.setup_json, from_notebook = NULL, updated_at = excluded.updated_at, archived_at = NULL`)
+      .run(id, clean, description, JSON.stringify(setup), now, now);
+    return this.getTemplate(id)!;
+  }
+
   getTemplate(id: string): NotebookTemplate | undefined {
     const r = this.db.prepare('SELECT * FROM notebook_templates WHERE id = ?').get(id) as Record<string, unknown> | undefined;
     return r ? templateRecord(r) : undefined;
@@ -3722,7 +3805,11 @@ export function cleanFields(list: readonly unknown[]): NotebookField[] {
     // A price is better lower unless the notebook says otherwise (a salary is a price that's better higher).
     const better = numeric && (x.better === 'higher' || x.better === 'lower') ? x.better : numeric && role === 'price' ? 'lower' as const : numeric && role === 'score' ? 'higher' as const : undefined;
     const range = numeric && x.range === true;
-    out.push({ key, label, type, ...(unit ? { unit } : {}), ...(role ? { role } : {}), ...(better ? { better } : {}), ...(range ? { range: true } : {}) });
+    // A scoring criterion: a number scored 0–4, weighted, with what each score means.
+    const weight = type === 'number' && typeof x.weight === 'number' && Number.isFinite(x.weight) && x.weight > 0 ? Math.min(100, Math.round(x.weight * 10) / 10) : undefined;
+    const anchors = weight !== undefined && Array.isArray(x.anchors) ? x.anchors.filter((a): a is string => typeof a === 'string').map((a) => a.replace(/\s+/g, ' ').trim().slice(0, 160)).slice(0, 5) : [];
+    const axis = weight !== undefined && (x.axis === 'suitability' || x.axis === 'feasibility') ? x.axis : undefined;
+    out.push({ key, label, type, ...(unit ? { unit } : {}), ...(role ? { role } : {}), ...(better ? { better } : {}), ...(range ? { range: true } : {}), ...(weight !== undefined ? { weight, better: 'higher' as const } : {}), ...(anchors.length === 5 ? { anchors } : {}), ...(axis ? { axis } : {}) });
     if (out.length === 12) break;
   }
   return out;
@@ -3914,6 +4001,9 @@ export interface NotebookViewOption {
   suggested?: boolean;
   /** Its link is a search or results page (several options share it, or it looks like one), not its own. */
   linkIsList?: boolean;
+  /** On the 2x2 (0–100), from its scored criteria, when enough of each axis is known. */
+  suitability?: number;
+  feasibility?: number;
 }
 
 /** One stage of the funnel: how many got this far, are here now, or were ruled out here (and why). */
@@ -3956,6 +4046,8 @@ export interface NotebookViewData {
     history: NotebookViewEntry[];
     lastRunAt?: string;
     lastRunNote?: string;
+    /** When it has weighted criteria: the scorecard, worked out in code (notebook-scorecard.ts). */
+    scorecard?: Scorecard;
   };
 }
 
@@ -4072,6 +4164,18 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
       reasons: [...reasons].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([reason, count]) => ({ reason, count })),
     };
   });
+  // Weighted criteria: the scorecard in code, and each option's place on the 2x2.
+  const card = scoreCriteria(nb.fields).length
+    ? scorecard(nb.fields, nb.checks, entries.filter((e) => e.kind === 'option').map((e) => ({ id: e.id, title: e.title, data: e.data, checked: e.checked, failedChecks: e.failedChecks, ruledOut: e.ruledOut })))
+    : undefined;
+  if (card) {
+    const at = new Map(card.rows.map((r) => [r.id, r]));
+    for (const o of options) {
+      const r = at.get(o.id);
+      if (r?.suitability !== undefined) o.suitability = r.suitability;
+      if (r?.feasibility !== undefined) o.feasibility = r.feasibility;
+    }
+  }
   return {
     notebook: {
       id: nb.id, title: nb.title, statement: nb.statement, status: nb.status,
@@ -4086,6 +4190,7 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
       history: entries.map(view),
       ...(nb.lastRunAt ? { lastRunAt: nb.lastRunAt } : {}),
       ...(nb.lastRunNote ? { lastRunNote: nb.lastRunNote } : {}),
+      ...(card ? { scorecard: card } : {}),
     },
   };
 }
@@ -4987,7 +5092,7 @@ export function rankOptions<T extends Pick<NotebookViewOption, 'price' | 'score'
  * Where a fact came from (an https link), whether it's an estimate, and the
  * words in the source that back it ("checked": code found them there).
  */
-export interface NotebookFactMeta { source?: string; estimate?: boolean; quote?: string; checked?: boolean }
+export interface NotebookFactMeta { source?: string; estimate?: boolean; quote?: string; checked?: boolean; /** How sure the source makes it (a score's evidence). */ confidence?: 'high' | 'medium' | 'low' }
 
 /**
  * An agent can give a fact as a plain value, or as {value, source, estimate}
@@ -5006,7 +5111,8 @@ export function splitFacts(data: Record<string, unknown> | undefined, opts: { tr
       if (typeof x.quote === 'string' && x.quote.trim()) m.quote = x.quote.replace(/\s+/g, ' ').trim();
       // Only an agent's own code may say it found the quote in the source; a model's say-so isn't a check.
       if (m.quote && opts.trusted && x.checked === true) m.checked = true;
-      if (m.source || m.estimate || m.quote) meta[k] = m;
+      if (x.confidence === 'high' || x.confidence === 'medium' || x.confidence === 'low') m.confidence = x.confidence;
+      if (m.source || m.estimate || m.quote || m.confidence) meta[k] = m;
     } else values[k] = v;
   }
   return { values, meta };
@@ -5021,7 +5127,8 @@ function cleanFactMeta(meta: Record<string, NotebookFactMeta>, kept: Record<stri
     if (m.source) { try { const u = new URL(m.source); if (u.protocol === 'https:' || u.protocol === 'http:') c.source = u.toString().slice(0, 500); } catch { /* not a link */ } }
     if (m.estimate) c.estimate = true;
     if (m.quote && m.quote.length >= 15) { c.quote = m.quote.slice(0, 300); if (m.checked && c.source) c.checked = true; }
-    if (c.source || c.estimate || c.quote) out[k] = c;
+    if (m.confidence === 'high' || m.confidence === 'medium' || m.confidence === 'low') c.confidence = m.confidence;
+    if (c.source || c.estimate || c.quote || c.confidence) out[k] = c;
   }
   return out;
 }
