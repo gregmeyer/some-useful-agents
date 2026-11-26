@@ -70,7 +70,8 @@ export const NOTEBOOK_PAGE_JS = `
       acts[ai].addEventListener('toggle', function (e) {
         var d = e.target;
         if (!d.open) return;
-        for (var j = 0; j < acts.length; j++) if (acts[j] !== d) acts[j].open = false;
+        // Another panel closes, but not the one this sits in (a panel inside More keeps More open).
+        for (var j = 0; j < acts.length; j++) if (acts[j] !== d && !acts[j].contains(d)) acts[j].open = false;
         var first = d.querySelector('[data-nb-decide] input[name="chosen"], textarea, input[type="text"]');
         if (first) setTimeout(function () { first.focus(); }, 0);
       });
@@ -82,9 +83,25 @@ export const NOTEBOOK_PAGE_JS = `
       var d = document.querySelector('[data-nb-act-name="' + b.getAttribute('data-nb-open-act') + '"]');
       if (!d) return;
       e.stopPropagation();
+      // A panel inside More: More opens too.
+      for (var p = d.parentElement && d.parentElement.closest('details'); p; p = p.parentElement && p.parentElement.closest('details')) p.open = true;
       d.open = true;
       d.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }, true);
+    // Steps and details: stays open once you open it (this browser), unless it opened because something needs you.
+    var details = document.querySelector('[data-nb-details]');
+    if (details) {
+      try { if (!details.hasAttribute('data-nb-details-needs') && localStorage.getItem('sua-nb-details') === '1') details.open = true; } catch (_) {}
+      details.addEventListener('toggle', function () { try { localStorage.setItem('sua-nb-details', details.open ? '1' : '0'); } catch (_) {} });
+    }
+    // e: Edit, from anywhere on the page that isn't a box you're typing in.
+    var editHref = document.querySelector('[data-nb-edit]');
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'e' || e.metaKey || e.ctrlKey || e.altKey || !editHref) return;
+      var t = e.target;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      location.href = editHref.getAttribute('data-nb-edit');
+    });
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape') return;
       for (var j = 0; j < acts.length; j++) if (acts[j].open) { acts[j].open = false; acts[j].querySelector('summary').focus(); }

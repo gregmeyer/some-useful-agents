@@ -85,7 +85,9 @@ describe('notebooks pages', () => {
     expect(hero).not.toContain('<p class="nb-hero__statement">');
     // The title, its star and any status share a line; nothing has run yet, so the meta line's link is How it was made.
     expect(hero).toMatch(/<div class="nb-hero__nameline"><h1 class="nb-hero__title" id="nb-title">Prepare for a meeting with Dana<\/h1><form method="POST" action="\/notebooks\/[^"]+\/star" class="nb-hero__star">/);
-    expect(hero).toMatch(/<span class="nb-hero__meta">started [^<]+ · runs when you ask · <a href="\/notebooks\/[^"]+\/workflow">How it was made →<\/a><\/span>/);
+    // The meta line says when it started; how often it runs and how it was made are under Steps and details.
+    expect(hero).toMatch(/<p class="nb-hero__meta">started [^<]+<\/p>/);
+    expect(hero).toMatch(/<p class="nb-hero__meta nb-details__meta">runs when you ask · <a href="\/notebooks\/[^"]+\/workflow">How it was made →<\/a><\/p>/);
 
     // A statement that says more still shows; a decided notebook still says so.
     const more = store.create({ title: 'Buy a bike', statement: 'A commuter bike under $800' });
@@ -144,7 +146,7 @@ describe('notebooks pages', () => {
     const meet = store.create({ title: 'Prepare for a meeting with Dana Reyes', statement: 'Help me prepare.' });
     store.setSteps(meet.id, [{ title: 'Find 5 themes', kind: 'find', target: 5 }, { title: 'Write the talking points', kind: 'write' }]);
     store.upsertOption(meet.id, { title: 'Scaling ops teams', by: 'you', data: {} });
-    const menu = (await get(app, `/notebooks/${meet.id}`)).text.split('nb-csv__panel')[1].split('</details>')[0];
+    const menu = (await get(app, `/notebooks/${meet.id}`)).text.split('nb-more__panel')[1].split('data-nb-details')[0];
     expect(menu).not.toContain('Which options?');
     expect(menu).not.toContain('In the running');
     // One row a thing to share, its forms as short links: the brief (open, PDF, HTML), the picture, every finding in full.
@@ -164,7 +166,7 @@ describe('notebooks pages', () => {
 
     const car = store.create({ title: 'Buy a used car', statement: 'A reliable SUV' });
     store.upsertOption(car.id, { title: '2012 RAV4', by: 'you', data: {} });
-    const shop = (await get(app, `/notebooks/${car.id}`)).text.split('nb-csv__panel')[1].split('</details>')[0];
+    const shop = (await get(app, `/notebooks/${car.id}`)).text.split('nb-more__panel')[1].split('data-nb-details')[0];
     // To share comes first, then the spreadsheets.
     expect(shop.indexOf('To share')).toBeLessThan(shop.indexOf('The options as a spreadsheet'));
     expect(shop).toContain('In the running');
@@ -175,7 +177,7 @@ describe('notebooks pages', () => {
     const ask = store.create({ title: 'Understand A vs B', statement: 'Help me understand the difference.' });
     store.setSteps(ask.id, [{ title: 'Find 8 sources', kind: 'find', target: 8 }, { title: 'Write the answer', kind: 'write', shape: 'answer' }]);
     store.addEntry(ask.id, { kind: 'evidence', title: 'A describes it, B carries it', body: 'From the spec.', by: 'agent:x', source: 'https://a.example/spec' });
-    const said = (await get(app, `/notebooks/${ask.id}`)).text.split('nb-csv__panel')[1].split('</details>')[0];
+    const said = (await get(app, `/notebooks/${ask.id}`)).text.split('nb-more__panel')[1].split('data-nb-details')[0];
     expect(said).toContain('<span class="nb-share__what">Print version</span>');
     expect(said).toContain('aria-label="Download the TL;DR picture as PNG">PNG</a>');
     // No options: no spreadsheet and no "in full" (they'd be empty).
@@ -187,7 +189,8 @@ describe('notebooks pages', () => {
 
     // A shortlist with nothing in it yet has nothing to share.
     const empty = store.create({ title: 'Buy a desk', statement: 'A standing desk' });
-    expect((await get(app, `/notebooks/${empty.id}`)).text).not.toContain('nb-csv__panel');
+    // Nothing to share yet: More has no formats (Edit and + Add entry only).
+    expect((await get(app, `/notebooks/${empty.id}`)).text).not.toContain('nb-share__what');
   });
 
   it("a briefing run again says what's new since the run before, marks its facts, and so does its brief", async () => {

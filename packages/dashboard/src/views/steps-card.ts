@@ -10,7 +10,7 @@ import type { Notebook, NotebookStep } from '@some-useful-agents/core';
 
 const yours = (s: Pick<NotebookStep, 'kind'>) => s.kind === 'decide' || s.kind === 'narrow';
 
-export function stepsCard(nb: Pick<Notebook, 'steps'>, opts: { label?: string } = {}): SafeHtml {
+export function stepsCard(nb: Pick<Notebook, 'steps'>, opts: { label?: string; /** No spinner of its own (the page's live bar has the one spinner). */ still?: boolean } = {}): SafeHtml {
   const steps = nb.steps ?? [];
   if (!steps.length) return html``;
   // Yours is "waiting" once every step of sua's before it is done.
@@ -21,8 +21,8 @@ export function stepsCard(nb: Pick<Notebook, 'steps'>, opts: { label?: string } 
       : s.status === 'stuck' ? 'stuck'
       : yours(s) && i === waitingAt ? 'yours'
       : 'todo';
-    const mark = state === 'running' ? html`<span class="working__spin" aria-hidden="true"></span>`
-      : html`<span class="steps-card__mark" aria-hidden="true">${state === 'done' ? '✓' : state === 'stuck' ? '!' : state === 'yours' ? '●' : '○'}</span>`;
+    const mark = state === 'running' && !opts.still ? html`<span class="working__spin" aria-hidden="true"></span>`
+      : html`<span class="steps-card__mark" aria-hidden="true">${state === 'done' ? '✓' : state === 'running' ? '…' : state === 'stuck' ? '!' : state === 'yours' ? '●' : '○'}</span>`;
     const note = state === 'yours' ? 'yours' : s.note ?? '';
     const said = { done: 'done', running: 'running', stuck: 'stopped short', yours: 'waiting for you', todo: 'to do' }[state];
     return html`<li class="steps-card__row steps-card__row--${state}">${mark}<span class="steps-card__title">${s.title}<span class="sr-only"> (${said})</span></span><span class="steps-card__note">${note}</span></li>`;

@@ -162,7 +162,7 @@ describe('experiments', () => {
     expect(nbPage).toContain('Open the experiment</a>');
     expect(nbPage).not.toContain('Decide…');
     // It has a brief to download or print: the finding, the numbers, and how it was run, so the page stands by itself.
-    expect(nbPage).toContain('More formats');
+    expect(nbPage).toContain('>More</summary>');
     expect(nbPage).toContain(`href="/notebooks/${nb.id}/brief.pdf"`);
     expect(nbPage).not.toContain('shortlist.csv');
     const brief = (await get(app, `/notebooks/${nb.id}/brief.html`)).text;
