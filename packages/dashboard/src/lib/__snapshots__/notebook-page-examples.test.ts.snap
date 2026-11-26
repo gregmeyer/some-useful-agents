@@ -12,25 +12,27 @@ exports[`a notebook to accounts > keeps the same outline unless it was changed o
       Columns 1:1
         Lead
         Lead
-  Columns 2:1
-    Panel "Side by side"
-      Bars
-    Panel "How far they got"
-      Funnel
   Panel "Shortlist"
     OptionGrid
-  Panel treatment=feature "Head to head"
-    Compare
-  Columns 1:2
-    Panel "Before you decide"
-      Checklist
-    Panel "How we got here"
-      Timeline max=8
-  Columns 1:1
-    Panel "Search log"
-      Coverage
-    Panel "Limits"
-      ChipList"
+  Disclosure "Charts, checks and how it was found"
+    Column
+      Columns 2:1
+        Panel "Side by side"
+          Bars
+        Panel "How far they got"
+          Funnel
+      Panel treatment=feature "Head to head"
+        Compare
+      Columns 1:2
+        Panel "Before you decide"
+          Checklist
+        Panel "How we got here"
+          Timeline max=8
+      Columns 1:1
+        Panel "Search log"
+          Coverage
+        Panel "Limits"
+          ChipList"
 `;
 
 exports[`a notebook to car > keeps the same outline unless it was changed on purpose 1`] = `
@@ -45,25 +47,27 @@ exports[`a notebook to car > keeps the same outline unless it was changed on pur
       Columns 1:1
         Lead
         Lead
-  Columns 2:1
-    Panel "Where they sit"
-      Scatter "name"
-    Panel "How far they got"
-      Funnel
   Panel "Shortlist"
     OptionGrid
-  Panel treatment=feature "Head to head"
-    Compare
-  Columns 1:2
-    Panel "Before you decide"
-      Checklist
-    Panel "How we got here"
-      Timeline max=8
-  Columns 1:1
-    Panel "Search log"
-      Coverage
-    Panel "Limits"
-      ChipList"
+  Disclosure "Charts, checks and how it was found"
+    Column
+      Columns 2:1
+        Panel "Where they sit"
+          Scatter "name"
+        Panel "How far they got"
+          Funnel
+      Panel treatment=feature "Head to head"
+        Compare
+      Columns 1:2
+        Panel "Before you decide"
+          Checklist
+        Panel "How we got here"
+          Timeline max=8
+      Columns 1:1
+        Panel "Search log"
+          Coverage
+        Panel "Limits"
+          ChipList"
 `;
 
 exports[`a notebook to job > keeps the same outline unless it was changed on purpose 1`] = `
@@ -78,25 +82,27 @@ exports[`a notebook to job > keeps the same outline unless it was changed on pur
       Columns 1:1
         Lead
         Lead
-  Columns 2:1
-    Panel "Side by side"
-      Bars
-    Panel "How far they got"
-      Funnel
   Panel "Shortlist"
     OptionGrid
-  Panel treatment=feature "Head to head"
-    Compare
-  Columns 1:2
-    Panel "Before you decide"
-      Checklist
-    Panel "How we got here"
-      Timeline max=8
-  Columns 1:1
-    Panel "Search log"
-      Coverage
-    Panel "Limits"
-      ChipList"
+  Disclosure "Charts, checks and how it was found"
+    Column
+      Columns 2:1
+        Panel "Side by side"
+          Bars
+        Panel "How far they got"
+          Funnel
+      Panel treatment=feature "Head to head"
+        Compare
+      Columns 1:2
+        Panel "Before you decide"
+          Checklist
+        Panel "How we got here"
+          Timeline max=8
+      Columns 1:1
+        Panel "Search log"
+          Coverage
+        Panel "Limits"
+          ChipList"
 `;
 
 exports[`a notebook to job-writeup > keeps the same outline unless it was changed on purpose 1`] = `
@@ -113,29 +119,31 @@ exports[`a notebook to job-writeup > keeps the same outline unless it was change
       Columns 1:1
         Lead
         Lead
-  Columns 2:1
-    Panel "Side by side"
-      Bars
-    Panel "How far they got"
-      Funnel
   Panel "Shortlist"
     OptionGrid
-  Panel treatment=feature "Head to head"
-    Compare
   Panel treatment=feature "The write-up"
     AnswerSections
   Panel treatment=feature "What it rests on"
     Agenda "Key findings"
-  Columns 1:2
-    Panel "Before you decide"
-      Checklist
-    Panel "How we got here"
-      Timeline max=8
-  Columns 1:1
-    Panel "Search log"
-      Coverage
-    Panel "Limits"
-      ChipList"
+  Disclosure "Charts, checks and how it was found"
+    Column
+      Columns 2:1
+        Panel "Side by side"
+          Bars
+        Panel "How far they got"
+          Funnel
+      Panel treatment=feature "Head to head"
+        Compare
+      Columns 1:2
+        Panel "Before you decide"
+          Checklist
+        Panel "How we got here"
+          Timeline max=8
+      Columns 1:1
+        Panel "Search log"
+          Coverage
+        Panel "Limits"
+          ChipList"
 `;
 
 exports[`a notebook to meet-company > keeps the same outline unless it was changed on purpose 1`] = `
@@ -193,25 +201,27 @@ exports[`a notebook to product > keeps the same outline unless it was changed on
       Columns 1:1
         Lead
         Lead
-  Columns 2:1
-    Panel "Where they sit"
-      Scatter "name"
-    Panel "How far they got"
-      Funnel
   Panel "Shortlist"
     OptionGrid
-  Panel treatment=feature "Head to head"
-    Compare
-  Columns 1:2
-    Panel "Before you decide"
-      Checklist
-    Panel "How we got here"
-      Timeline max=8
-  Columns 1:1
-    Panel "Search log"
-      Coverage
-    Panel "Limits"
-      ChipList"
+  Disclosure "Charts, checks and how it was found"
+    Column
+      Columns 2:1
+        Panel "Where they sit"
+          Scatter "name"
+        Panel "How far they got"
+          Funnel
+      Panel treatment=feature "Head to head"
+        Compare
+      Columns 1:2
+        Panel "Before you decide"
+          Checklist
+        Panel "How we got here"
+          Timeline max=8
+      Columns 1:1
+        Panel "Search log"
+          Coverage
+        Panel "Limits"
+          ChipList"
 `;
 
 exports[`a notebook to question > keeps the same outline unless it was changed on purpose 1`] = `

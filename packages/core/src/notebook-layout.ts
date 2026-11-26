@@ -147,7 +147,11 @@ const answerSectionsPart = (id: string, of: 'answer' | 'plan' = 'answer'): ViewC
  * and its parts and what it rests on follow the head-to-head.
  */
 const SHORTLIST: ViewComponent[] = [
-  { id: 'root', component: 'Column', children: ['top', 'mid', 'shortlist_panel', 'head_p', 'writeup_p', 'rests_p', 'low', 'ctx'] },
+  // The answer first (the answer prototype): where it stands or the write-up's lay of the land, the options, the write-up and
+  // what it rests on with its sources; the charts, head to head, the checklist, the timeline, the search log and the limits under one fold.
+  { id: 'root', component: 'Column', children: ['top', 'shortlist_panel', 'writeup_p', 'rests_p', 'detail_d'] },
+  { id: 'detail_d', component: 'Disclosure', label: 'Charts, checks and how it was found', child: 'detail' },
+  { id: 'detail', component: 'Column', children: ['mid', 'head_p', 'low', 'ctx'] },
   { id: 'top', component: 'Columns', children: ['story', 'rail'], widths: [2, 1] },
   // The story: the write-up's lay of the land once there is one, else where it stands; the strip; written up, the counts under it.
   { id: 'story', component: 'Column', children: ['lay', 'callout', 'stats', 'numbers_p'] },
@@ -608,6 +612,8 @@ export const DEFAULT_NOTEBOOK_LAYOUT = NOTEBOOK_LAYOUT_PRESETS[0].layout;
 export function notebookLayoutOf(nb: { layout?: NotebookLayout }): NotebookLayout {
   // The Runbook page as it is now: a notebook that picked it gets its improvements (ADR-0097) without picking it again. A page changed from it no longer says "runbook".
   if (nb.layout?.preset === 'runbook') return { ...nb.layout, components: RUNBOOK };
+  // The Shortlist page as it is now (answer first): a notebook that kept it gets it without picking it again.
+  if (nb.layout?.preset === 'shortlist') return { ...nb.layout, components: SHORTLIST };
   return nb.layout ? withQuoteSource(nb.layout) : DEFAULT_NOTEBOOK_LAYOUT;
 }
 

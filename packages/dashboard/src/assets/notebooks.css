@@ -1382,3 +1382,16 @@ body.has-sua-panel .nb-toast { display: none; }
 .nb-details__done { max-width: 36rem; }
 .nb-more__panel { display: grid; gap: var(--space-3); min-width: 18rem; }
 .nb-more__acts { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: flex-start; }
+
+/* Its sources, beside the answer (the answer prototype): the first few with whether their quote was found, then how many more. */
+.nb-rail__list { list-style: none; margin: 0; padding: 0; display: grid; }
+.nb-rail__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); align-items: baseline; padding: var(--space-2) 0; border-top: 1px solid var(--color-border); font-size: var(--font-size-sm); }
+.nb-rail__row:first-child { border-top: 0; }
+.nb-rail__link { display: grid; min-width: 0; color: var(--color-text); text-decoration: none; }
+.nb-rail__link:hover .nb-rail__name { text-decoration: underline; }
+.nb-rail__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nb-rail__host { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.nb-rail__st { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-muted); white-space: nowrap; }
+.nb-rail__st--found { color: var(--color-primary); }
+.nb-rail__st--missing { color: var(--color-warn); }
+.nb-rail__more { margin: var(--space-2) 0 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }

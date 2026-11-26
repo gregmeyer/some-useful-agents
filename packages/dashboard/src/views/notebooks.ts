@@ -897,10 +897,41 @@ function talkForm(nb: Notebook, entries: readonly NotebookEntry[], big = false):
 /** A finished run of one of the notebook's agents that isn't in it yet. */
 export interface UnfiledRunView { id: string; agentId: string; startedAt: string; adding?: boolean }
 
+/** How many sources the side card lists before "and N more". */
+const RAIL_SOURCES = 3;
+
+/**
+ * The side card of its sources (the answer prototype): how many pages it
+ * learned from, the first few with whether their quote was found on them
+ * (found ones first), and how many more. Each opens its page. None until it
+ * has learned from a page. The full list, with each quote, is on the page.
+ */
+export function sourcesRail(entries: readonly NotebookEntry[]): SafeHtml {
+  const pages = answerTracePages(entries);
+  if (!pages.length) return html``;
+  const rank = (e: NotebookEntry) => (e.trace?.status === 'found' ? 0 : e.trace?.status === 'missing' ? 2 : 1);
+  const shown = [...pages].sort((a, b) => rank(a) - rank(b)).slice(0, RAIL_SOURCES);
+  const found = pages.filter((e) => e.trace?.status === 'found').length;
+  const missing = pages.filter((e) => e.trace?.status === 'missing').length;
+  const host = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
+  const status = (e: NotebookEntry) => e.trace?.status === 'found' ? html`<span class="nb-rail__st nb-rail__st--found">✓ found</span>`
+    : e.trace?.status === 'missing' ? html`<span class="nb-rail__st nb-rail__st--missing">✗ not found</span>`
+    : e.trace ? html`<span class="nb-rail__st">can't check</span>` : html`<span class="nb-rail__st">not checked yet</span>`;
+  const more = pages.length - shown.length;
+  return html`<section class="nb-side__card nb-rail" aria-labelledby="nb-rail-title">
+    <h2 class="nb-side__title" id="nb-rail-title">Sources · ${String(pages.length)}</h2>
+    <ul class="nb-rail__list">
+      ${shown.map((e) => html`<li class="nb-rail__row"><a href="${e.fingerprint!}" target="_blank" rel="noopener" class="nb-rail__link"><span class="nb-rail__name">${e.title.split(' (found by')[0]}</span><span class="nb-rail__host">${host(e.fingerprint!)}</span></a>${status(e)}</li>`) as unknown as SafeHtml[]}
+    </ul>
+    <p class="nb-rail__more">${more ? `and ${String(more)} more · ` : ''}${found} quote${found === 1 ? '' : 's'} found on their pages${missing ? `, ${String(missing)} not found` : ''}. Each finding on the page opens its sources, quote and all.</p>
+  </section>`;
+}
+
 function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: { text: string; at: number }, unfiled: readonly UnfiledRunView[] = [], talkLive?: NotebookTalkLive): SafeHtml {
   const hasEntries = entries.length > 0;
   const id = encodeURIComponent(nb.id);
   return html`
+    ${sourcesRail(entries)}
     ${hasEntries || nb.conversationId ? html`
       <section class="nb-side__card nb-talk${talkLive?.state === 'waiting' ? ' is-waiting' : ''}" aria-labelledby="nb-talk-title">
         <h2 class="nb-side__title" id="nb-talk-title">Talk to sua about this answer</h2>

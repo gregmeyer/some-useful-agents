@@ -896,7 +896,7 @@ describe('a notebook\'s page, drawn by sua', () => {
 
     const card = withEditorBase(ctx, accepted[0]);
     expect(card.inputs.NOTEBOOK_TITLE).toBe(nb.title);
-    expect(card.surfaceChanges).toContainEqual({ what: 'top to bottom', before: 'top → mid → shortlist_panel → head_p → writeup_p → rests_p → low → ctx', after: 'who → time' });
+    expect(card.surfaceChanges).toContainEqual({ what: 'top to bottom', before: 'top → shortlist_panel → writeup_p → rests_p → detail_d', after: 'who → time' });
     expect(card.surfaceChanges).toContainEqual({ what: 'adds', before: '—', after: 'Callout “Who they are”, Timeline' });
 
     expect(executeNotebookLayout(ctx, card)).toMatchObject({ status: 'completed' });
