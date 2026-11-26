@@ -15,6 +15,7 @@ import { notebookSetupEditor, renderDraftsStrip } from './notebook-new.js';
 import { attachPick, givenFilePick } from './given-file.js';
 import type { DraftState } from '../lib/notebook-draft.js';
 import { pageName, meetingWhenWords, type NotebookEditTurn } from '../lib/notebook-edit.js';
+import { stepsCard } from './steps-card.js';
 import { notebookLooks } from './notebook-look.js';
 import { layout } from './layout.js';
 import { working } from './working.js';
@@ -599,47 +600,29 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
   // A watch with a find step searches again with it; with neither, there's nothing to run.
   const idle = human && nb.status === 'active' && nb.pipeline.length === 0 && !nb.steps?.some((x) => x.kind === 'find') ? ' once it has a search (add one under Edit)' : '';
   const cadence = human ? `runs ${human.charAt(0).toLowerCase()}${human.slice(1)}${next ? `, next ${formatWhen(next)}` : idle}` : 'runs when you ask';
-  return html`
-    <section class="nb-hero${widgets ? ' nb-hero--wide' : ''}${head?.side ? ' nb-hero--side' : ''}" aria-labelledby="nb-title">
-      <div class="nb-hero__main">
-        <div class="nb-hero__titlerow">
-          ${cover
-            ? html`<img class="${['nb-hero__cover', pictureClass(cover.kind, cover.shape)].filter(Boolean).join(' ')}" src="${cover.src}" alt="" title="${cover.kind === 'illustration' ? 'An illustration' : cover.kind === 'listing' ? 'From a listing' : cover.kind === 'logo' ? 'A logo' : 'An example photo'}">`
-            : html`<span class="nb-hero__icon">${NOTEBOOK_ICON}</span>`}
-          <div class="nb-hero__names">
-            <div class="nb-hero__nameline"><h1 class="nb-hero__title" id="nb-title">${nb.title}</h1>${starButton(nb, 'nb-hero__star')}${nb.status === 'active' && !nb.archivedAt ? html`` : statusChip(nb)}</div>
-            ${head?.subtitle ? html`<p class="nb-hero__subtitle">${head.subtitle}</p>` : html``}
-          </div>
-          ${widgets ? html`<div class="nb-hero__acts">${heroActions(nb, entries, leads, running, !!fresh && !fresh.empty)}</div>` : html``}
-        </div>
-        ${head?.statement === false || (nb.statement && sameWords(nb.statement, nb.title)) ? html`` : nb.statement ? html`<p class="nb-hero__statement">${nb.statement}</p>` : html`<p class="nb-hero__statement nb-hero__statement--empty">Say what this notebook is for under Edit.</p>`}
-        ${askedLine(nb)}
-        ${conflictLine(nb, busy.includes(CHECKING_WHO))}
-        <div class="nb-hero__chips">
-          ${widgets ? html`` : nb.params.map((p) => html`<span class="nb-chip">${p}</span>`) as unknown as SafeHtml[]}
-          <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence}${running ? html`` : newLink(leads)}${sourcesCount(entries)} · ${madeByLink(nb, madeBy)}${nb.askedIn ? html` · <a href="/inbox/${encodeURIComponent(nb.askedIn)}" title="The conversation you asked it in">From this conversation →</a>` : html``}</span>
-        </div>
-        ${nb.steps?.length
-          ? (!running && !nb.steps.some((x) => x.status === 'stuck' || x.status === 'running') ? stepChips(nb, nb.steps, entries, stepsStrip(nb, nb.steps, entries, false, madeBy), madeBy) : html`${stepsStrip(nb, nb.steps, entries, !!running, madeBy)}<p class="nb-hero__update">${updateAllButton(nb, !!running)}</p>`)
-          : pipelineDiagram(stages)}
-        ${givenAdds(nb, reading)}
-        ${running ? html`` : whatsNewBand(fresh)}
-        ${running ? html`` : answerBehindBand(nb, entries)}
-        ${liveBar(live ?? { work: [...(running ? [`Running step ${String(running.step)} of ${String(running.of)}`] : []), ...busy] }, nb)}
-        ${(nb.pipeline.length || nb.steps?.length) && !running && !busy.length && (nb.status === 'active' || (nb.lastRunAt && !nb.steps?.length)) ? html`
+  // Really running (its pipeline is going), not a "running" status left behind.
+  const isRunning = !!running;
+  const leftRunning = !!nb.steps?.some((x) => x.status === 'running');
+  const stuck = !!nb.steps?.some((x) => x.status === 'stuck');
+  const waiting = live?.talk?.state === 'waiting';
+  const asked = askedLine(nb);
+  const kind = head?.subtitle ?? answerKind(nb);
+  // One band at a time: what needs you (the live bar) first, then an answer behind its sources, then what's new.
+  const behind = isRunning || waiting ? html`` : answerBehindBand(nb, entries);
+  const band = isRunning || waiting ? html`` : String(behind).trim() ? behind : whatsNewBand(fresh);
+  const steps = nb.steps?.length
+    ? (!isRunning && !stuck && !leftRunning ? stepChips(nb, nb.steps, entries, stepsStrip(nb, nb.steps, entries, false, madeBy), madeBy) : html`${stepsStrip(nb, nb.steps, entries, isRunning, madeBy)}<p class="nb-hero__update">${updateAllButton(nb, isRunning)}</p>`)
+    : pipelineDiagram(stages);
+  const runRow = (nb.pipeline.length || nb.steps?.length) && !running && !busy.length && (nb.status === 'active' || (nb.lastRunAt && !nb.steps?.length)) ? html`
           <div class="nb-run">
             ${nb.status === 'active' ? runButton(nb) : html``}
             ${nb.lastRunAt && !nb.steps?.length ? html`<span class="nb-run__last">Last run ${formatAge(nb.lastRunAt)}: ${nb.lastRunNote ?? ''}</span>` : html``}
-          </div>` : html``}
-        ${nb.status === 'decided' && nb.decision ? decidedBox(nb, entries) : html``}
-      </div>
-      ${head?.side ? html`<aside class="nb-hero__side nb-hero__side--drawn" aria-label="At a glance">${renderSurfaceHost(`notebook-${nb.id}-header`, head.side, { label: `${nb.title}: at a glance` })}</aside>` : html``}
-      ${widgets ? html`` : html`<aside class="nb-hero__side" aria-label="Done when">
-        <div class="nb-progress">
+          </div>` : html``;
+  const doneWhen = !widgets || total > 0 ? html`<div class="nb-progress nb-details__done">
           ${progressRing(met, total)}
           <div class="nb-progress__list">
             <span class="nb-progress__label">Done when</span>
-            ${total === 0 ? html`<span class="nb-progress__empty">No criteria yet. Add them with Edit, above.</span>` : html``}
+            ${total === 0 ? html`<span class="nb-progress__empty">No criteria yet. Add them with Edit.</span>` : html``}
             ${nb.criteria.map((c, i) => html`
               <form method="POST" action="/notebooks/${id}/criteria/${String(i)}" class="nb-crit">
                 <input type="hidden" name="met" value="${c.met ? '0' : '1'}">
@@ -647,10 +630,47 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
                 <span class="nb-crit__text ${c.met ? 'is-met' : ''}"${criterionHint(nb, c) ? html` title="${criterionHint(nb, c)}"` : html``}>${c.text}</span>
               </form>`) as unknown as SafeHtml[]}
           </div>
+        </div>` : html``;
+  return html`
+    <section class="nb-hero${widgets ? ' nb-hero--wide' : ''}${head?.side ? ' nb-hero--side' : ''}" aria-labelledby="nb-title" data-nb-edit="/notebooks/${id}/edit">
+      <div class="nb-hero__main">
+        <div class="nb-hero__titlerow">
+          ${cover
+            ? html`<img class="${['nb-hero__cover', pictureClass(cover.kind, cover.shape)].filter(Boolean).join(' ')}" src="${cover.src}" alt="" title="${cover.kind === 'illustration' ? 'An illustration' : cover.kind === 'listing' ? 'From a listing' : cover.kind === 'logo' ? 'A logo' : 'An example photo'}">`
+            : html`<span class="nb-hero__icon">${NOTEBOOK_ICON}</span>`}
+          <div class="nb-hero__names">
+            ${kind ? html`<p class="nb-hero__subtitle">${kind}</p>` : html``}
+            <div class="nb-hero__nameline"><h1 class="nb-hero__title" id="nb-title">${nb.title}</h1>${starButton(nb, 'nb-hero__star')}${nb.status === 'active' && !nb.archivedAt ? html`` : statusChip(nb)}</div>
+          </div>
+          <div class="nb-hero__acts">${heroActions(nb, entries, leads, running, !!fresh && !fresh.empty)}</div>
         </div>
-        ${heroActions(nb, entries, leads, running, !!fresh && !fresh.empty)}
-      </aside>`}
+        ${String(asked).trim() ? asked : head?.statement === false || (nb.statement && sameWords(nb.statement, nb.title)) ? html`` : nb.statement ? html`<p class="nb-hero__statement">${nb.statement}</p>` : html`<p class="nb-hero__statement nb-hero__statement--empty">Say what this answer is for under Edit.</p>`}
+        ${conflictLine(nb, busy.includes(CHECKING_WHO))}
+        <p class="nb-hero__meta">started ${formatAge(nb.createdAt)}${sourcesCount(entries)}${nb.askedIn ? html` · <a href="/inbox/${encodeURIComponent(nb.askedIn)}" title="The conversation you asked it in">From this conversation →</a>` : html``}</p>
+        ${isRunning && nb.steps?.length ? html`<div class="nb-hero__steps">${stepsCard(nb, { still: true })}</div>` : html``}
+        ${liveBar(live ?? { work: [...(running ? [`Running step ${String(running.step)} of ${String(running.of)}`] : []), ...busy] }, nb)}
+        ${band}
+        ${nb.status === 'decided' && nb.decision ? decidedBox(nb, entries) : html``}
+        <details class="nb-details" data-nb-details${stuck ? html` open data-nb-details-needs` : html``}>
+          <summary class="nb-details__summary">Steps and details</summary>
+          <div class="nb-details__body">
+            ${steps}
+            ${givenAdds(nb, reading)}
+            ${widgets || !nb.params.length ? html`` : html`<div class="nb-hero__chips">${nb.params.map((p) => html`<span class="nb-chip">${p}</span>`) as unknown as SafeHtml[]}</div>`}
+            <p class="nb-hero__meta nb-details__meta">${cadence}${running ? html`` : newLink(leads)} · ${madeByLink(nb, madeBy)}</p>
+            ${runRow}
+            ${doneWhen}
+          </div>
+        </details>
+      </div>
+      ${head?.side ? html`<aside class="nb-hero__side nb-hero__side--drawn" aria-label="At a glance">${renderSurfaceHost(`notebook-${nb.id}-header`, head.side, { label: `${nb.title}: at a glance` })}</aside>` : html``}
     </section>`;
+}
+
+/** The kind of answer for the header's eyebrow: its ready-made page's name (Shortlist, Meeting brief…), else none. */
+function answerKind(nb: Pick<Notebook, 'layout'>): string {
+  const name = pageName(nb.layout);
+  return name === 'Made for this answer' ? '' : name;
 }
 
 const KIND_LABEL: Record<NotebookEntry['kind'], string> = { note: 'note', option: 'option', evidence: 'evidence', decision: 'decision' };
@@ -1211,11 +1231,10 @@ function stepButton(nb: Notebook, b: { label: string; hint: string; moveOn?: boo
  * finding, the numbers behind it and how it was run), as a page, a PDF or a
  * file. It has no options, so none of the shortlist's rows apply.
  */
-function experimentShareMenu(nb: Pick<Notebook, 'id'>): SafeHtml {
+/** An experiment's formats: its brief (open, PDF, HTML) and the file for another sua. */
+function experimentFormats(nb: Pick<Notebook, 'id'>): SafeHtml {
   const id = encodeURIComponent(nb.id);
-  return html`<details class="nb-act nb-csv" data-nb-act>
-    <summary class="btn btn--sm btn--ghost">More formats</summary>
-    <div class="nb-act__panel nb-csv__panel">
+  return html`
       <span class="nb-progress__label">To share</span>
       <div class="nb-share__row"><span class="nb-share__what">The brief</span><span class="nb-share__as">
         <a href="/notebooks/${id}/brief.html" target="_blank" rel="noopener" title="The experiment's finding, the numbers behind it and how it was run, as a page to send or print" aria-label="Open the brief">Open ↗</a>
@@ -1223,9 +1242,7 @@ function experimentShareMenu(nb: Pick<Notebook, 'id'>): SafeHtml {
         <a href="/notebooks/${id}/brief.html?download=1" download title="The brief as one HTML file" aria-label="Download the brief as HTML">HTML</a>
       </span></div>
       <span class="nb-csv__hint">The numbers are as the experiment stood when you open it. Its own page has every run.</span>
-      ${toAnotherSua(id)}
-    </div>
-  </details>`;
+      ${toAnotherSua(id)}`;
 }
 
 /** Download / share → To another sua: the whole notebook as a file another sua imports. */
@@ -1252,7 +1269,8 @@ function tldrCardSwitch(nb: Notebook): SafeHtml {
   return html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/tldr-card" class="nb-share__row"><span class="nb-share__what">TL;DR card on the page</span><span class="nb-share__as">${opt('auto', 'Auto', 'When it adds something the page doesn\u2019t say: a chart of the options, or a photo')}${opt('always', 'Always', 'On the page, the brief and the PDF')}${opt('never', 'Never', 'Not on the page, the brief or the PDF; the TL;DR picture is still here')}</span></form>`;
 }
 
-function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: readonly NotebookViewOption[], whatsNewToo = false): SafeHtml {
+/** Every format it can be shared in (the print version, the picture, the spreadsheets, the file): More's lower half. */
+function formatsPanel(nb: Notebook, entries: readonly NotebookEntry[], running: readonly NotebookViewOption[], whatsNewToo = false): SafeHtml {
   const id = encodeURIComponent(nb.id);
   const href = `/notebooks/${id}/shortlist.csv`;
   const chosen = running.filter((o) => o.chosen).length;
@@ -1287,12 +1305,7 @@ function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: reado
       ${whatsNewToo ? row("The brief with what's new", undefined, html`${open("the brief with what's new", 'brief.html?new=1', "The brief, with what's new since the last run at the top (the plain brief leaves it out)")}${save("the brief with what's new", 'PDF', 'brief.pdf?new=1', "The brief as a PDF, with what's new since the last run")}`) : html``}
       ${latest && !written ? row("What's new", fresh, html`${open("the brief of what's new", 'brief.html?latest=1', 'The brief of only the options the last run found for the first time')}${save("the brief of what's new", 'PDF', 'brief.pdf?latest=1', "The brief of what's new as a PDF file")}`) : html``}
       ${running.length === 0 ? html`` : row(written ? 'Every finding in full' : 'Each option in full', undefined, html`${open('the extended brief', 'brief.html?full=1', written ? 'The brief, then each finding as its own page shows it: every fact with its source, its notes and checks' : 'The brief, then each option in the running as its own page shows it: every fact with its source, its notes, checks and history')}${save('the extended brief', 'PDF', 'brief.pdf?full=1', `The extended brief as a PDF file; ${written ? 'each finding' : 'each option'} starts a new page`)}`)}`;
-  return html`<details class="nb-act nb-csv" data-nb-act>
-    <summary class="btn btn--sm btn--ghost">More formats</summary>
-    <div class="nb-act__panel nb-csv__panel">
-      ${share}${csv}${toAnotherSua(id)}
-    </div>
-  </details>`;
+  return html`${share}${csv}${toAnotherSua(id)}`;
 }
 
 /**
@@ -1338,8 +1351,12 @@ export function sourcesCount(entries: readonly NotebookEntry[]): string {
 }
 
 /**
- * The header's actions: Decide… (or Reopen), + Add entry and Edit, each a
- * button that opens its form below it; one open at a time (notebook-page.js.ts).
+ * The header's actions, as few as the moment needs (the answer prototype):
+ * the one thing to do now (the next step, Try again with Move on, Narrow…,
+ * Decide…, Reopen, Stop while it runs), Print, and More. More holds the rest,
+ * every one still a click away: Edit, + Add entry, Decide… or Narrow… when
+ * they aren't the main thing, and every format to share it in. One panel open
+ * at a time (notebook-page.js.ts); a panel inside More keeps More open.
  */
 function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: readonly NotebookViewOption[], running?: { step: number; of: number }, whatsNewToo = false): SafeHtml {
   const id = encodeURIComponent(nb.id);
@@ -1348,40 +1365,53 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
   const step = next && 'label' in next ? next : undefined;
   // The current step is a narrow step: Narrow… is the main button.
   const current = nb.steps?.find((x) => x.status !== 'done');
-  const narrowing = current?.kind === 'narrow' ? current : undefined;
+  const narrowing = nb.status === 'active' && current?.kind === 'narrow' && !running ? current : undefined;
+  const isRunning = !!running && !!nb.steps?.some((x) => x.status !== 'done');
+  const decides = nb.status === 'active' && offersDecide(nb);
+  // Decide… is the main thing when nothing else is.
+  const decideFirst = decides && !step && !isRunning && !narrowing;
+  const shareable = !nb.experimentId && hasSomethingToShare(nb, entries);
+  const narrowPanel = (primary: boolean) => html`
+    <details class="nb-act nb-decide nb-narrow" data-nb-act data-nb-act-name="narrow">
+      <summary class="btn btn--sm${primary ? ' btn--primary' : ''}" title="${narrowing?.title ?? ''}">Narrow…</summary>
+      <div class="nb-act__panel nb-act__panel--decide">${decideForm(nb, leads, 'narrow')}</div>
+    </details>`;
+  const decidePanel = (primary: boolean) => html`
+    <details class="nb-act nb-decide" data-nb-act data-nb-act-name="decide">
+      <summary class="btn btn--sm${primary ? ' btn--primary' : ''}">Decide…</summary>
+      <div class="nb-act__panel nb-act__panel--decide">${decideForm(nb, leads)}</div>
+    </details>`;
+  const reopen = html`<form method="POST" action="/notebooks/${id}/status" class="nb-reopen"><input type="hidden" name="status" value="active"><button type="submit" class="btn btn--sm btn--primary">Reopen</button></form>`;
+  const primary = isRunning
+    ? html`<form method="POST" action="/notebooks/${id}/steps/stop" class="nb-next__form"><button type="submit" class="btn btn--sm nb-next" title="Stop this step's run. It keeps what it found so far, and you can move on or try again." aria-label="Stop step ${String(running!.step)}">Stop</button></form>`
+    : nb.experimentId ? html`<a class="btn btn--sm btn--primary" href="/experiments/${encodeURIComponent(nb.experimentId)}">Open the experiment</a>`
+    : step ? html`${stepButton(nb, step, true)}${step.alt ? stepButton(nb, step.alt, false) : html``}`
+    : narrowing ? narrowPanel(true)
+    : decideFirst ? decidePanel(true)
+    : nb.status !== 'active' ? reopen
+    : html``;
   return html`
     <div class="nb-acts">
-      ${running && nb.steps?.some((x) => x.status !== 'done')
-        ? html`<button type="button" class="btn btn--primary btn--sm nb-next" disabled>Working on step ${String(running.step)}…</button><form method="POST" action="/notebooks/${id}/steps/stop" class="nb-next__form"><button type="submit" class="btn btn--sm nb-next" title="Stop this step's run. It keeps what it found so far, and you can move on or try again." aria-label="Stop step ${String(running.step)}">Stop</button></form>`
-        : step
-          ? html`${stepButton(nb, step, true)}${step.alt ? stepButton(nb, step.alt, false) : html``}`
-          : html``}
-      ${nb.experimentId ? html`<a class="btn btn--sm btn--primary" href="/experiments/${encodeURIComponent(nb.experimentId)}">Open the experiment</a>` : html``}
-      ${nb.status === 'active' && narrowing && !running ? html`
-        <details class="nb-act nb-decide nb-narrow" data-nb-act data-nb-act-name="narrow">
-          <summary class="btn btn--sm btn--primary" title="${narrowing.title}">Narrow…</summary>
-          <div class="nb-act__panel nb-act__panel--decide">
-            ${decideForm(nb, leads, 'narrow')}
+      ${primary}
+      ${shareable && !isRunning ? html`<a class="btn btn--sm btn--ghost nb-print" href="/notebooks/${id}/brief.html" target="_blank" rel="noopener" title="The answer as a page to print, save as a PDF or send">Print</a>` : html``}
+      <details class="nb-act nb-more" data-nb-act data-nb-act-name="more">
+        <summary class="btn btn--sm btn--ghost">More</summary>
+        <div class="nb-act__panel nb-more__panel">
+          <div class="nb-more__acts">
+            <a class="btn btn--sm btn--ghost nb-edit" href="/notebooks/${id}/edit" title="Change what it's for, its steps, checks and page (e)">Edit</a>
+            ${narrowing ? html`` : nb.status === 'active' && current?.kind === 'narrow' ? narrowPanel(false) : html``}
+            ${decides && !decideFirst ? decidePanel(false) : html``}
+            <details class="nb-act nb-addself" data-nb-act>
+              <summary class="btn btn--sm">+ Add entry</summary>
+              <div class="nb-act__panel">
+                <h2 class="nb-act__title">Add an entry yourself</h2>
+                ${addEntryForm(nb, entries)}
+              </div>
+            </details>
           </div>
-        </details>` : html``}
-      ${nb.status === 'active' && !offersDecide(nb) ? html`` : nb.status === 'active' ? html`
-        <details class="nb-act nb-decide" data-nb-act data-nb-act-name="decide">
-          <summary class="btn btn--sm${step || running || narrowing ? '' : ' btn--primary'}">Decide…</summary>
-          <div class="nb-act__panel nb-act__panel--decide">
-            ${decideForm(nb, leads)}
-          </div>
-        </details>` : html`
-        <form method="POST" action="/notebooks/${id}/status" class="nb-reopen"><input type="hidden" name="status" value="active"><button type="submit" class="btn btn--sm">Reopen</button></form>`}
-      <details class="nb-act nb-addself" data-nb-act>
-        <summary class="btn btn--sm">+ Add entry</summary>
-        <div class="nb-act__panel">
-          <h2 class="nb-act__title">Add an entry yourself</h2>
-          ${addEntryForm(nb, entries)}
+          ${nb.experimentId ? experimentFormats(nb) : shareable ? formatsPanel(nb, entries, leads, whatsNewToo) : html``}
         </div>
       </details>
-      <a class="btn btn--sm btn--ghost nb-edit" href="/notebooks/${id}/edit">Edit</a>
-      ${!nb.experimentId && hasSomethingToShare(nb, entries) ? html`<a class="btn btn--sm btn--ghost nb-print" href="/notebooks/${id}/brief.html" target="_blank" rel="noopener" title="The answer as a page to print, save as a PDF or send">Print</a>` : html``}
-      ${nb.experimentId ? experimentShareMenu(nb) : hasSomethingToShare(nb, entries) ? csvMenu(nb, entries, leads, whatsNewToo) : html``}
     </div>`;
 }
 

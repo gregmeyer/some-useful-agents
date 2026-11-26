@@ -11,7 +11,19 @@ A **notebook** is a goal you keep over time, like "Buy a used car" or "Find a ne
 
 **In the dashboard they're Answers.** The top bar says **Answers**, and so do Home's shelf, the list, **Ask a question** (the page that starts one) and each one's page. `/answers` (and anything under it) goes to the same page under `/notebooks`, which stays the URL. Each answer's kind is the name of its page: **Shortlist**, **Meeting brief**, **Company brief**, **Topic brief**, **Explainer** (the page once called Answer), **How-to** (once Runbook), **Plan** or **Watch**. A page drawn under an old name reads as the new one, and an edit that names an old one still picks it. This doc, the code, the MCP tools and the `sua notebook` CLI still say notebook.
 
-**An answer's header.** Under the title and its kind, **You asked** shows your question as you typed it, when it says more than the title. The line below it counts the pages the answer learned from and how many of their quotes were found on them ("12 sources, 9 checked"). When it was asked in a conversation (sua's bar, or a follow-up), it ends with **From this conversation →**, and that conversation lists the answers it started under its title. Beside **Edit**, **Print** opens the print version, to print, save as a PDF or send. Everything else (the TL;DR picture, the spreadsheets, the answer file) is under **More formats**.
+**An answer's header.** It shows what you need now and keeps the rest one click away.
+- **Title:** the kind above the title (Shortlist, Meeting brief…), then the title and its ★.
+- **You asked:** your question as you typed it, when it says more than the title (otherwise what it's for).
+- **One meta line:** when it started, how many pages it learned from and how many of their quotes were found on them ("12 sources, 9 checked"), and **From this conversation →** when it was asked in one. That conversation lists the answers it started.
+- **The actions in view:**
+  - the one thing to do now: **Next step →**, **Try again** with **Move on**, **Narrow…**, **Decide…**, **Reopen**, or **Stop** while a step runs;
+  - **Print**, to print, save as a PDF or send;
+  - **More:** **Edit** (or press **e**), **+ Add entry**, **Decide…** or **Narrow…** when they aren't the main thing, and every format to share it in (the TL;DR picture, the spreadsheets, the answer file).
+- **While a step runs:** a short list of its steps shows under the meta line.
+- **Bands:** one at a time, in this order: what sua is waiting on you for, then an answer behind its newer sources, then what's new since the last run.
+- **Steps and details:** a fold under the header holds the steps with their own buttons (Search again, Check the top N, Answer again…), **Update all**, what you gave it and **＋ Add a file or paste**, its limits, how often it runs, what's new, **How it was made**, **Run the pipeline now**, and **Done when**.
+  - It opens by itself when a step stopped short.
+  - Once you open it, it stays open in this browser.
 
 **Ask a follow-up.** The foot of each answer has a box. A follow-up is a new answer of its own, asked in this answer's conversation: sua works out how to answer it and goes straight through. The first answer lists it under **Follow-ups**, and the follow-up links back to the conversation. Answers made before this have no conversation to link back to.
 
@@ -927,7 +939,7 @@ Each step has a **kind**, which decides its goal. The notebook checks that goal 
 
 **How the header shows them.** The steps sit in one row, in order, under what the notebook is for. That's two columns on a narrow screen and one on a phone. Each step shows its agent (with only some facts to look up, how many, with the list on hover), a bar toward its goal, the count ("6 of 6 facts") and a status chip: done, moved on, stuck, running or to do. The step being worked on is outlined. Hover a step for what it still needs and its last run. When every step is done, or the notebook is decided, the row turns into one quiet line per step, and a step that moved on short still says so. On a notebook drawn as widgets, the header's buttons (**Next step →**, **Decide…**, **+ Add entry**, **Edit**, **More formats**) sit beside the title. A decided notebook lists its picks under **Decided**, each linking to its page, with the reason you gave after them.
 
-While a notebook has steps left, the main button in its header is **Next step →**. Hover it to see the step it starts ("Step 2 of 4: Source firmographics"). For a step that stopped short it reads **Move on** or **Try again**, with the other beside it; **Finish** after the last one; and "Working on step N…" while a step runs, with **Stop** beside it. **Decide…** steps aside until the next move is yours. The pipeline's **Run the pipeline now** button comes back once every step is done.
+While a notebook has steps left, the main button in its header is **Next step →** (the steps themselves are under **Steps and details**). Hover it to see the step it starts ("Step 2 of 4: Source firmographics"). For a step that stopped short it reads **Move on** or **Try again**, with the other beside it; **Finish** after the last one; and "Working on step N…" while a step runs, with **Stop** beside it. **Decide…** steps aside until the next move is yours. The pipeline's **Run the pipeline now** button comes back once every step is done.
 
 1. **The agent gets the step's job.** It goes first in the agent's notebook input (`GOAL`, `NOTEBOOK`, `NOTEBOOK_CONTEXT` or `BRIEF`) and its topic input (`TOPIC`, `QUERY`, `QUESTION` or `SEARCH`), and fills a `STEP` input if the agent declares one. For example: "This step: Source firmographics. Don't look for new options. For these options only, find the missing facts, each with a source: …". The agent itself isn't changed.
 2. **What it finds is filed,** the same way as a pipeline run.

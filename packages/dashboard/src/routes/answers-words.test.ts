@@ -58,7 +58,7 @@ describe("an answer's header and its conversation", () => {
     expect(page).toContain(' · 2 sources, 1 checked · ');
     expect(page).toContain(`<a href="/inbox/${thread.id}" title="The conversation you asked it in">From this conversation →</a>`);
     expect(page).toContain(`href="/notebooks/${nb.id}/brief.html" target="_blank" rel="noopener" title="The answer as a page to print, save as a PDF or send">Print</a>`);
-    expect(page).toContain('>More formats</summary>');
+    expect(page).toContain('>More</summary>');
     expect(page).toContain(`action="/notebooks/${nb.id}/follow-up"`);
     // The conversation lists it.
     const conv = await get(`/inbox/${thread.id}/fragment`);

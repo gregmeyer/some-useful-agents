@@ -497,7 +497,8 @@ describe('a drawn page\'s header', () => {
     const get = () => request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     let html = (await get()).text;
     expect(html).toContain('What matters to Dana before we talk');
-    expect(html).not.toContain('nb-hero__subtitle');
+    // Without a drawn header, the eyebrow is its page's kind.
+    expect(html).toContain('<p class="nb-hero__subtitle">Shortlist</p>');
 
     store.setLayout(nb.id, { components: [
       { id: 'root', component: 'Column', children: ['header', 'note'] },
@@ -1133,7 +1134,7 @@ describe('editing a notebook on its own page', () => {
     s.markCriterion(nb.id, 0, true);
 
     // The header's Edit is a link to the page.
-    expect((await get(`/notebooks/${nb.id}`)).text).toContain(`<a class="btn btn--sm btn--ghost nb-edit" href="/notebooks/${nb.id}/edit">Edit</a>`);
+    expect((await get(`/notebooks/${nb.id}`)).text).toContain(`<a class="btn btn--sm btn--ghost nb-edit" href="/notebooks/${nb.id}/edit"`);
     const page = (await get(`/notebooks/${nb.id}/edit?tab=prompt`)).text;
     expect(page).toContain('Edit this answer');
     expect(page).toContain('data-nbd-editor');
