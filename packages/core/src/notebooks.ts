@@ -4004,6 +4004,8 @@ export interface NotebookViewOption {
   /** On the 2x2 (0–100), from its scored criteria, when enough of each axis is known. */
   suitability?: number;
   feasibility?: number;
+  /** First on the scorecard and not provisional: the comparison's leader. */
+  leader?: boolean;
 }
 
 /** One stage of the funnel: how many got this far, are here now, or were ruled out here (and why). */
@@ -4174,6 +4176,7 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
       const r = at.get(o.id);
       if (r?.suitability !== undefined) o.suitability = r.suitability;
       if (r?.feasibility !== undefined) o.feasibility = r.feasibility;
+      if (card.leader === o.id) o.leader = true;
     }
   }
   return {

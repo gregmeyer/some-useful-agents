@@ -123,3 +123,16 @@ describe('a template drafted from scratch', () => {
     expect(() => s.saveTemplateSetup('Bad', { ...setup, fields: [crit('job_fit', 40, 'suitability')] })).toThrow(/add to 40/);
   });
 });
+
+describe('the comparison page', () => {
+  it('marks the leader on its option, for the 2x2', () => {
+    const s = new NotebookStore(join(mkdtempSync(join(tmpdir(), 'sua-lead-')), 'runs.db'));
+    const nb = s.create({ title: 'Pick a CRM', statement: 'x' });
+    s.setFields(nb.id, fields);
+    s.upsertOption(nb.id, { title: 'A', by: 'x', data: { job_fit: 4, integration: 4, cost: 4 } });
+    s.upsertOption(nb.id, { title: 'B', by: 'x', data: { job_fit: 1, integration: 1, cost: 1 } });
+    const { notebook } = notebookViewData(s.get(nb.id)!, s.entries(nb.id));
+    expect(notebook.options.find((o) => o.title === 'A')).toMatchObject({ leader: true, suitability: 100, feasibility: 100 });
+    expect(notebook.options.find((o) => o.title === 'B')?.leader).toBeUndefined();
+  });
+});

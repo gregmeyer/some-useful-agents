@@ -368,3 +368,31 @@ describe('the line over the sources list', () => {
     expect(sourcesNote([{ refs: [r('found')] }])).toBe('1 page from 1 publisher · 1 quote found on its page · tap one to see it');
   });
 });
+
+describe('a comparison page', () => {
+  it('draws the scorecard and the 2x2 as a valid view once it has weighted criteria', async () => {
+    const { layoutPreset } = await import('@some-useful-agents/core');
+    dir = mkdtempSync(join(tmpdir(), 'sua-nbw-cmp-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb0 = s.create({ title: 'Pick a CRM' });
+    const A = ['unsuitable', 'major gaps', 'partial fit', 'meets the need', 'exceeds it'];
+    s.setFields(nb0.id, [
+      { key: 'job_fit', label: 'Job fit', type: 'number', weight: 60, axis: 'suitability', anchors: A },
+      { key: 'integration', label: 'Integration', type: 'number', weight: 40, axis: 'feasibility', anchors: A },
+    ]);
+    s.setLayout(nb0.id, layoutPreset('comparison')!.layout, 'you');
+    s.upsertOption(nb0.id, { title: 'A', by: 'x', data: { job_fit: 3, integration: 4 } });
+    const nb = s.get(nb0.id)!;
+    const comps = notebookWidgetComponents(nb);
+    expect(validateViewComponents(comps).ok).toBe(true);
+    expect(comps.find((c) => c.component === 'Scorecard')).toMatchObject({ card: { path: '/notebook/scorecard' } });
+    expect(comps.find((c) => c.id === 'grid')).toMatchObject({ component: 'Scatter', x: 'feasibility', y: 'suitability', domain: 'percent', bestBy: 'leader' });
+    const data = notebookWidgetData(nb, s.entries(nb.id));
+    expect(data.notebook.scorecard?.leader).toBeDefined();
+    // Without weighted criteria the scorecard's parts wait (when: scored).
+    const plain = s.create({ title: 'Plain' });
+    s.setLayout(plain.id, layoutPreset('comparison')!.layout, 'you');
+    expect(notebookWidgetComponents(s.get(plain.id)!).some((c) => c.component === 'Scorecard')).toBe(false);
+  });
+});

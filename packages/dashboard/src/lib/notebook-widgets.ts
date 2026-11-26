@@ -1057,6 +1057,7 @@ export function notebookLayoutFlags(nb: LayoutNotebook, hasOptions = true): Reco
     bars: !!leadFieldOf(nb) && !(nb.fields.some((f) => f.role === 'price') && nb.fields.some((f) => f.role === 'measure')),
     lesson: !!nb.answer?.lesson,
     needs: runbookNeeds(nb.answer).length > 0,
+    scored: nb.fields.some((f) => f.weight !== undefined),
   };
 }
 
