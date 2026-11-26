@@ -150,7 +150,7 @@ export function renderHomePage(opts: {
     reads: renderHomeReads(opts.reads ?? []),
     notebooks: opts.shelf ?? html``,
   };
-  return render(layout({ title: 'Home', activeNav: 'inbox', flash: opts.flash }, html`
+  return render(layout({ title: 'Home', activeNav: 'inbox', askBar: false, flash: opts.flash }, html`
     <div class="home" data-home>
       <header class="page-header">
         ${renderCrumbs([{ label: 'Home' }])}

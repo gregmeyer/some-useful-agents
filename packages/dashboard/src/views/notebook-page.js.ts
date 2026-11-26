@@ -64,6 +64,18 @@ export const NOTEBOOK_PAGE_JS = `
       var el = e.target;
       if (el && el.matches && el.matches('select[data-autosubmit]') && el.form) el.form.submit();
     });
+    // Ask or tell sua (the card beside the answer): its two tabs.
+    document.addEventListener('click', function (e) {
+      var t = e.target && e.target.closest ? e.target.closest('[data-nb-tab]') : null;
+      if (!t) return;
+      var card = t.closest('[data-nb-askcard]');
+      if (!card) return;
+      var key = t.getAttribute('data-nb-tab');
+      card.querySelectorAll('[data-nb-tab]').forEach(function (b) { var on = b === t; b.classList.toggle('is-on', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); });
+      card.querySelectorAll('[data-nb-tabpanel]').forEach(function (p) { p.hidden = p.getAttribute('data-nb-tabpanel') !== key; });
+      var box = card.querySelector('[data-nb-tabpanel="' + key + '"] textarea');
+      if (box) box.focus();
+    });
     // The header's actions: one open at a time; Escape or a click outside closes it.
     var acts = document.querySelectorAll('[data-nb-act]');
     for (var ai = 0; ai < acts.length; ai++) {

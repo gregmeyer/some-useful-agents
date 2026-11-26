@@ -3,6 +3,8 @@ import { renderInboxModalShell } from './inbox-modal.js';
 import { footer } from './footer.js';
 
 export interface LayoutOptions {
+  /** No "sua ›" ask bar: the page has its own place to ask (Home's question box). */
+  askBar?: boolean;
   title: string;
   /**
    * Highlight in the nav. Scheduled lives under the Agents sub-nav
@@ -67,7 +69,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
     </button>
   </div>
 </header>
-<div class="app-ask ${opts.activeNav === 'home' ? 'app-ask--home' : ''}">
+${opts.askBar === false ? html`` : html`<div class="app-ask">
   <form class="home-ask home-ask--bar" method="POST" action="/inbox/new" data-home-ask>
     <span class="home-ask__prompt" aria-hidden="true">sua&nbsp;›</span>
     <textarea class="home-ask__input" name="body" rows="1"
@@ -75,7 +77,8 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
       data-home-ask-input aria-label="Ask sua"></textarea>
     <button type="submit" class="btn btn--primary btn--sm home-ask__send" data-home-ask-send>Send ↵</button>
   </form>
-</div>
+</div>`}
+${/* Home has its own question box (and ⌘K everywhere): one place to ask on a page. */ ''}
 <main class="${mainClass}">
   ${flash}
   ${body}

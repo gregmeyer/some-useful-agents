@@ -27,7 +27,11 @@ A **notebook** is a goal you keep over time, like "Buy a used car" or "Find a ne
   - It opens by itself when a step stopped short.
   - Once you open it, it stays open in this browser.
 
-**Ask a follow-up.** The foot of each answer has a box. A follow-up is a new answer of its own, asked in this answer's conversation: sua works out how to answer it and goes straight through. The first answer lists it under **Follow-ups**, and the follow-up links back to the conversation. Answers made before this have no conversation to link back to.
+**Ask a follow-up, or tell sua about this one.** Beside each answer, under its sources, one card has two tabs.
+- **Ask a follow-up:** a new answer of its own, asked in this answer's conversation. sua works out how to answer it and goes straight through. The card lists each follow-up with where it stands (**Under way**, then **Done →**), and the follow-up links back to the conversation.
+- **Tell sua about this one:** talk to sua about this answer: what it's waiting on, a correction, a change.
+
+**Ask a follow-up** opens first once its steps are done; **Tell sua** opens first while they're going or when sua has asked you something. Answers made before follow-ups have no conversation to link back to.
 
 ## Where to find them
 
