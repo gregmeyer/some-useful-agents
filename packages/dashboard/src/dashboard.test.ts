@@ -2428,7 +2428,7 @@ describe('Tools owns what agents can call (ADR-0034)', () => {
     }
   });
 
-  it('drops Nodes from the Agents sub-nav and keeps the other seven', async () => {
+  it('drops Nodes from the Agents sub-nav and keeps the rest (Skills joined under More)', async () => {
     const app = await makeApp();
     const res = await request(app).get('/agents')
       .set('Host', `127.0.0.1:${PORT}`)
@@ -2437,7 +2437,7 @@ describe('Tools owns what agents can call (ADR-0034)', () => {
     expect(strip).not.toBeNull();
     const labels = [...strip![1].matchAll(/>([^<>]+)<\/a>/g)].map((m) => m[1].trim());
     // Agents, Runs, Scheduled; the rest under More.
-    expect(labels).toEqual(['Agents', 'Runs', 'Scheduled', 'Start here', 'Behaviors', 'Tools', 'Packs']);
+    expect(labels).toEqual(['Agents', 'Runs', 'Scheduled', 'Start here', 'Behaviors', 'Skills', 'Tools', 'Packs']);
   });
 
   it('renames the Settings MCP tab and removes the two that moved', async () => {

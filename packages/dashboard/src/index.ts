@@ -69,6 +69,7 @@ import { metricsPlannerRouter } from './routes/metrics-planner.js';
 import { runMutationsRouter } from './routes/run-mutations.js';
 import { widgetRunRouter } from './routes/widget-run.js';
 import { toolsRouter } from './routes/tools.js';
+import { skillsRouter } from './routes/skills.js';
 import { nodesRouter } from './routes/nodes.js';
 import { assetsRouter } from './routes/assets.js';
 import { outputFilesRouter } from './routes/output-files.js';
@@ -333,6 +334,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(inboxEventsRouter);
   app.use(inboxRouter);
   app.use(toolsRouter);
+  app.use(skillsRouter);
   app.use(nodesRouter);
   app.use(pulseRouter);
   app.use(pulseLayoutPlanRouter);
