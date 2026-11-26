@@ -381,6 +381,9 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     .chip.better { color: var(--color-ok); border-color: var(--color-ok); } .chip.worse { color: var(--color-warn); border-color: var(--color-warn); }
     .chip.gone { border-style: dashed; color: var(--color-text-muted); }
     .chip.new { color: var(--color-primary); border-color: var(--color-primary); }
+    /* In a grid card a long fact wraps inside the card instead of running off its edge (the table keeps one line). */
+    .card .chips { min-width: 0; }
+    .card .chip { white-space: normal; overflow-wrap: anywhere; max-width: 100%; box-sizing: border-box; }
     .why { font-size: var(--font-size-xs); color: var(--color-warn); }
     .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 4px; align-items: center; }
     .btn { all: unset; cursor: pointer; font-size: var(--font-size-xs); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--color-border); color: var(--color-text); background: var(--color-surface); }

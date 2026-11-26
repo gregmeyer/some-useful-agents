@@ -116,8 +116,10 @@ function foldLabel(entries: CompiledEntry[]): string {
 function regionRows(entries: CompiledEntry[], wide: boolean): SafeHtml[] {
   const out: SafeHtml[] = [];
   let lastWhy = '';
+  const { repeats, later } = sameAnswerRepeats(entries);
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i];
+    if (later.has(e)) continue;
     if (e.group && e.collapsed) {
       const run = [e];
       while (i + 1 < entries.length && entries[i + 1].group === e.group && entries[i + 1].collapsed) run.push(entries[++i]);
@@ -135,8 +137,40 @@ function regionRows(entries: CompiledEntry[], wide: boolean): SafeHtml[] {
     const why = shownWhy(e);
     out.push(row(e, wide, why && why !== lastWhy ? why : ''));
     lastWhy = why;
+    const more = repeats.get(e);
+    if (more?.length) {
+      out.push(html`
+        <li class="panel-fold">
+          <details>
+            <summary class="panel-fold__summary" title="Other conversations about the same answer"><span>${String(more.length)} more for this answer</span></summary>
+            <ul class="panel-group__rows">${more.map((x) => row(x, wide)) as unknown as SafeHtml[]}</ul>
+          </details>
+        </li>`);
+    }
   }
   return out;
+}
+
+/**
+ * The same answer asked about in more than one conversation (asked again, a
+ * step's card, a follow-up): the first row stays, the rest fold under it as
+ * "2 more for this answer" (the inbox cleanup). Rows already in a folded group
+ * are left alone.
+ */
+export function sameAnswerRepeats(entries: readonly CompiledEntry[]): { repeats: Map<CompiledEntry, CompiledEntry[]>; later: Set<CompiledEntry> } {
+  const repeats = new Map<CompiledEntry, CompiledEntry[]>();
+  const later = new Set<CompiledEntry>();
+  const first = new Map<string, CompiledEntry>();
+  for (const e of entries) {
+    if (e.group && e.collapsed) continue;
+    if (itemEyebrow(e.item) !== 'ANSWER') continue;
+    const key = displayTitle(e.item.title).toLowerCase();
+    const lead = first.get(key);
+    if (!lead) { first.set(key, e); continue; }
+    later.add(e);
+    repeats.set(lead, [...(repeats.get(lead) ?? []), e]);
+  }
+  return { repeats, later };
 }
 
 /** Things you (or your rules) hid, with the way back. */
