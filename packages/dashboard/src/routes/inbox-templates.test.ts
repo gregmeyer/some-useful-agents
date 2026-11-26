@@ -165,6 +165,21 @@ describe('the template-save card', () => {
     expect(row).toMatchObject({ lower: 30, upper: 60, coverage: 70 });
   });
 
+  it("a template's asks they already answered (GIVEN) are kept as given; the rest stay asked", async () => {
+    const ctx = setup(async () => reply({ ...SETUP(), asks: [{ label: 'Your current stack', optional: false }, { label: 'Budget per user', optional: false }, { label: 'Deadline', optional: true }] }));
+    const { card } = await draft(ctx, { ASK: 'pick a CRM', SKILLS: 'evaluate-software' });
+    executeTemplateSave(ctx, card!);
+    const t = notebooks().listTemplates()[0];
+    const { accepted } = parseProposedActions([{ type: 'notebook-create', inputs: { TEMPLATE: t.id, TITLE: 'Pick a CRM', GIVEN: { 'your current stack': 'Google Workspace for email and calendar', 'Budget per user': '$50', 'Not an ask': 'ignored' } } }], [], []);
+    const made = startNotebookFrom(ctx, accepted[0].inputs);
+    if ('error' in made) throw new Error(made.error);
+    const given = notebooks().get(made.notebook.id)!.given!;
+    expect(given.map((g) => [g.label, g.state])).toEqual([['Your current stack', 'given'], ['Budget per user', 'given'], ['Deadline', 'missing']]);
+    expect(given[1].text).toBe('Budget per user: $50');
+    // Said in a line: already its own short form, so the page doesn't ask sua to read it.
+    expect(given[1].read).toMatchObject({ summary: '$50', facts: [{ label: 'Budget per user', value: '$50', byYou: true }] });
+  });
+
   it('a change keeps the name and replaces the template', async () => {
     const ctx = setup(async () => reply(SETUP()));
     const first = await draft(ctx, { ASK: 'pick a CRM', SKILLS: 'evaluate-software' });

@@ -105,7 +105,10 @@ nodes:
       The setup is JSON with these keys:
       - "statement": one sentence, what each notebook is for. When the
         know-how gives a form for it (a job statement), use that form, with
-        what this job says filled in and the rest left general.
+        what this job says filled in and the rest said in general words
+        ("when the current way stops keeping up"). Never leave brackets,
+        blanks or "e.g." in it: it's read as written, and what changes each
+        time is asked for in "asks".
       - "params": limits that hold every time (0–6 short phrases). Nothing
         that changes from one use to the next: that's an ask.
       - "criteria": 2–4 "done when" checks, the last naming the decision or
@@ -118,11 +121,14 @@ nodes:
       - "checks": at most 8 pass/fail sentences every option is held to,
         each one a page can show is met or not (the know-how's gates or
         mandatory requirements).
-      - "fields": the facts noted for each option, each {"key":
+      - "fields": at most 12 in all (scored criteria included), the facts
+        noted for each option, each {"key":
         lowercase_snake, "label", "type": money|number|text|url|date,
         "unit"?, "role"?, "better"?}. Roles, at most one each: "price",
         "org", "link", "place", "when". Include its name or vendor (org) and
         its website (link).
+        Labels are 1–3 words ("Job fit", "Integration"); detail goes in
+        the anchors.
         A **scored criterion** (when the know-how scores options against a
         rubric) is a number field with "weight" (the weights of all scored
         criteria add to exactly 100), "anchors" (exactly 5 strings: what 0,
@@ -132,12 +138,14 @@ nodes:
         criterion a role.
       - "stages": 3–5 stages an option goes through ("Found", "Checked",
         "Scored", "Shortlisted", "Chosen").
-      - "steps": the work in order, at most 6, each {"title", "kind",
+      - "steps": the work in order, at most 6, each {"title" (at most 60
+        characters: "Score each option on the criteria"), "kind",
         "agentId"?, "target"?, "facts"?, "shape"?}. Kinds: "find" (search
         for options; "target": how many), "check" (the checks above;
         no agentId uses sua's checker), "source" (look up facts a search
-        won't give; "facts": the keys it fills; "agentId": an agent above
-        made for those facts, e.g. one that scores criteria), "write"
+        won't give; "facts": the keys it fills; "agentId" is required: an
+        agent above made for those facts, e.g. one that scores criteria.
+        No agent fits: no source step; the find step notes those facts), "write"
         ("shape": "writeup" writes up the field: the lay of the land, the
         top options and why, what to do next; no agentId), "decide" (they
         pick; "target": how many). A find step with no agentId uses sua's

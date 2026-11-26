@@ -604,6 +604,8 @@ export function parseProposedActions(
           if (typeof v === 'string') inputs[k] = v;
           else if (typeof v === 'number' && Number.isFinite(v)) inputs[k] = String(v);
           else if ((k === 'PARAMS' || k === 'CRITERIA' || k === 'CHECKS') && Array.isArray(v)) inputs[k] = JSON.stringify(v);
+          // GIVEN: the template's asks they already answered, {"<ask>": "<answer>"}.
+          else if (k === 'GIVEN' && v && typeof v === 'object' && !Array.isArray(v)) inputs[k] = JSON.stringify(Object.fromEntries(Object.entries(v as Record<string, unknown>).filter(([, x]) => typeof x === 'string' && x.trim()).slice(0, 6).map(([a, x]) => [a.slice(0, 200), (x as string).slice(0, 4000)])));
         }
       }
       if ((!inputs.TEMPLATE && !inputs.LIKE) || !inputs.TITLE) {

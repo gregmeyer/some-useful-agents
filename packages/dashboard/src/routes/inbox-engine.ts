@@ -1471,11 +1471,52 @@ export function executeNotebookCreate(
  * like a notebook, which the new one notes and which is left as it is. Also
  * what New notebook's "Set it up like that" does.
  */
+/**
+ * GIVEN on a notebook-create card: {"<what it asks for>": "<their answer>"}.
+ * Each answer to one of the notebook's asks (matched by its words, any
+ * case) is kept as given, as "<ask>: <answer>". Unmatched ones are left out. Never throws.
+ */
+/** The create card's rows for what the template asks: answered already (GIVEN), or asked on the notebook. Pure. */
+function givenRows(asks: ReadonlyArray<{ label: string }>, raw: string | undefined): Array<{ what: string; before: string; after: string }> {
+  if (!asks.length) return [];
+  let answers: Record<string, unknown> = {};
+  try { const v = JSON.parse(raw ?? '{}') as unknown; if (v && typeof v === 'object' && !Array.isArray(v)) answers = v as Record<string, unknown>; } catch { /* none */ }
+  const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const said = asks.map((a) => ({ a, v: Object.entries(answers).find(([k, x]) => norm(k) === norm(a.label) && typeof x === 'string' && x.trim())?.[1] as string | undefined }));
+  const open = said.filter((x) => !x.v).map((x) => x.a.label);
+  return [
+    ...said.filter((x) => x.v).map((x) => ({ what: x.a.label, before: '—', after: x.v!.replace(/\s+/g, ' ').trim().slice(0, 200) })),
+    ...(open.length ? [{ what: 'asks you for', before: '—', after: open.join('; ') }] : []),
+  ];
+}
+
+export function fillGivenFromInputs(ctx: ReturnType<typeof getContext>, nb: Notebook, raw: string | undefined): Notebook {
+  if (!raw || !nb.given?.length) return nb;
+  let answers: Record<string, unknown>;
+  try { const v = JSON.parse(raw) as unknown; if (!v || typeof v !== 'object' || Array.isArray(v)) return nb; answers = v as Record<string, unknown>; } catch { return nb; }
+  const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  let out = nb;
+  for (const [label, answer] of Object.entries(answers)) {
+    if (typeof answer !== 'string' || !answer.trim()) continue;
+    const g = (out.given ?? []).find((x) => x.state === 'missing' && (norm(x.label) === norm(label) || x.key === label));
+    if (!g) continue;
+    const said = answer.replace(/\s+/g, ' ').trim().slice(0, 3000);
+    try {
+      out = notebooksOf(ctx).answerGiven(out.id, g.key, { text: `${g.label}: ${said}` });
+      // Said in a line or two in the conversation: it's already its own short form, so there's nothing for sua to read.
+      out = notebooksOf(ctx).answerGiven(out.id, g.key, { read: { summary: said.slice(0, 300), facts: [{ label: g.label, value: said.slice(0, 300), byYou: true }], at: new Date().toISOString() } });
+    } catch { /* too short or gone: it stays asked */ }
+  }
+  return out;
+}
+
 export function startNotebookFrom(ctx: ReturnType<typeof getContext>, inputs: Readonly<Record<string, string>>): { notebook: Notebook; from: NotebookSetupSource } | { error: string } {
   const made = notebookFromTemplate(ctx, { kind: 'action', status: 'proposed', agentId: 'notebook-create', inputs: { ...inputs } });
   if ('error' in made) return made;
   try {
-    const nb = createNotebookFrom(ctx, made.setup);
+    let nb = createNotebookFrom(ctx, made.setup);
+    // What the template asks for that they already said in the conversation (GIVEN): kept as given, so the first step doesn't wait on it.
+    nb = fillGivenFromInputs(ctx, nb, inputs.GIVEN);
     const { template, like } = made.from;
     if (template) notebooksOf(ctx).markTemplateUsed(template.id);
     if (like) notebooksOf(ctx).addEntry(nb.id, { kind: 'note', title: 'Set up like another notebook', body: `Set up like [${like.title}](/notebooks/${encodeURIComponent(like.id)}): its steps, what it notes, its checks and its page, with none of what it found.`, by: 'you' });
@@ -1809,6 +1850,7 @@ export function withEditorBase(ctx: ReturnType<typeof getContext>, action: Inbox
         { what: 'done when', before: changed(setup.criteria, t.setup.criteria) ? t.setup.criteria.join('; ') || '—' : '—', after: setup.criteria.join('; ') || '(none)' },
         ...(setup.checks?.length || t.setup.checks.length ? [{ what: 'checks', before: changed(setup.checks ?? [], t.setup.checks) ? t.setup.checks.join('; ') || '—' : '—', after: (setup.checks ?? []).join('; ') || '(none)' }] : []),
         ...(setup.steps?.length ? [{ what: 'steps', before: '—', after: setup.steps.map((x, i) => `${String(i + 1)}. ${x.title}`).join('; ') }] : []),
+        ...givenRows((Array.isArray(setup.given) ? setup.given : []) as Array<{ label: string }>, action.inputs.GIVEN),
       ],
     };
   }
