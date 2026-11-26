@@ -94,7 +94,7 @@ With no agents installed, Home is the Build-from-goal empty state instead. The b
 
 ## `/inbox` — the full inbox
 
-Every conversation on one canvas: the list on the left (ask box, **Today · Open · Chats · Done**, search), the open thread on the right with its conversation, action cards and inline widgets. Replies stream in over the chat WebSocket. `/inbox/:id` opens it with that thread selected; picking a thread updates the address. On a narrow screen you see the list or the thread, with **← Inbox** to go back. It's the same inbox the conversation panel shows beside other pages.
+The Inbox: **Home › Inbox**, its name, and one line of where it stands (**3 need you · 21 open**) with **Autonomy** on it. Home's goal, its intro and **Adjust Home** stay on Home. Below, every conversation on one canvas: the list on the left (search, **Today · Open · Chats · Done**), the open thread on the right with its conversation, action cards and inline widgets. Replies stream in over the chat WebSocket. `/inbox/:id` opens it with that thread selected; picking a thread updates the address. On a narrow screen you see the list or the thread, with **← Inbox** to go back. It's the same inbox the conversation panel shows beside other pages.
 
 The list here also has **Filter and sort** (where a thread came from, its agent, a tag, starred only; sort by latest activity, oldest first or priority; every tab's count follows the filters), a ★ on each thread, and checkboxes: select threads, or all on the page, then **Resolve** or **Dismiss** them together. Starred threads lead whatever sort you pick.
 

@@ -47,8 +47,7 @@ import { notebookCardForThread } from '../lib/notebook-card.js';
 import type { NotebookCard } from '../views/notebooks.js';
 import { readHomeSurface, HOME_SURFACE_ID, type HomeSurface } from '../lib/home-surface.js';
 import { homeSuggestions } from '../lib/home-suggestions.js';
-import { renderHomeGoal, renderHomeAdjust } from '../views/home-surface.js';
-import { renderHomeNotebooksButtons } from '../views/notebooks.js';
+import { needsYouCount } from '../views/home-surface.js';
 import { SessionStore, ItemDismissals, SurfaceStore, surfaceParts } from '@some-useful-agents/core';
 import { startChatTurn } from '../lib/chat-turn.js';
 import { conversationWorking, agentTurnInProgress } from '../lib/conversation-working.js';
@@ -126,7 +125,14 @@ export function sendInboxPage(req: Request, res: Response, threadId?: string): v
     ? ctx.dashboardsStore.listDashboards().filter((d) => !d.packId).map((d) => ({ id: d.id, name: d.name }))
     : [];
   const today = readHomeSurfaceSafe(ctx);
-  res.type('html').send(renderInboxPage({ autonomyMode, threadId, flash: parseFlash(req), agentCount, availableDashboards, ...(today ? { goalLine: renderHomeGoal(today), adjustMenu: renderHomeAdjust(today) } : {}), notebooksLine: notebooksLineFor(ctx) }));
+  // The one meta line: what needs you (Today's count, as the pill), and what's open.
+  let counts: { needs: number; open: number } | undefined;
+  try {
+    const needs = today ? needsYouCount(today) : (ctx.inboxStore?.countNeedsYou() ?? 0);
+    const open = ctx.inboxStore?.count({ statuses: ['open', 'triaged', 'awaiting_user', 'verifying'] }) ?? 0;
+    counts = { needs, open };
+  } catch { counts = undefined; }
+  res.type('html').send(renderInboxPage({ autonomyMode, threadId, flash: parseFlash(req), agentCount, availableDashboards, ...(counts ? { counts } : {}) }));
 }
 
 /**
@@ -285,13 +291,6 @@ function panelListFor(req: Request) {
     // Today is Home's surface (goal surfaces, S3).
     today: readHomeSurfaceSafe(ctx),
   });
-}
-
-function notebooksLineFor(ctx: ReturnType<typeof getContext>) {
-  try {
-    const all = NotebookStore.fromHandle(ctx.runStore.databaseHandle()).list();
-    return renderHomeNotebooksButtons(all.filter((n) => n.status === 'active').length, all.length);
-  } catch { return undefined; }
 }
 
 /** Home's surface, or undefined if reading it fails (the tab falls back to threads waiting on you). */

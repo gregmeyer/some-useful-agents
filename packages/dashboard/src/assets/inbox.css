@@ -3490,3 +3490,10 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 .thread-details__body .inbox-thread-summary, .thread-details__body .inbox-modal__context { margin: 0; }
 /* The ⋯ menu's tag editor: square tags, not pills. */
 .inbox-modal__menu-tags .inbox-pill { border-radius: var(--radius-sm); }
+
+/* The Inbox page (the inbox cleanup): its crumb, its name, one line of where it stands with Autonomy on it. */
+.inbox-head { display: grid; gap: var(--space-1); }
+.inbox-head h1 { margin: 0; }
+.inbox-head__meta { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0; font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.inbox-head__needs { color: var(--color-warn); font-weight: 600; }
+.inbox-head__sep { color: var(--color-text-subtle); white-space: pre; }

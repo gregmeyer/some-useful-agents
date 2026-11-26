@@ -2,7 +2,6 @@ import { renderCrumbs } from './page-header.js';
 import type { AutonomyMode } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
-import { pageIntro } from './page-intro.js';
 import { buildFromGoalButton, buildFromGoalModal } from './build-from-goal-modal.js';
 
 /**
@@ -23,12 +22,8 @@ export function renderInboxPage(opts: {
   /** With no agents yet, Home is onboarding instead (an empty inbox teaches nothing). */
   agentCount?: number;
   availableDashboards?: Array<{ id: string; name: string }>;
-  /** Home's surface goal line (goal surfaces, S3). */
-  goalLine?: SafeHtml;
-  /** The Notebooks control in the header: how many are active, and + for a new one. */
-  notebooksLine?: SafeHtml;
-  /** Adjust Home ▾: ask sua to change it, and what changed. */
-  adjustMenu?: SafeHtml;
+  /** What the inbox holds now, for its one meta line: how many need you, how many are open. */
+  counts?: { needs: number; open: number };
 }): string {
   if (opts.agentCount === 0 && !opts.threadId) {
     return render(layout({ title: 'Home', activeNav: 'inbox', flash: opts.flash }, html`
@@ -48,26 +43,19 @@ export function renderInboxPage(opts: {
       ${buildFromGoalModal({ availableDashboards: opts.availableDashboards })}
     `));
   }
-  return render(layout({ title: 'Home', activeNav: 'inbox', flash: opts.flash, wide: true }, html`
-    <header class="page-header home-head">
-      ${renderCrumbs([{ label: 'Home' }])}
-      <h1>Home</h1>
-      <div class="page-header__cta home-head__controls">
-        ${opts.notebooksLine ?? html``}
-        ${renderAutonomyControl(opts.autonomyMode, { compact: true })}
-        ${opts.adjustMenu ?? html``}
-      </div>
-      ${opts.goalLine ?? html``}
+  // The Inbox (the inbox cleanup): its own page, not Home's. A crumb, its name, and one line of where it stands with
+  // Autonomy on it. Home's goal, its intro and Adjust Home stay on Home (/).
+  const c = opts.counts;
+  const meta = [
+    c ? html`<span class="${c.needs ? 'inbox-head__needs' : ''}">${String(c.needs)} need${c.needs === 1 ? 's' : ''} you</span>` : html``,
+    c ? html`<span>${String(c.open)} open</span>` : html``,
+  ].filter((x) => String(x).trim());
+  return render(layout({ title: 'Inbox', activeNav: 'inbox', flash: opts.flash, wide: true }, html`
+    <header class="page-header inbox-head">
+      ${renderCrumbs([{ label: 'Home', href: '/' }, { label: 'Inbox' }])}
+      <h1>Inbox</h1>
+      <div class="inbox-head__meta">${meta.map((m) => html`${m}<span class="inbox-head__sep" aria-hidden="true"> · </span>`) as unknown as SafeHtml[]}${renderAutonomyControl(opts.autonomyMode, { compact: true })}</div>
     </header>
-    ${pageIntro({
-      key: 'home',
-      text: 'Your agents run here, on this machine. This page is what needs your attention, and every conversation with sua.',
-      learnMore: { href: '/help', label: 'What is sua?' },
-      actions: [
-        { href: '/start', label: 'Start here', primary: true },
-        { href: '/help/tutorial', label: 'Tutorial' },
-      ],
-    })}
     <div class="inbox-split" data-inbox-split data-initial-thread="${opts.threadId ?? ''}">
       <noscript><p class="dim">The inbox needs JavaScript.</p></noscript>
     </div>
