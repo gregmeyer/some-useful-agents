@@ -2010,12 +2010,15 @@ describe('conversation panel', () => {
     expect(res.text).toContain('data-panel-askrow hidden');
     // Today = Home's surface: your question first (questions and approvals first), then the open failure.
     expect(res.text).toContain('data-surface-region="needs-you"');
-    expect(res.text).toContain('panel-row__tag--answer">Answer');
+    // It needs you: the dot says so; what it is, the eyebrow.
+    expect(res.text).toContain('panel-row__dot panel-row__dot--needs');
+    expect(res.text).toContain('class="panel-row__eyebrow"');
     // Home's full-width Today: each row can be selected for Close / Dismiss in bulk.
     const wide = await panel(app, '/panel/home?wide=1');
     expect(wide.text).toContain(`data-panel-select value="${waiting.id}"`);
     expect(wide.text).toContain('Close <span data-panel-bulk-n>');
-    expect(res.text).toContain('Open full inbox');
+    // Open full inbox moved into the panel bar's ⋯ (the list has no footer).
+    expect(res.text).not.toContain('panel-home__foot');
     expect(res.text).toMatch(/data-panel-tab="needs" aria-selected="true"[\s\S]*?Today[\s\S]*?>2</);
     expect(res.text.indexOf(`data-panel-thread-id="${waiting.id}"`)).toBeLessThan(res.text.indexOf(`data-panel-thread-id="${failure.id}"`));
     expect(res.text).toContain('title="First because: questions and approvals first (by default)"');
@@ -2255,8 +2258,10 @@ describe('the conversation view, redesigned', () => {
     expect(res.text).toMatch(/<details class="inbox-action__diff">/);
     expect(res.text).toContain('class="thread-composer__send"');
 
-    const home = await request(app).get('/panel/home').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(home.text).toContain('data-panel-refresh');
+    // Refresh lives in the panel bar's ⋯ now (the list updates by itself).
+    const { renderInboxModalShell } = await import('../views/inbox-modal.js');
+    const { render } = await import('../views/html.js');
+    expect(render(renderInboxModalShell())).toContain('data-panel-refresh');
   });
 });
 

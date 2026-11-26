@@ -3,6 +3,7 @@ import { html, type SafeHtml } from './html.js';
 import { formatAge } from './components.js';
 import { renderToday } from './home-surface.js';
 import { PANEL_TABS, PANEL_TAB_LABEL, type PanelFacets, type PanelFilters, type PanelList, type PanelRow } from '../lib/panel-inbox.js';
+import { displayTitle, eyebrowOf, previewLine } from '../lib/inbox-kind.js';
 
 /** Starting points for a new conversation. Clicking one fills the box; nothing sends until you do. */
 const SUGGESTIONS = [
@@ -19,7 +20,6 @@ const EMPTY: Record<PanelList['tab'], string> = {
 };
 
 const TAB_SHORT: Record<PanelList['tab'], string> = { needs: 'Today', open: 'Open', conversations: 'Chats', done: 'Done' };
-const KIND_TAG: Record<NonNullable<PanelRow['kind']>, string> = { approve: 'Approve', answer: 'Answer', fail: 'Failing' };
 
 const SEARCH_ICON = html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>`;
 const SEND_ICON = html`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>`;
@@ -87,7 +87,6 @@ export function renderPanelHome(list: PanelList, facets?: PanelFacets): SafeHtml
           <kbd class="panel-search__key" data-panel-key>⌘K</kbd>
         </label>
         ${list.wide && facets ? renderFilters(list.filters, facets) : html``}
-        <button type="button" class="panel-refresh" data-panel-refresh aria-label="Refresh the list" title="Refresh (the list also updates by itself)">↻</button>
       </div>
       ${list.wide && facets ? html`
     <div class="panel-bulk" data-panel-bulk hidden>
@@ -97,15 +96,15 @@ export function renderPanelHome(list: PanelList, facets?: PanelFacets): SafeHtml
       <button type="button" class="btn btn--sm btn--ghost" data-panel-bulk-action="dismiss" title="Off your list without marking them done">Dismiss <span data-panel-bulk-n>0</span></button>
       <button type="button" class="btn btn--sm btn--ghost" data-panel-bulk-clear>Clear</button>
     </div>` : html``}
-      <div class="panel-suggest" data-panel-suggest role="group" aria-label="Things to ask sua">
-        ${SUGGESTIONS.map((s) => html`<button type="button" class="panel-suggest__pill" data-panel-ask="${s}">${s}</button>`) as unknown as SafeHtml[]}
-      </div>
+      ${/* Things to ask: plain lines under the field while it's focused and empty (inbox-modal.js.ts). */ ''}
+      <ul class="panel-suggest" data-panel-suggest aria-label="Things to ask sua" hidden>
+        ${SUGGESTIONS.map((s) => html`<li><button type="button" class="panel-suggest__row" data-panel-ask="${s}">${s}</button></li>`) as unknown as SafeHtml[]}
+      </ul>
       <button type="button" class="panel-askrow" data-panel-askrow hidden>
         <span class="panel-askrow__label">Ask sua</span><span class="panel-askrow__text">“<span data-panel-askrow-text></span>”</span><kbd>↵</kbd>
       </button>
       <div data-panel-list>${renderPanelList(list)}</div>
       <div class="surface-toast" data-surface-toast role="status" aria-live="polite" hidden></div>
-      ${list.wide ? html`` : html`<footer class="panel-home__foot"><span>Kept in your inbox · follows you between pages</span><a href="/">Open full inbox</a></footer>`}
     </div>`;
 }
 
@@ -117,7 +116,7 @@ export function renderPanelNew(): SafeHtml {
         <p class="panel-new__title">What should sua do?</p>
         <p class="panel-new__sub">It can see the page you're on. Ask about it, or have sua run, build or fix something.</p>
         <div class="panel-new__starters">
-          ${SUGGESTIONS.map((s) => html`<button type="button" class="panel-new__starter" data-panel-ask="${s}">${s}</button>`) as unknown as SafeHtml[]}
+          ${SUGGESTIONS.map((s) => html`<button type="button" class="panel-new__starter panel-suggest__row" data-panel-ask="${s}">${s}</button>`) as unknown as SafeHtml[]}
         </div>
       </div>
       <form class="panel-composer" method="POST" action="/inbox/new" data-home-ask data-attach>
@@ -158,15 +157,16 @@ function groupOf(row: PanelRow, tab: PanelList['tab'], now: number): string {
 /** Rows, grouped under headings when `groupBy` is given (the first page); "Show more" appends bare rows. */
 export function renderPanelRows(rows: PanelRow[], wide = false, groupBy?: PanelList['tab']): SafeHtml {
   const now = Date.now();
+  // A row (the inbox cleanup): what it is (mono eyebrow) and when; its title; one line of where it stands. The dot says only whether it needs you.
   const row = ({ message: m, latest, kind, working, ask }: PanelRow) => html`
     <li class="panel-row ${wide ? 'panel-row--wide' : ''}">
-      ${wide ? html`<input type="checkbox" class="panel-row__select" data-panel-select value="${m.id}" aria-label="Select “${m.title}”">` : html``}
+      ${wide ? html`<input type="checkbox" class="panel-row__select" data-panel-select value="${m.id}" aria-label="Select “${displayTitle(m.title)}”">` : html``}
       <button type="button" class="panel-row__main" data-panel-thread-id="${m.id}">
-        <span class="panel-row__dot ${working ? 'panel-row__dot--working' : kind ? `panel-row__dot--${kind}` : ''}" aria-hidden="true"></span>
-        <span class="panel-row__title ${kind ? 'is-strong' : ''}">${m.title}</span>
+        <span class="panel-row__dot ${working ? 'panel-row__dot--working' : kind ? 'panel-row__dot--needs' : ''}" aria-hidden="true"></span>
+        <span class="panel-row__eyebrow${working ? ' is-live' : ''}">${eyebrowOf(m)}</span>
         <span class="panel-row__age">${formatAge(new Date(m.lastActivityAt ?? m.createdAt).toISOString())}</span>
-        <span class="panel-row__latest">${working ? html`<span class="panel-row__working">${working}</span>` : ask ? html`<span class="panel-row__ask">${ask}</span>` : latest ? html`${latest.who === 'you' ? 'You: ' : latest.who === 'sua' ? 'sua: ' : ''}${latest.text}` : html`${m.agentId ?? ''}`}</span>
-        <span class="panel-row__tag ${kind ? `panel-row__tag--${kind}` : ''}">${kind ? KIND_TAG[kind] : ''}</span>
+        <span class="panel-row__title ${kind ? 'is-strong' : ''}">${displayTitle(m.title)}</span>
+        <span class="panel-row__latest">${working ? html`<span class="panel-row__working">${working}</span>` : ask ? html`<span class="panel-row__ask">${ask}</span>` : latest ? previewLine(latest) : html`${m.agentId ?? ''}`}</span>
       </button>
       ${wide
         ? html`<button type="button" class="panel-home__star ${m.starred ? 'is-on' : ''}" data-panel-star="${m.id}"

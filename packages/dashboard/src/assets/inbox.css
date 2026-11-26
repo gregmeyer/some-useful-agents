@@ -2480,53 +2480,31 @@ body.app.sua-panel-easing { transition: padding-right 200ms ease-in-out; }
 }
 .panel-askrow[hidden] { display: none; }
 /* Suggestions under the search field: quiet pills, one line, scroll sideways if they overflow. */
-.panel-suggest {
-  display: flex;
-  gap: var(--space-2);
-  margin-top: calc(-1 * var(--space-1));
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.panel-suggest::-webkit-scrollbar { display: none; }
+/* Things to ask (the inbox cleanup): plain lines under the search field while it's focused and empty; no pills. */
+.panel-suggest { list-style: none; margin: calc(-1 * var(--space-1)) 0 0; padding: 0; display: grid; border-bottom: 1px solid var(--color-border); }
 .panel-suggest[hidden] { display: none; }
-.panel-suggest__pill {
-  flex: none;
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-text-muted);
-  font: inherit;
-  font-size: var(--font-size-xs);
-  white-space: nowrap;
-  cursor: pointer;
-}
-.panel-suggest__pill:hover { border-color: var(--color-primary); color: var(--color-primary); background: var(--color-primary-soft); }
+.panel-suggest__row { display: block; width: 100%; text-align: left; padding: var(--space-2) var(--space-2); border: 0; border-radius: var(--radius-sm); background: none; color: var(--color-text-muted); font: inherit; font-size: var(--font-size-sm); cursor: pointer; }
+.panel-suggest__row:hover, .panel-suggest__row:focus-visible { background: var(--color-surface-raised); color: var(--color-text); }
 .panel-askrow__label { color: var(--color-primary); font-weight: 600; }
 .panel-askrow__text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Segmented control (shadcn Tabs, made of our tokens). */
-.panel-tabs {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 2px;
-  padding: 3px;
-  background: var(--color-bg);
-  border-radius: var(--radius-md);
-}
+/* Underline tabs (the inbox cleanup, as an answer's ask card): 13px words you press, counts in mono. */
+.panel-tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--color-border); }
 .panel-tabs__tab {
-  padding: var(--space-1) var(--space-1);
+  padding: var(--space-2) var(--space-2);
   border: 0;
-  border-radius: var(--radius-sm);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
   background: transparent;
   color: var(--color-text-muted);
   font: inherit;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
   white-space: nowrap;
   cursor: pointer;
 }
 .panel-tabs__tab:hover { color: var(--color-text); }
-.panel-tabs__tab[aria-selected="true"] { background: var(--color-surface-raised); color: var(--color-text); }
+.panel-tabs__tab[aria-selected="true"] { color: var(--color-text); border-bottom-color: var(--color-primary); font-weight: var(--weight-semibold); }
 .panel-tabs__count { margin-left: var(--space-1); font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-subtle); }
 .panel-tabs__count--needs { color: var(--color-warn); }
 
@@ -2542,7 +2520,10 @@ body.app.sua-panel-easing { transition: padding-right 200ms ease-in-out; }
   text-transform: uppercase;
   color: var(--color-text-subtle);
 }
-.panel-group__rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.panel-group__rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.panel-group__count { color: var(--color-text-muted); }
+/* Rows are ruled lines, not cards. */
+.panel-group__rows > .panel-row + .panel-row { border-top: 1px solid var(--color-border); }
 .panel-row { display: flex; align-items: center; gap: var(--space-1); }
 .panel-row__main {
   flex: 1;
@@ -2554,7 +2535,7 @@ body.app.sua-panel-easing { transition: padding-right 200ms ease-in-out; }
   align-items: baseline;
   padding: var(--space-2);
   border: 0;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: none;
   color: var(--color-text);
   font: inherit;
@@ -2563,18 +2544,21 @@ body.app.sua-panel-easing { transition: padding-right 200ms ease-in-out; }
 }
 .panel-row__main:hover { background: var(--color-surface-raised); }
 .panel-row__main[aria-current="true"] { background: var(--color-surface-raised); }
-.panel-row__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-border-strong); align-self: center; }
-.panel-row__dot--approve { background: var(--color-warn); }
-.panel-row__dot--answer { background: var(--color-info); }
-.panel-row__dot--fail { background: var(--color-err); }
+/* The dot says only whether it needs you: hollow (nothing), warn (needs you), pulsing teal (being answered). */
+.panel-row__dot { width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--color-border-strong); background: none; box-sizing: border-box; align-self: center; grid-row: 1; }
+.panel-row__dot--needs { background: var(--color-warn); border-color: var(--color-warn); }
+/* What it is: a mono eyebrow on the first line, beside when. */
+.panel-row__eyebrow { grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: var(--font-size-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-subtle); }
+.panel-row__eyebrow.is-live { color: var(--color-primary); }
+.panel-row__main > .panel-row__title { grid-column: 2 / -1; }
 /* Being answered right now (lib/conversation-working.ts). */
-.panel-row__dot--working { background: var(--color-primary); animation: inbox-working-pulse 1.4s ease-in-out infinite; }
+.panel-row__dot--working { background: var(--color-primary); border-color: var(--color-primary); animation: inbox-working-pulse 1.4s ease-in-out infinite; }
 .panel-row__working { color: var(--color-primary); font-style: italic; }
 @media (prefers-reduced-motion: reduce) { .panel-row__dot--working { animation: none; } }
 .panel-row__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-size-sm); }
 .panel-row__title.is-strong { font-weight: 600; }
-.panel-row__age { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
-.panel-row__latest { grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.panel-row__age { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.panel-row__latest { grid-column: 2 / -1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-size-xs); color: var(--color-text-muted); }
 /* What a waiting thread needs from you, ahead of sua's words: it reads as the row's point, not a preview. */
 .panel-row__ask { color: var(--color-text); }
 /* A card pressed from its row (Today): its own button and Not now, on a line under the ask. */
@@ -2583,6 +2567,17 @@ body.app.sua-panel-easing { transition: padding-right 200ms ease-in-out; }
 .panel-row__acts { order: 3; flex: 1 0 100%; display: flex; gap: var(--space-2); align-items: center; padding: 0 0 var(--space-2) calc(var(--space-2) + 8px + var(--space-3)); }
 .panel-row--wide .panel-row__acts { padding-left: calc(var(--space-4) + 8px + var(--space-3)); }
 .panel-row__acts .item-pane__form { margin: 0; }
+/* Its action, pressed from the row: quiet text buttons (one primary per view is the open thread's). */
+.panel-row__act { height: 28px; padding: 0 var(--space-2); border: 1px solid transparent; border-radius: var(--radius-sm); background: none; color: var(--color-text-muted); font: inherit; font-size: var(--font-size-sm); cursor: pointer; }
+.panel-row__act:hover, .panel-row__act:focus-visible { border-color: var(--color-border); color: var(--color-text); }
+.panel-row__act--go { color: var(--color-primary); font-weight: var(--weight-semibold); }
+.panel-row__act--go:hover, .panel-row__act--go:focus-visible { border-color: var(--color-primary); color: var(--color-primary); }
+/* ⋯ shows on hover or focus; always on touch. */
+.panel-row .panel-row__menu { opacity: 0; transition: opacity 120ms ease-out; }
+.panel-row:hover .panel-row__menu, .panel-row:focus-within .panel-row__menu, .panel-row__menu[open] { opacity: 1; }
+@media (hover: none) { .panel-row .panel-row__menu { opacity: 1; } }
+.panel-row__menu-why { margin: 0 0 var(--space-1); padding: var(--space-2) var(--space-3); font-size: var(--font-size-xs); color: var(--color-text-muted); border-bottom: 1px solid var(--color-border); max-width: 18rem; }
+.panel-row__menu-why-label { display: block; font-family: var(--font-mono); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-subtle); margin-bottom: 2px; }
 .panel-row__tag { font-size: var(--font-size-xs); }
 .panel-row__tag--approve { color: var(--color-warn); }
 .panel-row__tag--answer { color: var(--color-info); }
@@ -3488,3 +3483,14 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 
 /* The answer's steps under its card in the conversation. */
 .ib-notebook__steps { margin-top: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+
+/* The panel bar (the inbox cleanup): INBOX in mono caps, + and ⋯ (widen, minimize, refresh, the full inbox). */
+.inbox-modal__panelbar-title { font-family: var(--font-mono); font-size: var(--font-size-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-muted); }
+.inbox-modal__panelbar-btn--new { border: 0; }
+.inbox-modal__panelbar-more { position: relative; }
+.inbox-modal__panelbar-more > summary { list-style: none; cursor: pointer; }
+.inbox-modal__panelbar-more > summary::-webkit-details-marker { display: none; }
+.inbox-modal__panelbar-more > summary::before { content: none; }
+.inbox-modal__panelbar-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; display: grid; min-width: 11rem; padding: var(--space-1); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-md); }
+.inbox-modal__panelbar-item { display: block; padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-sm); background: none; color: var(--color-text); font: inherit; font-size: var(--font-size-sm); text-align: left; text-decoration: none; cursor: pointer; }
+.inbox-modal__panelbar-item:hover, .inbox-modal__panelbar-item:focus-visible { background: var(--color-surface-raised); }
