@@ -12,13 +12,15 @@ describe('a look drawn small', () => {
     expect(briefing).toContain('lk-part--lede');
     expect(briefing).toContain('grid-template-columns:2fr 1fr');
     const shortlist = render(lookThumb(layoutPreset('shortlist')!.layout.components));
-    expect(shortlist).toContain('lk-g--map');
+    // The answer first: the grid in view (its map is folded with the other charts).
     expect(shortlist).toContain('lk-g--grid');
     expect(shortlist).not.toContain('lk-g--profile');
     // The representation parts have glyphs of their own, and a hero part a heavier title.
     expect(shortlist).toContain('lk-g--lead');
-    expect(shortlist).toContain('lk-g--bars');
-    expect(shortlist).toContain('lk-g--compare');
+    // Bars and Compare (folded on the shortlist now) have their own glyphs too.
+    const charts = render(lookThumb([{ id: 'root', component: 'Column', children: ['b', 'c'] }, { id: 'b', component: 'Bars' }, { id: 'c', component: 'Compare' }] as never));
+    expect(charts).toContain('lk-g--bars');
+    expect(charts).toContain('lk-g--compare');
     // Written up: its lay of the land and the write-up's parts (what it rests on is past the five rows a thumbnail shows).
     expect(shortlist).toContain('lk-g--callout');
     expect(shortlist).toContain('lk-g--table');

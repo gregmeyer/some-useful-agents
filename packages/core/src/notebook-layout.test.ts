@@ -362,7 +362,9 @@ describe('the ready-made pages and the representation parts', () => {
     expect(after.find((c) => c.id === 'lay')).toMatchObject({ component: 'Callout', text: { path: '/notebook/answer/text' }, image: { path: '/notebook/answer/cover' } });
     expect(after.find((c) => c.id === 'story')!.children).toEqual(['lay', 'stats', 'numbers_p']);
     expect(after.find((c) => c.id === 'rail')!.children).toEqual(['steps_panel', 'leads']);
-    expect(after.find((c) => c.id === 'root')!.children).toEqual(['top', 'mid', 'shortlist_panel', 'head_p', 'writeup_p', 'rests_p', 'low', 'ctx']);
+    // The answer first: the options, the write-up and what it rests on; the charts and the rest folded.
+    expect(after.find((c) => c.id === 'root')!.children).toEqual(['top', 'shortlist_panel', 'writeup_p', 'rests_p', 'detail_d']);
+    expect(after.find((c) => c.id === 'detail')!.children).toEqual(['mid', 'head_p', 'low', 'ctx']);
     expect(after.find((c) => c.id === 'writeup_p')).toMatchObject({ title: 'The write-up', treatment: 'feature' });
     expect(after.find((c) => c.id === 'writeup_p_s')).toMatchObject({ component: 'AnswerSections', rubric: 'auto' });
     // One set of written parts: withAnswerSections sees the shortlist's own and adds none.

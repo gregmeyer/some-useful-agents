@@ -21,6 +21,8 @@ A **notebook** is a goal you keep over time, like "Buy a used car" or "Find a ne
   - **More:** **Edit** (or press **e**), **+ Add entry**, **Decide…** or **Narrow…** when they aren't the main thing, and every format to share it in (the TL;DR picture, the spreadsheets, the answer file).
 - **While a step runs:** a short list of its steps shows under the meta line.
 - **Bands:** one at a time, in this order: what sua is waiting on you for, then an answer behind its newer sources, then what's new since the last run.
+- **The page, answer first:** a shortlist leads with where it stands (or, once written up, its lay of the land), then the options, the write-up and what it rests on, and where its sources are from. Its charts (where they sit, how far they got), head to head, the checklist, the timeline, the search log and its limits are one fold, **Charts, checks and how it was found**. A notebook that kept the Shortlist page gets this order without picking it again. Pages sua drew for a notebook keep their own order.
+- **Sources · N**, beside the answer: the first three pages it learned from (found quotes first) with ✓ found, ✗ not found or not checked yet, each opening its page, and how many more. The full list, each with its quote, is on the page.
 - **Steps and details:** a fold under the header holds the steps with their own buttons (Search again, Check the top N, Answer again…), **Update all**, what you gave it and **＋ Add a file or paste**, its limits, how often it runs, what's new, **How it was made**, **Run the pipeline now**, and **Done when**.
   - It opens by itself when a step stopped short.
   - Once you open it, it stays open in this browser.

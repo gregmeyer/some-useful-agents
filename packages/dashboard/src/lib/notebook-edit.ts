@@ -120,6 +120,8 @@ const stepWords = (s: Pick<NotebookStep, 'kind' | 'target' | 'agentId' | 'subjec
 export function pageName(layout: NotebookLayout | undefined): string {
   if (!layout) return 'Shortlist';
   const preset = layout.preset ? layoutPreset(layout.preset) : undefined;
+  // Pages kept up to date in place (notebookLayoutOf): their preset names them, whatever version was saved.
+  if (preset && (layout.preset === 'shortlist' || layout.preset === 'runbook')) return preset.label;
   if (preset && JSON.stringify(preset.layout.components) === JSON.stringify(layout.components)) return preset.label;
   return 'Made for this answer';
 }
