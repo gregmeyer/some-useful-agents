@@ -20,6 +20,7 @@ import { parseAgentEdit, prepareAgentEdit, applyAgentEdit, preservedNote } from 
 import { TOOL_REFACTOR_APPLY, readToolRefactorInputs, applyToolRefactor } from '../lib/tool-refactor.js';
 import { startToolRefactor } from '../lib/tool-refactor-draft.js';
 import { executeSkillSave, skillsForTriage, skillsLinked, startSkillDraft } from '../lib/skill-actions.js';
+import { executeTemplateSave, startTemplateDraft } from '../lib/template-actions.js';
 import { rerunNotebook, createNotebookFrom, type NewNotebookSetup } from '../lib/notebook-create.js';
 import { experimentsForTriage, experimentsLinked } from '../lib/experiment-notebook.js';
 import { previewNotebookLayout, executeNotebookLayout } from '../lib/notebook-layout-action.js';
@@ -187,6 +188,8 @@ const TRIAGE_AUTO_APPROVE_AGENTS: ReadonlySet<string> = new Set([
   'tool-refactor',
   // Only drafts a skill; saving it is its own card.
   'skill-draft',
+  // Only drafts a template; saving it is its own card.
+  'template-draft',
   // A question asked: sua researches it and writes the answer, within the run and day spend limits.
   'notebook-ask',
 ]);
@@ -241,7 +244,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-ask', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'board-build', 'view-redesign', 'edition-ask', TOOL_REFACTOR_APPLY, 'tool-refactor', 'skill-draft', 'skill-save']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-ask', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'board-build', 'view-redesign', 'edition-ask', TOOL_REFACTOR_APPLY, 'tool-refactor', 'skill-draft', 'skill-save', 'template-draft', 'template-save']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -456,7 +459,7 @@ export async function runProposedAction(
     // A notebook step runs in the background and posts how it went itself; a
     // follow-up turn now would only guess ("still running…") and go stale.
     // A correction posts its own card (or question), and its rewrite says how it went.
-    if (meta.agentId !== 'notebook-step' && meta.agentId !== 'notebook-ask' && meta.agentId !== 'notebook-correct' && meta.agentId !== 'notebook-correct-apply' && meta.agentId !== 'tool-refactor' && meta.agentId !== 'skill-draft') maybeRefireTriage(ctx, messageId);
+    if (meta.agentId !== 'notebook-step' && meta.agentId !== 'notebook-ask' && meta.agentId !== 'notebook-correct' && meta.agentId !== 'notebook-correct-apply' && meta.agentId !== 'tool-refactor' && meta.agentId !== 'skill-draft' && meta.agentId !== 'template-draft') maybeRefireTriage(ctx, messageId);
     return;
   }
 
@@ -990,6 +993,13 @@ async function executeRouteHandledAgent(
   }
   if (meta.agentId === 'skill-save') {
     return executeSkillSave(ctx, meta);
+  }
+  if (meta.agentId === 'template-draft') {
+    // The template-drafter drafts it in the background; posts the template-save card itself.
+    return startTemplateDraft(ctx, messageId, meta);
+  }
+  if (meta.agentId === 'template-save') {
+    return executeTemplateSave(ctx, meta);
   }
   if (meta.agentId === TOOL_REFACTOR_APPLY) {
     // A shared tool and the agents that then call it: all saved, or none.
@@ -2482,7 +2492,7 @@ export function verifyResolveEvidence(
  * to the notebook."). Nothing to interpret and nothing to chain, unlike an
  * analysis, an agent fix (rerun to verify) or a new notebook (start it).
  */
-export const REPORTS_ITSELF: ReadonlySet<string> = new Set(['notebook-layout', 'notebook-photo', 'notebook-add', 'adjust-surface', 'arrange-board', 'board-page', 'agent-schedule', 'agent-settings', 'notebook-template', 'dashboard-editor', 'skill-save']);
+export const REPORTS_ITSELF: ReadonlySet<string> = new Set(['notebook-layout', 'notebook-photo', 'notebook-add', 'adjust-surface', 'arrange-board', 'board-page', 'agent-schedule', 'agent-settings', 'notebook-template', 'dashboard-editor', 'skill-save', 'template-save']);
 
 /**
  * Every action since their last message ran, finished with a summary, and is
@@ -2976,7 +2986,7 @@ export async function runTriageAgent(
     );
     // agent-settings is route-handled too: a settings request needs no runnable agents.
     const planHasSettings = rawActionList.some(
-      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-steps', 'notebook-create', 'notebook-ask', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'tool-refactor', 'skill-draft', 'skill-save'].includes(String((a as { type?: unknown }).type)),
+      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-steps', 'notebook-create', 'notebook-ask', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'tool-refactor', 'skill-draft', 'skill-save', 'template-draft'].includes(String((a as { type?: unknown }).type)),
     );
     // The proposed actions are checked BEFORE the reply is posted: when every one
     // is refused and a recovery turn will run anyway, the reply (which described a

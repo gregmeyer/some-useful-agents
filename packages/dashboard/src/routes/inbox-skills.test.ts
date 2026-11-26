@@ -37,7 +37,7 @@ afterEach(() => {
 });
 const skills = () => SkillStore.fromHandle(runStore.databaseHandle());
 
-const DRAFT = `<skill name="evaluate-software" description="Evaluate software for a job: gates, a 0–4 rubric, unknown never zero.">
+const DRAFT = `<skill name="choose-vendors" description="Evaluate software for a job: gates, a 0–4 rubric, unknown never zero.">
 ## Objective
 Select a defensible path to an outcome, not a category winner.
 </skill>
@@ -79,8 +79,8 @@ describe('skill-draft → the skill-save card', () => {
     expect(seen.CONVERSATION).toContain('Evaluate software…');
     expect(seen.SKILLS).toContain('- research-shape:');
     expect(card).toMatchObject({ status: 'proposed', ctaLabel: 'Save it and add it', inputs: { AGENT_IDS: 'job-finder' } });
-    expect(JSON.parse(card!.inputs.NEW_SKILLS)[0]).toMatchObject({ name: 'evaluate-software', base: null });
-    expect(skills().get('evaluate-software')).toBeUndefined();
+    expect(JSON.parse(card!.inputs.NEW_SKILLS)[0]).toMatchObject({ name: 'choose-vendors', base: null });
+    expect(skills().get('choose-vendors')).toBeUndefined();
   });
 
   it('tries once more when a draft can\'t be used, and says so when neither can', async () => {
@@ -115,10 +115,10 @@ describe('the skill-save card', () => {
     const { card } = await draft(ctx, { ASK: 'x', AGENT_IDS: 'job-finder,news-digest' });
     const r = executeSkillSave(ctx, card!);
     expect(r.status).toBe('completed');
-    expect(r.summary).toContain('[evaluate-software](/skills/evaluate-software)');
-    expect(skills().get('evaluate-software')?.version).toBe(1);
-    expect(agentStore.getAgent('job-finder')).toMatchObject({ skills: ['evaluate-software'], version: 2 });
-    expect(agentStore.getAgent('news-digest')?.skills).toEqual(['evaluate-software']);
+    expect(r.summary).toContain('[choose-vendors](/skills/choose-vendors)');
+    expect(skills().get('choose-vendors')?.version).toBe(1);
+    expect(agentStore.getAgent('job-finder')).toMatchObject({ skills: ['choose-vendors'], version: 2 });
+    expect(agentStore.getAgent('news-digest')?.skills).toEqual(['choose-vendors']);
   });
 
   it('adds a skill they have to an agent; refuses past 16 KB with nothing saved', () => {

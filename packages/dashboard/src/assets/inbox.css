@@ -2882,6 +2882,12 @@ span.panel-home__star { cursor: default; }
 .act-card__skill-head { margin: 0; font-size: var(--font-size-sm); }
 .act-card__skills .act-card__note { margin-left: 0; margin-right: 0; }
 .act-card__skills .inbox-action__diff-body { white-space: pre-wrap; }
+.act-card__criteria { margin: var(--space-3) var(--space-3) 0; }
+.act-card__criteria .act-card__changes { margin-left: 0; margin-right: 0; }
+.act-card__change > span { min-width: 0; }
+.act-card__anchors { margin-top: var(--space-1); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.act-card__anchors summary { cursor: pointer; }
+.act-card__anchors ol { margin: var(--space-1) 0 0; padding-left: var(--space-4); }
 .act-card__aside { margin-left: auto; align-self: center; font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .act-card__details { margin-top: var(--space-2); font-size: var(--font-size-xs); color: var(--color-text-subtle); }
 .act-card__details > summary { cursor: pointer; }

@@ -572,11 +572,28 @@ A notebook you run again and again (a job search, a car search, a comp set) can 
 - **What it keeps:** the notebook's setup, not its content:
   - **Kept:** what it's for, its limits, its done-whens (all unmet), the facts each option notes, its checks and stages, its steps (with their agents; status reset), its schedule and pipeline.
   - **Not kept:** options, notes, decision, history and filter labels. Every notebook made from it starts empty.
+- **Templates from a skill:** see [below](#templates-from-a-skill).
 - **Start one with sua:** ask "start a notebook from my Job search template", or use **Start with sua →** next to it on **New notebook**. A template with a subject has a box for it there ("Acme Corp"); without one, sua asks it first. Every `{subject}` is filled in when you approve. A subject given with its website ("Duolingo, duolingo.com") is split: the name is filled in, and the site is kept as that organization's own site, so the notebook becomes a briefing on it. A notebook with no title of its own is named after the template and its subject ("Company briefing: Duolingo"). sua then:
   - asks what's different this time, one or two questions per reply and at most 4 in all, each with button answers: the template's own value first ("Remote or Austin, TX"), then likely alternatives, or type your own. It asks about the limits that change between runs (place, level, pay floor, budget), how many to find and a deadline, and skips what you already said. **Use the template as is** skips the rest;
   - offers a **Create notebook** card showing the template, the title, the limits, done-whens and checks (before → after when they change: a check that names a place, level or pay floor changes with it) and the steps.
 - **When you approve it:** the notebook is created empty with the template's setup and this time's changes. A step whose agent is no longer installed falls back to sua's finder or checker, or says it needs an agent. Nothing runs until you start its first step.
 - **Archive or delete one:** on **New notebook**, each template's row says what it's for, with a box for its subject and **Start →**; its **⋯** menu has **Archive** and **Delete…**. **Archive** keeps a template but stops it being offered there or by sua. Archived ones fold away under **Archived templates**, each with **Restore**. Saving a template with the same name restores it too. The **×** deletes a template (it asks once). Notebooks made from it stay either way.
+
+
+### Templates from a skill
+
+A [skill](skills.md) that says how a kind of work is done can become a template without a notebook to start from. Ask sua: "build a comparison template for picking a CRM for a 5-person sales team" (say "quick" for the skill's quick mode). sua hands the job and the skills to the **template drafter**, which follows them to write the whole template:
+- what it's for, as the skill's job statement;
+- what each notebook asks for before it runs (your stack, volume, budget), at most 4;
+- its checks (for a comparison, the gates every option must pass);
+- the facts each option notes, with the **scored criteria** (each with its weight, what 0–4 mean for this job, and its side of the 2x2);
+- its steps, each with its agent, and its page.
+
+Drafting changes nothing. The draft is checked in code like any template: the weights add to 100, each scored criterion has its anchors and a side, at most 6 steps and 4 asks, and every step's agent is installed. One that fails is drafted once more, told what was wrong. It ends in a **Save the template** card listing the gates, each criterion's weight and side (with what 0–4 mean folded under it), the steps and the page. Approve it, then start notebooks from it like any template. Ask again to change it ("make integration 30", "add a gate for SSO"): the card says it replaces the one you have.
+
+The drafter is generic: the skills say what goes in. The shipped pair `evaluate-software` and `software-rubric` make a comparison: find 5–8 options (3–5 in quick mode) → check the gates → score each criterion → write up the field → pick one, on the Comparison page.
+
+**Scoring** is the **software scorer**, the source step's agent: for each option still missing scores, it researches the criteria three options at a time (research-fanout), scores what the research found against the anchors (a model with no tools, following `software-rubric`), then keeps a score only when code finds its quote word for word on the page it cites. A score with no page, words that aren't there, or a page that can't be read stays **unknown**, never 0, and the run's note says how many. Each kept score carries its source, quote and confidence (high, medium, low).
 
 ### A brief to share
 

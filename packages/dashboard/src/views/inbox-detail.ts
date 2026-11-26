@@ -4,6 +4,7 @@ import { stepsCard } from './steps-card.js';
 import { pageName } from '../lib/notebook-edit.js';
 import { prepareViewForRender, viewToMessages, type ViewComponent } from '@some-useful-agents/core';
 import { parseCardSkills } from '../lib/skill-proposals.js';
+import { cardSetup, layoutLabel } from '../lib/template-card.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
 import { renderReplyBody } from '../lib/reply-body.js';
 import { renderThreadMessage, renderThread, isGrouped } from './thread.js';
@@ -204,7 +205,7 @@ const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
  * surface the real agents the conversation is about.
  */
 const NON_SUBJECT_AGENT_IDS: ReadonlySet<string> = new Set([
-  '_resolve-thread', 'agent-editor', 'agent-compose', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-ask', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'view-redesign', 'board-build', 'edition-ask', TOOL_REFACTOR_APPLY, 'tool-refactor', 'skill-draft', 'skill-save', 'skill-drafter',
+  '_resolve-thread', 'agent-editor', 'agent-compose', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-ask', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'view-redesign', 'board-build', 'edition-ask', TOOL_REFACTOR_APPLY, 'tool-refactor', 'skill-draft', 'skill-save', 'skill-drafter', 'template-draft', 'template-save', 'template-drafter',
   'agent-analyzer', 'agent-catalog-search', 'agent-builder',
 ]);
 
@@ -962,6 +963,10 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
                 ? html`${meta.status === 'completed' ? 'Drafting' : 'Draft'} ${meta.inputs.NAME ? html`a change to the skill <span class="mono">${meta.inputs.NAME}</span>` : html`a skill`}`
               : meta.agentId === 'skill-save'
                 ? (() => { const n = parseCardSkills(meta.inputs.NEW_SKILLS)[0]?.name ?? meta.inputs.SKILL ?? ''; const done = meta.status === 'completed'; return meta.inputs.NEW_SKILLS ? html`${done ? 'Saved' : 'Save'} the skill <span class="mono">${n}</span>` : html`${done ? 'Added' : 'Add'} the skill <span class="mono">${n}</span> to ${(meta.inputs.AGENT_IDS ?? '').split(',').filter(Boolean).length === 1 ? html`<span class="mono">${meta.inputs.AGENT_IDS}</span>` : html`${String((meta.inputs.AGENT_IDS ?? '').split(',').filter(Boolean).length)} agents`}`; })()
+              : meta.agentId === 'template-draft'
+                ? html`${meta.status === 'completed' ? 'Drafting' : 'Draft'} ${meta.inputs.NAME ? html`a change to the template <span class="mono">${meta.inputs.NAME}</span>` : html`a template`} from ${(meta.inputs.SKILLS ?? '').split(',').filter(Boolean).map((s, i) => html`${i ? ' and ' : ''}<span class="mono">${s.trim()}</span>`) as unknown as SafeHtml[]}`
+              : meta.agentId === 'template-save'
+                ? html`${meta.status === 'completed' ? 'Saved' : 'Save'} the template <span class="mono">${meta.inputs.NAME ?? ''}</span>`
               : meta.agentId === 'agent-schedule'
                 ? html`Change when <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> runs`
                 : html`Run <span class="mono">${meta.agentId}</span>`}
@@ -979,7 +984,8 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
     ${meta.agentId === 'notebook-photo' && meta.status === 'proposed' && /^https?:\/\//i.test(meta.inputs.IMAGE ?? '') ? html`<figure class="act-card__pic"><img src="${meta.inputs.IMAGE}" alt="${meta.inputs.ALT ?? 'The picture to use'}" loading="lazy" referrerpolicy="no-referrer">${meta.inputs.CREDIT ? html`<figcaption>${meta.inputs.CREDIT}</figcaption>` : html``}</figure><p class="act-card__note">sua keeps a copy in the notebook; the page never loads it from that site. Ask to go back to its sources' photos any time.</p>` : html``}
     ${meta.agentId === TOOL_REFACTOR_APPLY ? renderToolRefactor(meta) : html``}
     ${meta.agentId === 'skill-save' ? renderSkillSave(meta) : html``}
-    ${[TOOL_REFACTOR_APPLY, 'tool-refactor', 'skill-draft', 'skill-save', 'notebook-ask', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply'].includes(meta.agentId) ? html`` : (meta.agentId === 'agent-editor' || meta.agentId === 'agent-compose') && meta.inputs.NEW_YAML
+    ${meta.agentId === 'template-save' ? renderTemplateSave(meta) : html``}
+    ${[TOOL_REFACTOR_APPLY, 'tool-refactor', 'skill-draft', 'skill-save', 'template-draft', 'template-save', 'notebook-ask', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply'].includes(meta.agentId) ? html`` : (meta.agentId === 'agent-editor' || meta.agentId === 'agent-compose') && meta.inputs.NEW_YAML
       // Against the agent as it was when the fix was proposed (older cards: as it is now).
       ? html`${meta.agentId === 'agent-compose' && meta.status === 'proposed'
         ? html`<p class="act-card__note">Turns on <span class="mono">${meta.inputs.HELPER_ID ?? ''}</span>, a new agent other agents can use too${meta.inputs.HELPER_ABOUT ? html`: ${meta.inputs.HELPER_ABOUT}` : html`.`} ${meta.fork ? html`` : html`Saves <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> as a new version that calls it; roll back any time from Versions. `}If that save fails, <span class="mono">${meta.inputs.HELPER_ID ?? ''}</span> stays a draft.</p>`
@@ -1242,6 +1248,35 @@ function renderSkillSave(meta: InboxActionMeta): SafeHtml {
   return html`${skills.length ? renderSkillChanges(meta.inputs.NEW_SKILLS, false) : meta.inputs.SKILL ? html`<p class="act-card__skill-head"><span class="act-card__change-what">Skill</span> <a class="mono" href="/skills/${encodeURIComponent(meta.inputs.SKILL)}">${meta.inputs.SKILL}</a></p>` : html``}
     ${ids.length ? html`<p class="act-card__skill-head"><span class="act-card__change-what">Added to</span> ${ids.map((id, i) => html`${i ? ', ' : ''}<a class="mono" href="/agents/${encodeURIComponent(id)}">${id}</a>`) as unknown as SafeHtml[]}</p>` : html``}
     ${proposed ? html`<p class="act-card__note">${skills.some((s) => s.base?.source === 'shipped') ? 'Saved as your copy; the shipped one stays as it is. ' : skills.length ? 'Saved as a new version you can restore from its page. ' : ''}${ids.length ? `Each agent it's added to is saved as a new version. ` : ''}${skills.length ? 'Every agent that lists it gets the new text.' : ''}</p>` : html``}`;
+}
+
+/**
+ * sua's "Save the template" card for a template drafted from skills: what a
+ * notebook from it is for, asks, is held to (its gates), is scored on (each
+ * criterion's weight, side of the 2x2 and anchors), its steps and its page.
+ */
+function renderTemplateSave(meta: InboxActionMeta): SafeHtml {
+  const setup = cardSetup(meta.inputs.SETUP);
+  if (!setup) return html``;
+  const scored = setup.fields.filter((f) => f.weight !== undefined);
+  const facts = setup.fields.filter((f) => f.weight === undefined);
+  const row = (what: string, body: SafeHtml | string) => html`<li class="act-card__change"><span class="act-card__change-what">${what}</span><span>${body}</span></li>`;
+  const page = layoutLabel(setup);
+  return html`<ul class="act-card__changes">
+      ${row("what it's for", setup.statement)}
+      ${setup.asks?.length ? row('asks you for', setup.asks.map((a) => `${a.label}${a.optional ? '' : ' (waits for it)'}`).join('; ')) : html``}
+      ${setup.params.length ? row('limits', setup.params.join('; ')) : html``}
+      ${setup.checks.length ? row(scored.length ? 'gates' : 'checks', setup.checks.join('; ')) : html``}
+      ${setup.steps.length ? row('steps', setup.steps.map((s, i) => `${String(i + 1)}. ${s.title}${s.agentId ? ` (${s.agentId})` : ''}`).join('; ')) : html``}
+      ${facts.length ? row('facts each notes', facts.map((f) => f.label).join(', ')) : html``}
+      ${setup.criteria.length ? row('done when', setup.criteria.join('; ')) : html``}
+      ${page ? row('its page', page) : html``}
+    </ul>
+    ${scored.length ? html`<div class="act-card__criteria">
+      <p class="act-card__skill-head"><span class="act-card__change-what">Scored 0–4 on</span> ${String(scored.length)} criteria, weights adding to 100</p>
+      <ul class="act-card__changes">${scored.map((f) => html`<li class="act-card__change"><span class="act-card__change-what">${f.label}</span><span><span class="mono">${String(f.weight)}</span> · ${f.axis ?? ''}${f.anchors?.length ? html`<details class="act-card__anchors"><summary>what 0–4 mean</summary><ol start="0">${f.anchors.map((a) => html`<li>${a}</li>`) as unknown as SafeHtml[]}</ol></details>` : html``}</span></li>`) as unknown as SafeHtml[]}</ul>
+    </div>` : html``}
+    ${meta.status === 'proposed' ? html`<p class="act-card__note">${meta.inputs.REPLACES ? 'Replaces the template as it is now. ' : ''}Nothing runs until you start a notebook from it. A score nobody has found yet counts as unknown, never 0.</p>` : html``}`;
 }
 
 /**

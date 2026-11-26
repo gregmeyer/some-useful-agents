@@ -433,6 +433,7 @@ export class AgentStore {
     if (agent.sampleQuestions) dag.sampleQuestions = agent.sampleQuestions;
     if (agent.behaviors) dag.behaviors = agent.behaviors;
     if (agent.skills) dag.skills = agent.skills;
+    if (agent.skillsFromInput) dag.skillsFromInput = agent.skillsFromInput;
     if (agent.permissions) dag.permissions = agent.permissions;
     // allowedSubAgents is preserved through any value the caller sets,
     // including an explicit empty array (= "text-only, no sub-agents
@@ -524,6 +525,7 @@ export class AgentStore {
       sampleQuestions: dag.sampleQuestions,
       behaviors: dag.behaviors,
       skills: dag.skills,
+      skillsFromInput: dag.skillsFromInput,
       permissions: dag.permissions,
       allowedSubAgents: dag.allowedSubAgents,
       runOn: dag.runOn,

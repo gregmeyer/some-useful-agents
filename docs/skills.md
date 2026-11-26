@@ -27,6 +27,19 @@ substitution, so `{{…}}` in a skill stays as written. The block tells the
 model that the text is quoted know-how: it doesn't change the task, and it
 can't give the agent tools or access it wasn't given.
 
+**Chosen when it's run.** An agent whose know-how depends on the job names
+one of its inputs as `skillsFromInput`; the skills that input lists (comma-
+or space-separated) are added after its own, with the same limits. sua's
+template drafter does this, so one agent drafts a comparison template from
+`evaluate-software, software-rubric` and another kind from other skills:
+
+```yaml
+id: template-drafter
+skillsFromInput: SKILLS
+inputs:
+  SKILLS: { type: string, required: true }
+```
+
 A listed skill that doesn't exist **fails the run before any node runs**. The
 agent was written expecting that know-how, and output without it looks fine
 and isn't. The agent's page shows its skills under **Uses skills** and marks
@@ -73,6 +86,7 @@ sua knows your skills: ask "what skills do I have?", "what does research-shape s
 - **Write one:** "make a skill from this" (after pasting text), "write a skill for how we cite filings". sua hands it to the **skill drafter**, an agent that itself uses the shipped `writing-skills` skill, which keeps it short, one kind of work, rules with their reasons, under 6 KB and with no templates. Drafting changes nothing; it ends in a **Save the skill** card with the text. Say which agents should use it and the card adds it to them too.
 - **Change one:** "add a rule to research-shape: …". The card shows what changes. A shipped skill is saved as your copy.
 - **Use one:** "use web-search in my news agent" gives an **Add the skill** card.
+- **Make a template from one:** "build a comparison template for picking a CRM" has the template drafter follow skills you name (or sua picks) to draft a notebook template. See [Templates from a skill](notebooks.md#templates-from-a-skill).
 - **Approving** saves the skill as a new version and each agent as a new version, all or nothing. It's refused, with the reason, if the skill changed since it was drafted or an agent's skills would go over 16 KB together. Take a skill off an agent, or delete one, on its page.
 
 ## Skills sua proposes
@@ -118,6 +132,8 @@ sua skill show <name>    # its full text, as agents get it
 | `web-search` | agent-builder, agent-analyzer | Search results come from web-search-links; a model that searches and reads uses the web-search tool; never scrape a search engine. |
 | `shell-steps` | agent-builder, agent-analyzer | Python shell steps import `sua_helpers` (upstream, last_json, emit) instead of their own copies. See [templating](templating.md#shell-helpers-python). |
 | `writing-skills` | skill-drafter | How to write a skill: one kind of work, rules with their reasons, under 6 KB, never a template or a manual. |
+| `evaluate-software` | template-drafter (when named) | Evaluate software for a job: a job statement, gates, 5–8 candidates with reasons, evidence, a recommendation and a proof plan; Quick and Standard modes. |
+| `software-rubric` | software-scorer; template-drafter (when named) | Score 0–4 against anchors for the job, unknown never zero, default weights, evidence with confidence, bounds and coverage, a 36-month cost view. |
 
 ## Skills, behaviors and memory
 

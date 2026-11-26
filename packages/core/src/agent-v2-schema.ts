@@ -530,6 +530,13 @@ export const agentV2Schema = z.object({
       'Skill names are lowercase letters, digits, and single hyphens (e.g. "research-shape").',
     ),
   ).optional(),
+
+  /**
+   * The input whose value names more skills for this run (comma- or
+   * space-separated), after `skills`: for an agent whose know-how is chosen
+   * when it's run (the template drafter). Same limits as `skills`.
+   */
+  skillsFromInput: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'skillsFromInput names one of the agent\'s inputs.').optional(),
 }).superRefine((data, ctx) => {
   // Unique node ids
   const seen = new Map<string, number>();
@@ -546,6 +553,10 @@ export const agentV2Schema = z.object({
   }
 
   const nodeIds = new Set(data.nodes.map((n) => n.id));
+
+  if (data.skillsFromInput && !(data.inputs && data.skillsFromInput in data.inputs)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['skillsFromInput'], message: `Names "${data.skillsFromInput}", which is not one of this agent's inputs.` });
+  }
 
   // view: a generated view must name a node; declared components must be a
   // valid A2UI view against the sua catalog (same checks as the renderer).
