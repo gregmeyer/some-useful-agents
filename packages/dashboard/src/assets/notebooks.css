@@ -1410,3 +1410,6 @@ body.has-sua-panel .nb-toast { display: none; }
 .nb-follow__state { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-muted); white-space: nowrap; }
 .nb-follow__state--done { color: var(--color-primary); }
 .nb-askcard .nb-follow__form { flex-direction: column; align-items: stretch; }
+
+/* The sua drawer is open beside an answer: it is the conversation, so the side ask card steps aside (the inbox cleanup). */
+body.has-sua-panel [data-nb-askcard] { display: none; }

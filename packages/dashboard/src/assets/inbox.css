@@ -401,13 +401,15 @@
   flex-direction: column;
 }
 .inbox-detail__header {
-  position: sticky;
-  top: 0;
-  background: var(--color-surface, #1f2430);
-  padding-bottom: var(--space-3);
+  /* Scrolls with the conversation (the inbox cleanup): with the answer card and its steps it's too tall to pin.
+   * The reply box stays pinned at the bottom. */
+  padding: var(--space-3) 0;
   border-bottom: 1px solid var(--color-border);
-  z-index: 2;
+  display: grid;
+  gap: var(--space-2);
 }
+.inbox-detail__header > * { margin-top: 0; margin-bottom: 0; }
+.inbox-detail__header .thread-eyebrow { margin-bottom: -6px; }
 .inbox-detail__thread {
   margin-top: var(--space-2);
 }
@@ -548,7 +550,7 @@
   font-size: var(--font-size-xs);
   font-weight: var(--weight-semibold);
   padding: 1px var(--space-2);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
 }
 .inbox-verify--ok { color: var(--color-primary); background: var(--color-primary-soft); }
 .inbox-verify--fail { color: var(--color-warn); background: var(--color-warn-soft); }
@@ -561,7 +563,7 @@
   font-size: var(--font-size-xs);
   font-weight: var(--weight-semibold);
   padding: 1px var(--space-2);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   white-space: nowrap;
 }
 .inbox-action__prov--auto { color: var(--color-primary); background: var(--color-primary-soft); }
@@ -577,7 +579,7 @@
   font-size: var(--font-size-xs);
 }
 .inbox-trust__state { color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 6px; }
-.inbox-trust__state::before { content: ""; width: 6px; height: 6px; border-radius: 999px; display: inline-block; }
+.inbox-trust__state::before { content: ""; width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
 .inbox-trust__state--auto::before { background: var(--color-primary); }
 .inbox-trust__state--manual::before { background: var(--color-warn); }
 .inbox-trust__btn {
@@ -1576,7 +1578,7 @@
   padding: 0 var(--space-3);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
   cursor: pointer;
@@ -1625,7 +1627,7 @@
   text-transform: uppercase;
   color: var(--color-text-muted);
 }
-.inbox-autonomy__dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
+.inbox-autonomy__dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .inbox-autonomy__dot--on { background: var(--color-primary); }
 .inbox-autonomy__dot--warn { background: var(--color-warn); }
 .inbox-autonomy__dot--off { background: var(--color-text-muted); }
@@ -1797,30 +1799,6 @@ h3.inbox-modal__title {
  * (the target agent + every action's target). Distinct from user tag pills:
  * link-styled, no ×, with a leading accent dot to read as "agent". */
 .inbox-modal__agents { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.inbox-agent-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 22px;
-  padding: 0 var(--space-2);
-  background: var(--color-surface-raised);
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  font-size: var(--font-size-xs);
-  color: var(--color-text);
-  text-decoration: none;
-  white-space: nowrap;
-  transition: border-color 0.12s, color 0.12s;
-}
-.inbox-agent-chip::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-primary);
-  flex: 0 0 auto;
-}
-.inbox-agent-chip:hover { border-color: var(--color-primary); color: var(--color-primary); }
 .inbox-modal__age { margin-left: auto; color: var(--color-text-muted); font-size: var(--font-size-xs); }
 /* Pending-work chip — triage emitted a commitmentSummary and an
  * action it proposed is still proposed/running. Surfaces in the
@@ -1831,7 +1809,7 @@ h3.inbox-modal__title {
   display: inline-flex;
   align-items: center;
   padding: 2px var(--space-2);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
   color: var(--color-text-muted);
@@ -1861,7 +1839,7 @@ h3.inbox-modal__title {
   padding: 0 var(--space-2);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   font-size: var(--font-size-xs);
   color: var(--color-text);
 }
@@ -1888,7 +1866,7 @@ h3.inbox-modal__title {
   padding: 0 var(--space-3);
   background: var(--color-surface);
   border: 1px dashed var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   font-size: var(--font-size-xs);
   color: var(--color-text);
   min-width: 6rem;
@@ -2371,7 +2349,7 @@ body.app.sua-panel-easing { transition: padding-right 200ms ease-in-out; }
   min-height: 40px;
   padding: var(--space-2) var(--space-3) var(--space-2) var(--space-2);
   border: 1px solid var(--color-border-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: var(--color-surface);
   color: var(--color-text);
   font: inherit;
@@ -2556,10 +2534,6 @@ body.app.sua-panel-easing { transition: padding-right 200ms ease-in-out; }
 @media (hover: none) { .panel-row .panel-row__menu { opacity: 1; } }
 .panel-row__menu-why { margin: 0 0 var(--space-1); padding: var(--space-2) var(--space-3); font-size: var(--font-size-xs); color: var(--color-text-muted); border-bottom: 1px solid var(--color-border); max-width: 18rem; }
 .panel-row__menu-why-label { display: block; font-family: var(--font-mono); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-subtle); margin-bottom: 2px; }
-.panel-row__tag { font-size: var(--font-size-xs); }
-.panel-row__tag--approve { color: var(--color-warn); }
-.panel-row__tag--answer { color: var(--color-info); }
-.panel-row__tag--fail { color: var(--color-err); }
 .panel-row__select { flex: none; margin: 0 0 0 var(--space-1); }
 .panel-home__empty { margin: 0; padding: var(--space-6) var(--space-2); text-align: center; color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .panel-home__more { align-self: center; }
@@ -2709,7 +2683,7 @@ textarea.panel-composer__input { flex: 1; min-width: 0; padding: 0; resize: none
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: var(--color-primary);
   color: var(--color-bg);
   font-family: var(--font-mono);
@@ -2781,7 +2755,7 @@ button.panel-home__star:hover { color: var(--color-text); }
 .panel-home__star { align-self: center; margin-top: 0; }
 /* Home's wide rows: the whole row (box, text, star) is one highlight, and the
  * select box sits where the status dot is instead of reserving a gutter. */
-.panel-row--wide { position: relative; border-radius: var(--radius-sm); }
+.panel-row--wide { position: relative; border-radius: 0; }
 /* Room between the highlight's edge and the dot, so the corner doesn't crowd it. */
 .panel-row--wide .panel-row__main { padding-left: var(--space-4); }
 .panel-row--wide:hover,
@@ -2830,20 +2804,11 @@ span.panel-home__star { cursor: default; }
   text-overflow: ellipsis;
   word-break: normal;
 }
-.inbox-detail .inbox-modal__title-row { align-items: center; padding-right: var(--space-6); }
+.inbox-detail .inbox-modal__title-row { align-items: center; padding-right: 0; }
+/* Only the centred modal has a × in the corner to clear. */
+#inbox-modal:not([data-panel]) .inbox-detail .inbox-modal__title-row { padding-right: var(--space-6); }
 .inbox-detail .inbox-modal__meta { gap: var(--space-2); font-size: var(--font-size-xs); color: var(--color-text-muted); }
-.thread-status {
-  padding: 1px var(--space-2);
-  border-radius: 999px;
-  background: var(--color-surface-raised);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-}
-.thread-status--awaiting_user { background: var(--color-warn-soft); color: var(--color-warn); }
-.thread-status--triaged, .thread-status--verifying { background: var(--color-info-soft); color: var(--color-info); }
-.thread-status--resolved { background: var(--color-ok-soft); color: var(--color-ok); }
 .thread-with { display: inline-flex; align-items: center; gap: var(--space-1); }
-.thread-starred { color: var(--color-warn); }
 .thread-tags { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-1); }
 .inbox-modal__menu-tags { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-2) var(--space-3); border-block: 1px solid var(--color-border); }
 .inbox-modal__menu-label { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
@@ -2897,7 +2862,7 @@ span.panel-home__star { cursor: default; }
   flex: none;
   padding: 0 var(--space-2);
   border: 1px solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   font-size: var(--font-size-xs);
   color: var(--color-text-subtle);
 }
@@ -2985,7 +2950,7 @@ span.panel-home__star { cursor: default; }
 .item-pane__kind {
   padding: 1px var(--space-2);
   border: 1px solid currentColor;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   color: var(--color-text-muted);
 }
 .item-pane__kind--alert { color: var(--color-err); }
@@ -3138,10 +3103,8 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 .home-history__who { color: var(--color-text); }
 .home-history__reason { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
 .home-history__changes { margin: 0; padding-left: var(--space-4); font-size: var(--font-size-xs); color: var(--color-text-subtle); }
-.panel-row__why { grid-column: 2 / -1; font-size: var(--font-size-xs); color: var(--color-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Why Needs you has what it has (Today). */
-.panel-group__why { margin: 0 var(--space-2) var(--space-1); font-size: var(--font-size-xs); color: var(--color-text-subtle); }
 .item-pane.is-done .item-pane__why { display: none; }
 
 /* Home's header, compact: title + goal on the left, notebooks / autonomy / Adjust on the right. */
@@ -3233,7 +3196,7 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 /* Ask sua pills: one click starts the conversation (views/ask-pills.ts). */
 .ask-pills { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .ask-pills__form { margin: 0; min-width: 0; max-width: 100%; }
-.ask-pill { display: inline-flex; align-items: center; box-sizing: border-box; min-height: var(--control-h-sm); max-width: 100%; padding: 0 var(--space-3); border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-surface); color: var(--color-text); font: inherit; font-size: var(--font-size-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.ask-pill { display: inline-flex; align-items: center; box-sizing: border-box; min-height: var(--control-h-sm); max-width: 100%; padding: 0 var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); font: inherit; font-size: var(--font-size-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .ask-pill:hover { border-color: var(--color-primary); color: var(--color-primary); background: var(--color-primary-soft); }
 .ask-pill:disabled { opacity: .6; cursor: progress; }
 /* Today, quiet: say so plainly, then what you could do. */
@@ -3352,8 +3315,8 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 .nbs-card__cover svg { object-fit: cover; }
 .nbs-card__cover img.is-drawn { object-fit: contain; }
 .nbs-card__cover:has(img:not(.is-drawn)) { background: var(--color-surface); }
-.nbs-card__waiting { position: absolute; top: var(--space-2); left: var(--space-2); padding: 2px var(--space-2); border-radius: 999px; background: var(--color-warn-soft); border: 1px solid var(--color-warn-border); color: var(--color-warn); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); }
-.nbs-card__mark { position: absolute; top: var(--space-2); left: var(--space-2); padding: 2px var(--space-2); border-radius: 999px; background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-muted); font-size: var(--font-size-xs); font-family: var(--font-mono); }
+.nbs-card__waiting { position: absolute; top: var(--space-2); left: var(--space-2); padding: 2px var(--space-2); border-radius: var(--radius-sm); background: var(--color-warn-soft); border: 1px solid var(--color-warn-border); color: var(--color-warn); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); }
+.nbs-card__mark { position: absolute; top: var(--space-2); left: var(--space-2); padding: 2px var(--space-2); border-radius: var(--radius-sm); background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-muted); font-size: var(--font-size-xs); font-family: var(--font-mono); }
 .nbs-card__kind { position: absolute; bottom: var(--space-1); right: var(--space-2); font-size: 10px; color: var(--color-text-subtle); background: var(--color-surface); border-radius: var(--radius-sm); padding: 0 4px; }
 .nbs-card__body { display: grid; gap: var(--space-1); padding: var(--space-3) var(--space-3) var(--space-4); }
 .nbs-card__title { font-weight: var(--weight-semibold); font-size: var(--font-size-sm); }
@@ -3427,7 +3390,10 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 
 /* Cards a notebook retired, folded to one quiet line in the conversation (open to see them). */
 .thread-fold { margin: 0; }
-.thread-fold__summary { cursor: pointer; padding: var(--space-1) 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.thread-fold__summary { cursor: pointer; list-style: none; padding: var(--space-1) 0; margin-left: calc(24px + var(--space-3)); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.thread-fold__summary::-webkit-details-marker { display: none; }
+.thread-fold__summary::before { content: '▸'; display: inline-block; width: 1.25em; }
+.thread-fold[open] > .thread-fold__summary::before { content: '▾'; }
 .thread-fold__summary:hover { color: var(--color-text); }
 .thread-fold[open] > .thread-fold__summary { margin-bottom: var(--space-2); }
 .thread-fold__list { margin: 0; padding-left: var(--space-3); border-left: 1px dashed var(--color-border); }
@@ -3497,3 +3463,8 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 .inbox-head__meta { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0; font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .inbox-head__needs { color: var(--color-warn); font-weight: 600; }
 .inbox-head__sep { color: var(--color-text-subtle); white-space: pre; }
+
+/* The reply box is one box: the field inside it has no ring of its own; the box shows focus. */
+.inbox-chatbar textarea, .inbox-chatbar textarea:focus { border-color: transparent; box-shadow: none; outline: none; }
+/* Rows are ruled lines: straight rules, the highlight square to them. */
+.panel-group__rows > .panel-row > .panel-row__main { border-radius: 0; }
