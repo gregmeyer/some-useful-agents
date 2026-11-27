@@ -16,7 +16,8 @@ import { BoardConflictError, boardDocAgentIds, boardDocSystemTileIds, type Board
 import { applyBoardOps, describeBoardDoc } from './board-tree.js';
 import { brandGuideText } from './brand-theme.js';
 import { webScrape } from './web-fetch/scrape.js';
-import { screenshotWithBrowser, SHOT_VIEW_HEIGHT } from './web-fetch/browser.js';
+import { htmlToPng, screenshotWithBrowser, SHOT_VIEW_HEIGHT } from './web-fetch/browser.js';
+import { cleanSvg } from './svg-clean.js';
 import { saveRunFile } from './run-files.js';
 import { notebookTags, type Notebook } from './notebooks.js';
 import { findNotebook, notebookReadoutJson, notebookReadoutText, NOTEBOOK_READ_PARTS, type NotebookReadPart } from './notebook-readout.js';
@@ -587,6 +588,43 @@ const BUILTINS: BuiltinToolEntry[] = [
         // The model looks at these (if it can see images); they aren't kept as outputs.
         images: shot.views.map((v) => ({ data: v.toString('base64'), mimeType: 'image/jpeg' as const })),
       };
+    },
+  ),
+
+  def(
+    'picture-from-svg',
+    'Picture from a drawing',
+    'Turn an SVG drawing into a PNG picture kept with the run, so it can be shown and added to an answer. Give it the drawing (one <svg> with a width and height or a viewBox; text around it is ignored). Scripts, event handlers, embedded pages and anything it would fetch are taken out first. Returns where the picture is kept; its result is JSON with title, graphic_path, width and height.',
+    {
+      svg: { type: 'string', description: 'The drawing: one <svg>…</svg> (a reply holding one is fine).', required: true },
+      title: { type: 'string', description: "What it is, for the picture's caption (blank: a `TITLE: …` line in the svg input).", default: '' },
+      timeout: { type: 'number', description: 'Timeout in seconds.', default: 60 },
+    },
+    {
+      title: { type: 'string', description: 'What it is.' },
+      graphic_path: { type: 'string', description: 'Where the picture is on disk (with the run).' },
+      file: { type: 'string', description: "The picture's name with the run (e.g. render-1.png)." },
+      width: { type: 'number', description: 'Width the drawing was made at, px (the PNG is twice that, for sharpness).' },
+      height: { type: 'number', description: 'Height the drawing was made at, px.' },
+      error: { type: 'string', description: 'Plain-English failure reason, or null on success.' },
+    },
+    async (inputs, ctx) => {
+      const fail = (error: string) => ({ error, result: JSON.stringify({ error }), isError: true });
+      if (!ctx.runFiles) return fail('No place to keep a picture here (it is kept with a run).');
+      const clean = cleanSvg(String(inputs.svg ?? ''));
+      if ('error' in clean) return fail(clean.error);
+      // Drawn at its own size (up to 2000px wide), twice as sharp.
+      const shown = Math.min(2000, clean.width);
+      const html = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0;background:#fff}svg{display:block;width:${String(shown)}px;height:auto}</style>${clean.svg}`;
+      const png = await htmlToPng(html, { width: shown, scale: 2, selector: 'svg', ...(inputs.timeout != null ? { timeoutSec: Number(inputs.timeout) } : {}) });
+      if (!png.available) return fail(`Couldn't draw it: ${png.reason}`);
+      const file = saveRunFile(ctx.runFiles, png.data);
+      const graphic_path = join(ctx.runFiles.dir, file);
+      // A blank title falls back to a `TITLE: …` line the drawing's reply gives.
+      const given = String(inputs.title ?? '').trim() || (/^\s*TITLE:\s*(.+)$/im.exec(String(inputs.svg ?? ''))?.[1] ?? '');
+      const title = given.replace(/\s+/g, ' ').trim().slice(0, 160);
+      const out = { title, graphic_path, file, width: clean.width, height: clean.height };
+      return { ...out, error: null, result: JSON.stringify(out) };
     },
   ),
 

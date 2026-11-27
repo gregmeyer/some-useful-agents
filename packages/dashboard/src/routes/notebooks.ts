@@ -465,6 +465,8 @@ function drawOption(nb: Notebook, entry: NotebookEntry): string {
 
 /** A saved brief's pictures, inside the file: each up to 600KB, 8MB in all; past that, none. */
 const BRIEF_PICTURE_MAX = 600 * 1024;
+/** An added picture (an artboard) is bigger than a photo and the point of it: up to 4 MB in a downloaded brief. */
+const BRIEF_ADDED_PICTURE_MAX = 4 * 1024 * 1024;
 const BRIEF_PICTURES_MAX = 8 * 1024 * 1024;
 function embeddedPictures(s: NotebookStore, nb: Notebook, entries: readonly NotebookEntry[]): BriefPicture {
   let total = 0;
@@ -1457,10 +1459,17 @@ function briefPage(req: Request, s: NotebookStore, nb: Notebook, o: { embed: boo
   const dataDir = (req.app.locals as { dataDir?: string }).dataDir;
   const mode = o.mode ?? (req.query.theme === 'light' || req.query.theme === 'dark' ? req.query.theme : undefined);
   const theme = briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode);
+  // Pictures added to it (an agent's artboard): carried in the file when it's a download, linked on screen.
+  const added = s.pictureNoteIds(nb.id).map((eid) => {
+    const e = entries.find((x) => x.id === eid);
+    const photo = o.embed ? s.photo(eid) : undefined;
+    const src = o.embed ? (photo && photo.bytes.length <= BRIEF_ADDED_PICTURE_MAX ? `data:${photo.contentType};base64,${Buffer.from(photo.bytes).toString('base64')}` : undefined) : `/notebooks/${encodeURIComponent(nb.id)}/entries/${encodeURIComponent(eid)}/photo`;
+    return e && src ? { src, title: e.title, entryId: eid } : undefined;
+  }).filter((x): x is { src: string; title: string; entryId: string } => !!x);
   // A page drawn for the notebook (a meeting briefing) prints as that page; a shortlist, as the shortlist brief.
   const page = briefIsPage(nb) && !latest
-    ? renderPageBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(withNew ? { whatsNew: true } : {}), ...(o.charts?.size ? { charts: o.charts } : {}), ...(full ? { full: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries), aboutPicture: embeddedAboutPicture(s, nb) } : {}) })
-    : renderNotebookBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(full ? { full: true } : {}), ...(latest ? { latest: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries), aboutPicture: embeddedAboutPicture(s, nb) } : {}) });
+    ? renderPageBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(withNew ? { whatsNew: true } : {}), ...(o.charts?.size ? { charts: o.charts } : {}), ...(full ? { full: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries), aboutPicture: embeddedAboutPicture(s, nb) } : {}), ...(added.length ? { added } : {}) })
+    : renderNotebookBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(full ? { full: true } : {}), ...(latest ? { latest: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries), aboutPicture: embeddedAboutPicture(s, nb) } : {}), ...(added.length ? { added } : {}) });
   return { page, full, latest, withNew };
 }
 

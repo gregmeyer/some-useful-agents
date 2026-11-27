@@ -7,14 +7,14 @@ import { getBuiltinTool, listBuiltinTools, isBuiltinTool, assertSafeUrl } from '
 import { MemorySecretsStore } from './secrets-store.js';
 
 describe('Builtin tool registry', () => {
-  it('lists all 21 built-in tools', () => {
+  it('lists all 22 built-in tools', () => {
     const tools = listBuiltinTools();
-    expect(tools.length).toBe(21);
+    expect(tools.length).toBe(22);
     const ids = tools.map((t) => t.id).sort();
     expect(ids).toEqual([
       'ask-human', 'board-place', 'board-read', 'csv-to-chart-json', 'experiment-read', 'file-read', 'file-write', 'http-get',
       'http-post', 'json-parse', 'json-path', 'memory-forget',
-      'memory-save', 'memory-search', 'notebook-read', 'oauth-loopback',
+      'memory-save', 'memory-search', 'notebook-read', 'oauth-loopback', 'picture-from-svg',
       'shell-exec', 'template', 'web-fetch', 'web-scrape', 'web-screenshot',
     ]);
   });
@@ -50,6 +50,18 @@ describe('Builtin tool registry', () => {
       const out = await entry.execute({ url: 'http://127.0.0.1:9/' }, { runFiles: { runId: 'r1', nodeId: 'research', dir } });
       expect(out.isError).toBe(true);
       expect(String(out.result)).toMatch(/Couldn't take a screenshot of http:\/\/127\.0\.0\.1:9\/: .*(private|loopback|Blocked)/i);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('picture-from-svg needs a run to keep it with and a drawing with a size, and says why', async () => {
+    const entry = getBuiltinTool('picture-from-svg')!;
+    expect(entry.definition.inputs.svg.required).toBe(true);
+    expect(entry.definition.outputs.graphic_path.type).toBe('string');
+    expect(await entry.execute({ svg: '<svg viewBox="0 0 1 1"/>' }, {})).toMatchObject({ isError: true, error: expect.stringContaining('kept with a run') });
+    const dir = mkdtempSync(join(tmpdir(), 'sua-svg-'));
+    try {
+      const out = await entry.execute({ svg: 'I could not draw that.' }, { runFiles: { runId: 'r1', nodeId: 'render', dir } });
+      expect(out).toMatchObject({ isError: true, result: JSON.stringify({ error: 'There is no <svg> drawing in it.' }) });
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 

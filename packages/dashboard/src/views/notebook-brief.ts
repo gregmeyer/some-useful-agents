@@ -9,7 +9,7 @@
  * laid out for print (Save as PDF). `fragment` leaves out the document
  * wrapper, for a host that adds its own (a Claude artifact).
  */
-import { briefColophon, briefHead, briefPage, briefSources, noteMarks, SourceNotes, traceTag } from './brief-document.js';
+import { briefColophon, briefHead, briefPage, briefSources, noteMarks, SourceNotes, traceTag, briefPictures, type BriefAddedPicture } from './brief-document.js';
 import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
 import { meetingWhenWords } from '../lib/notebook-edit.js';
 import { isListPage, isRange, rankOptions, readOptionText, writesUp, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookViewOption } from '@some-useful-agents/core';
@@ -268,7 +268,7 @@ const RULED_SHOWN = 12;
 
 const fmtDate = (iso: string | undefined, fallback: Date) => (iso ? new Date(iso) : fallback).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
-export function renderNotebookBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; fragment?: boolean; now?: Date; print?: boolean; full?: boolean; pictures?: BriefPicture; latest?: boolean; theme?: BriefTheme; /** A picture chosen for the notebook as the file carries it (its kept copy, embedded). */ aboutPicture?: (src: string) => string | undefined }): string {
+export function renderNotebookBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; fragment?: boolean; now?: Date; print?: boolean; full?: boolean; pictures?: BriefPicture; latest?: boolean; theme?: BriefTheme; /** A picture chosen for the notebook as the file carries it (its kept copy, embedded). */ aboutPicture?: (src: string) => string | undefined; /** Pictures added to the notebook (an agent's artboard). */ added?: readonly BriefAddedPicture[] }): string {
   // The dashboard's look (its tokens and brand theme), in your mode.
   const theme = args.theme ?? briefTheme();
   const { nb } = args;
@@ -288,7 +288,9 @@ export function renderNotebookBrief(args: { nb: Notebook; entries: readonly Note
   const detailed = active.slice(0, 12);
   const brief = active.slice(12);
   const ruled = [...d.options.filter((o) => o.ruledOut && isNew(o))].sort((a, b) => b.ruledOut!.at.localeCompare(a.ruledOut!.at));
-  const noted = notes(args.entries.filter((e) => !since || e.createdAt >= since));
+  // A picture's note is its caption under Pictures, not a note here too.
+  const pictured = new Set((args.added ?? []).map((p) => p.entryId));
+  const noted = notes(args.entries.filter((e) => (!since || e.createdAt >= since) && !pictured.has(e.id)));
   const searches = args.history?.searches?.(nb.id, 50).length ?? 0;
   const picks = decided ? decisionPicks(nb, args.entries) : undefined;
   const keyF = compareFields(nb)[0];
@@ -526,6 +528,7 @@ ${TLDR_CSS}
     ${nb.params.length ? html`<div><h2>Limits</h2><div class="limits">${nb.params.slice(0, 12).map((p) => html`<span class="chip">${p.length > 80 ? `${p.slice(0, 77)}…` : p}</span>`) as unknown as SafeHtml[]}</div></div>` : html``}
     ${nb.criteria.length ? html`<div><h2>Done when</h2><ul>${nb.criteria.map((c) => html`<li class="crit${c.met ? ' is-met' : ''}"><i>${c.met ? '✓' : '○'}</i><span>${c.text}</span></li>`) as unknown as SafeHtml[]}</ul></div>` : html``}
   </section>` : html``}
+  ${briefPictures(args.added)}
   ${briefSources(cites)}
   ${briefColophon({
     ...(args.latest ? {} : { places: d.coverage.sources.map((x) => ({ name: x.name, found: x.status === 'found' ? Number(x.found) || 0 : 0 })) }),

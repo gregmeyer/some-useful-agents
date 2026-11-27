@@ -291,9 +291,16 @@ Ask in the notebook's conversation ("give me a different photo", "use this pictu
 
 ### Pictures an agent made
 
-When an agent in a conversation makes a picture (Graphics creator's artboard, a chart), the finished run shows it in the conversation with **Add this picture to [answer] · Add**. The answer the conversation is about (one it links to, or one asked from it) comes first in the list, then your latest others. Adding it keeps a copy in the answer, as a note saying what it is and who made it, and the conversation says where it went. The answer's page then shows it under **Pictures**, at the column's width, with its title and a link to the run that made it, whatever layout the page has. Only PNG, JPEG, GIF and WebP pictures up to 10 MB are kept.
+When an agent in a conversation makes a picture (Artboard illustrator's illustrated steps, Graphics creator's card, a chart), the finished run shows it in the conversation; click it to open it full size.
+
+- **A conversation about one answer** (it links to it, or the answer was asked from it): the picture goes into that answer by itself, and the conversation says so ("Added … to …"). Under the picture: **In [answer] · Remove**.
+- **About none, or several:** under the picture, **Add to [the answer it's most likely for]**, and the others behind **Another answer**. A picture goes into an answer once; pressing Add again does nothing.
+
+In the answer it's kept as a note (what it is, who made it), with the image. The answer's page shows it under **Pictures**, at the column's width, with its title and a link to the run that made it, whatever layout the page has; its brief has a **Pictures** section too, and a downloaded brief or PDF carries the picture inside it. Only PNG, JPEG, GIF and WebP pictures up to 10 MB are kept.
 
 If the agent saved its picture somewhere sua can't read (a tool server in Docker keeps what it saves inside its container unless it's in a folder it shares; see [MCP](mcp.md#where-a-docker-server-saves-files)), the conversation says so and gives the path it reported, instead of showing a broken image.
+
+To have one **drawn** (each panel a small scene, not text in boxes), ask for an illustration or illustrated steps: sua uses [Artboard illustrator](../agents/examples/artboard-illustrator.yaml), which draws it as an SVG following the shipped `drawing-artboards` skill and any skill you name (an illustrate-wireframes skill), and [`picture-from-svg`](tools/picture-from-svg.md) turns that into the picture. Graphics creator fills the graphics server's templates (a title card, numbered text boxes) and can't draw.
 
 The photo of who a notebook is **about** (a person's photo on a person or meeting briefing, their company's logo) is part of what sua learned about them, so it's a correction: give a link, or ask for a new one and sua finds one that is clearly them, shows it, and offers the change.
 

@@ -1275,6 +1275,17 @@ next, say it was the last one in the running.
   `"inputs": { "NOTEBOOK": "<id>", "PRESET": "shortlist" }`; to undo the
   last change: `"inputs": { "NOTEBOOK": "<id>", "UNDO": "1" }`. It's a card
   they approve; only the page changes.
+- Pictures drawn for it (an artboard, illustrated steps, a storyboard):
+  that's an agent's run, not notebook-photo. To have it drawn, propose
+  `artboard-illustrator` with `BRIEF` (the panels in order: what happens in
+  each and its caption, from the notebook's own steps, plus any look they
+  asked for) and, when they named a skill for it, `SKILLS` (its name).
+  `graphics-creator-mcp` only fills text templates (a title card, numbered
+  text boxes); don't use it when they want drawings. When the run is done
+  and the conversation is about one notebook, sua adds the picture to it
+  and says so here ("Added … to …"): tell them it's under Pictures on that
+  notebook's page (and in its brief), never a file path. About none or
+  several, the picture has an Add button under it: say so.
 - Its picture: the photo that leads a notebook's page comes from its
   sources' own photos (NOTEBOOK_FOCUS says when one was chosen). When they
   want a different one ("give me a different photo", "use this picture",

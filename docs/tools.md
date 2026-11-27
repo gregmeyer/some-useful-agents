@@ -34,6 +34,7 @@ The tools below ship with the runtime. Each is trusted (source: `builtin`) and b
 | [`web-fetch`](tools/web-fetch.md) | Fetch a public web page as clean, readable text for a model |
 | [`web-scrape`](tools/web-scrape.md) | Extract structured data from a page (JSON-LD, metadata, optional rendered HTML) |
 | [`web-screenshot`](tools/web-screenshot.md) | A picture of a page as a browser shows it, kept with the run (shown on the run page) |
+| [`picture-from-svg`](tools/picture-from-svg.md) | Turn an SVG drawing a model made into a PNG kept with the run, so it shows in a conversation and can be added to an answer |
 | [`file-read`](tools/file-read.md) | Read a file within the project root |
 | [`file-write`](tools/file-write.md) | Write a file within the project root |
 | [`json-parse`](tools/json-parse.md) | Parse a JSON string into structured fields |

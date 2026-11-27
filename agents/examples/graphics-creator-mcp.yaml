@@ -38,6 +38,7 @@ entryConditions:
   - user wants a generated graphic on a topic
 nonEntryConditions:
   - user wants a data chart plotted from numbers (use chart-creator-mcp)
+  - user wants an illustration, artboard or illustrated steps with drawings in each panel (use artboard-illustrator; this one only fills text templates)
 sampleQuestions:
   - Make a hero graphic for my launch announcement.
   - Design artwork for this deck opener.
