@@ -289,6 +289,12 @@ Something sua has just read, before any step has used it, shows open just under 
 
 Ask in the notebook's conversation ("give me a different photo", "use this picture"). The photo at the top of a notebook's page comes from its sources' own photos; sua finds another itself, an openly licensed one with its page and credit, and shows it in the conversation. You don't need to know what was found or send a link. A **Use this picture** card follows, previewing it. Approving it fetches the picture (a JPEG, PNG, GIF or WebP, through the same guarded fetch as everything else) and keeps a copy in the notebook, so the page never loads it from that site. It then leads the page, credited and linked to where it's from. A file or article page works in place of the image itself: its preview picture is used. Ask to go back to its sources' photos any time.
 
+### Pictures an agent made
+
+When an agent in a conversation makes a picture (Graphics creator's artboard, a chart), the finished run shows it in the conversation with **Add this picture to [answer] · Add**. The answer the conversation is about (one it links to, or one asked from it) comes first in the list, then your latest others. Adding it keeps a copy in the answer, as a note saying what it is and who made it, and the conversation says where it went. The answer's page then shows it under **Pictures**, at the column's width, with its title and a link to the run that made it, whatever layout the page has. Only PNG, JPEG, GIF and WebP pictures up to 10 MB are kept.
+
+If the agent saved its picture somewhere sua can't read (a tool server in Docker keeps what it saves inside its container unless it's in a folder it shares; see [MCP](mcp.md#where-a-docker-server-saves-files)), the conversation says so and gives the path it reported, instead of showing a broken image.
+
 The photo of who a notebook is **about** (a person's photo on a person or meeting briefing, their company's logo) is part of what sua learned about them, so it's a correction: give a link, or ask for a new one and sua finds one that is clearly them, shows it, and offers the change.
 
 ## Option facts

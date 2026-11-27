@@ -639,6 +639,42 @@
 .inbox-action__inline-widget {
   margin-top: var(--space-2);
 }
+/* A picture a run made: add it to an answer, or why it can't be shown. */
+.inbox-action__pictures {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.inbox-action__picture img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+.inbox-action__keep {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+.inbox-action__keep select {
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 12rem;
+}
+.inbox-action__keep-done,
+.inbox-action__picture-missing {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+.inbox-action__picture-missing .mono {
+  overflow-wrap: anywhere;
+}
 /* Flatten the widget's own frame inside a thread — the action's left-rule is
    the only container it needs; without this the output-widget's border +
    radius + shadow stacks a box inside the card inside the message. */

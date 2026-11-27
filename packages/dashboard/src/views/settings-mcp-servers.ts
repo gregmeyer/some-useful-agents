@@ -1,4 +1,4 @@
-import type { McpServerConfig } from '@some-useful-agents/core';
+import { dockerShares, type McpServerConfig } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 
 export interface SettingsMcpServersArgs {
@@ -30,7 +30,10 @@ export function renderSettingsMcpServers(args: SettingsMcpServersArgs): SafeHtml
         Disabling a server blocks every tool imported from it — runs that
         reach one of those tools fail with a clear "server disabled" error
         until you re-enable it. Deleting removes the server and every tool
-        that was imported from it.
+        that was imported from it. A server run in Docker leaves a container
+        behind when a start is cut short: <strong>Clean up</strong> removes the
+        stopped ones. sua closes a server it hasn't used for 10 minutes, so its
+        own container goes too.
       </p>
       ${setErrorBlock(args.setError)}
       ${renderServersTable(args.rows)}
@@ -70,6 +73,10 @@ function renderServersTable(rows: Array<{ server: McpServerConfig; toolCount: nu
             <input type="hidden" name="action" value="${toggleAction}">
             <button type="submit" class="btn btn--sm btn--ghost">${toggleLabel}</button>
           </form>
+          ${dockerShares(server).image ? html`<form action="/settings/mcp-servers/clean-up" method="post" style="display:inline;">
+            <input type="hidden" name="id" value="${server.id}">
+            <button type="submit" class="btn btn--sm btn--ghost" title="Remove the stopped and never-started containers this server left behind. Running ones are left alone.">Clean up</button>
+          </form>` : html``}
           <form action="/settings/mcp-servers/delete" method="post" style="display:inline;"
             data-confirm="Delete server ${server.id}? This will also delete ${String(toolCount)} imported tool${toolCount === 1 ? '' : 's'}.">
             <input type="hidden" name="id" value="${server.id}">

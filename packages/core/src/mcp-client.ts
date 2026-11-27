@@ -56,7 +56,30 @@ async function open(impl: ToolImplementation): Promise<PooledClient> {
   return { client, close: async () => { await client.close(); } };
 }
 
-async function getClient(impl: ToolImplementation): Promise<Client> {
+/**
+ * How long a server sits unused before sua closes it. A stdio server run in
+ * Docker (`docker run --rm`) then exits and its container is removed, with
+ * anything it saved inside; the next call starts a fresh one. Without this a
+ * long-lived worker keeps one container for days and what it writes piles up.
+ */
+let idleMs = 10 * 60_000;
+const idle = new Map<string, { busy: number; timer?: ReturnType<typeof setTimeout> }>();
+
+/** How many servers are open now. */
+export function openMcpClients(): number { return pool.size; }
+
+/** Change how long an unused server stays open (tests); 0 closes it as soon as a call ends. */
+export function setMcpIdleClose(ms: number): void { idleMs = ms; }
+
+function closeIdle(key: string): void {
+  const entry = pool.get(key);
+  pool.delete(key);
+  idle.delete(key);
+  void entry?.then((pc) => pc.close()).catch(() => { /* already gone */ });
+}
+
+/** Run `fn` with a pooled client, keeping it open while it's in use and closing it once idle. */
+async function withClient<T>(impl: ToolImplementation, fn: (client: Client) => Promise<T>): Promise<T> {
   const key = signature(impl);
   let entry = pool.get(key);
   if (!entry) {
@@ -66,7 +89,19 @@ async function getClient(impl: ToolImplementation): Promise<Client> {
     });
     pool.set(key, entry);
   }
-  return (await entry).client;
+  const use = idle.get(key) ?? { busy: 0 };
+  idle.set(key, use);
+  if (use.timer) { clearTimeout(use.timer); use.timer = undefined; }
+  use.busy += 1;
+  try {
+    return await fn((await entry).client);
+  } finally {
+    use.busy -= 1;
+    if (use.busy === 0 && idle.get(key) === use && pool.get(key) === entry) {
+      use.timer = setTimeout(() => closeIdle(key), idleMs);
+      use.timer.unref?.();
+    }
+  }
 }
 
 export async function callMcpTool(
@@ -77,11 +112,11 @@ export async function callMcpTool(
   if (!impl.mcpToolName) {
     throw new Error('MCP tool: mcpToolName required');
   }
-  const client = await getClient(impl);
-  const res = await client.callTool(
-    { name: impl.mcpToolName, arguments: inputs },
+  const toolName = impl.mcpToolName;
+  const res = await withClient(impl, (client) => client.callTool(
+    { name: toolName, arguments: inputs },
     { signal },
-  );
+  ));
 
   const content = Array.isArray(res.content) ? res.content : [];
   const text = content
@@ -100,8 +135,7 @@ export async function callMcpTool(
 export async function listMcpTools(
   impl: ToolImplementation,
 ): Promise<Array<{ name: string; description?: string; inputSchema?: unknown }>> {
-  const client = await getClient(impl);
-  const res = await client.listTools();
+  const res = await withClient(impl, (client) => client.listTools());
   return (res.tools ?? []).map((t) => ({
     name: t.name,
     description: t.description,
@@ -113,6 +147,8 @@ export async function listMcpTools(
 export async function closeAllMcpClients(): Promise<void> {
   const entries = Array.from(pool.values());
   pool.clear();
+  for (const u of idle.values()) if (u.timer) clearTimeout(u.timer);
+  idle.clear();
   await Promise.allSettled(
     entries.map(async (p) => {
       try {

@@ -10,6 +10,8 @@
 import { Router, type Request, type Response } from 'express';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { resolve, extname } from 'node:path';
+import { hostPathFor, mcpSharedFolders, type McpServerConfig } from '@some-useful-agents/core';
+import { getContext } from '../context.js';
 
 export const outputFilesRouter: Router = Router();
 
@@ -64,11 +66,48 @@ export function addAllowedOutputDir(dir: string): void {
 }
 
 /**
- * Check if a resolved file path is inside an allowed directory.
+ * Check if a resolved file path is inside an allowed directory, or a folder a
+ * Docker-run tool server shares with this computer.
  */
-function isAllowed(filePath: string): boolean {
+function isAllowed(filePath: string, servers: readonly McpServerConfig[] = []): boolean {
   const abs = resolve(filePath);
-  return getAllowedDirs().some((dir) => abs.startsWith(dir + '/') || abs === dir);
+  const inside = (dir: string) => abs.startsWith(dir + '/') || abs === dir;
+  if (getAllowedDirs().some(inside)) return true;
+  // A shared folder may hold anything its server can see, so only what a
+  // server makes to look at (pictures, pages, PDFs) is served from one.
+  return SHARED_TYPES.test(abs) && mcpSharedFolders(servers).some((f) => inside(resolve(f.host)));
+}
+
+/** What's served from a folder a tool server shares: what it made to look at. */
+const SHARED_TYPES = /\.(png|jpe?g|gif|webp|svg|pdf|html?)$/i;
+
+/** The tool servers sua knows (their shared folders), or none. */
+export function knownMcpServers(locals: Record<string, unknown>): McpServerConfig[] {
+  try { return mcpServersIn(getContext(locals)); } catch { return []; }
+}
+
+/** The tool servers a context knows, or none. */
+export function mcpServersIn(ctx: { toolStore?: { listMcpServers(): McpServerConfig[] } }): McpServerConfig[] {
+  try { return ctx.toolStore?.listMcpServers() ?? []; } catch { return []; }
+}
+
+/**
+ * The file on this computer an agent's output path names, or why it can't be
+ * shown. A path a Docker-run tool server reported (inside its container) is
+ * read from the folder it shares; one that stayed in the container says so.
+ */
+export function resolveOutputFile(rawPath: string, servers: readonly McpServerConfig[]): { path: string } | { status: number; message: string } {
+  if (!rawPath) return { status: 400, message: 'Missing ?path= parameter' };
+  const shared = hostPathFor(rawPath, servers);
+  if (shared && SHARED_TYPES.test(shared) && existsSync(shared)) return { path: resolve(shared) };
+  const absPath = resolve(rawPath);
+  if (!isAllowed(absPath, servers)) {
+    return { status: 403, message: `File not in an allowed directory. Allowed: ${[...getAllowedDirs(), ...mcpSharedFolders(servers).map((f) => f.host)].join(', ')}` };
+  }
+  if (!existsSync(absPath)) {
+    return { status: 404, message: shared === undefined && servers.some((s) => s.enabled && s.command && /docker|podman/.test(s.command)) ? "File not found. If a tool server running in Docker made it, it saved it inside its container, outside the folder it shares with this computer." : 'File not found' };
+  }
+  return { path: absPath };
 }
 
 /**
@@ -77,27 +116,12 @@ function isAllowed(filePath: string): boolean {
  */
 outputFilesRouter.get('/output-file', (req: Request, res: Response) => {
   const rawPath = typeof req.query.path === 'string' ? req.query.path : '';
-
-  if (!rawPath) {
-    res.status(400).type('text/plain').send('Missing ?path= parameter');
+  const found = resolveOutputFile(rawPath, knownMcpServers(req.app.locals));
+  if ('status' in found) {
+    res.status(found.status).type('text/plain').send(found.message);
     return;
   }
-
-  const absPath = resolve(rawPath);
-
-  // Security: check allowlist.
-  if (!isAllowed(absPath)) {
-    res.status(403).type('text/plain').send(
-      `File not in an allowed directory. Allowed: ${getAllowedDirs().join(', ')}`,
-    );
-    return;
-  }
-
-  // Check file exists and is a regular file.
-  if (!existsSync(absPath)) {
-    res.status(404).type('text/plain').send('File not found');
-    return;
-  }
+  const absPath = found.path;
   const stat = statSync(absPath);
   if (!stat.isFile()) {
     res.status(400).type('text/plain').send('Not a file');

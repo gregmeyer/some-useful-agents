@@ -8,9 +8,15 @@
 # round-trip. Simpler, faster, and actually works.
 #
 # Prereq (one-time): import the modern-graphics MCP server via
-# /tools/mcp/import. The agent uses these MCP tools:
+# /tools/mcp/import (docs/mcp.md: run it in Docker sharing a folder as
+# /app/output, working folder /app). The agent uses these MCP tools:
 #   modern-graphics-list-themes       (browse themes when the user didn't pin one)
+#   modern-graphics-get-layout-help   (the args each layout takes)
 #   modern-graphics-generate-graphic  (render the actual file)
+#
+# It saves into OUTPUT_DIR as the server sees it ("output", the shared
+# folder), and sua reads the file from the matching folder on this computer,
+# so the picture shows in a conversation and can be added to an answer.
 #
 # Run: sua workflow run graphics-creator-mcp -i TOPIC="Q2 growth wins"
 id: graphics-creator-mcp
@@ -42,13 +48,18 @@ inputs:
   TOPIC:
     type: string
     required: true
-    description: What the graphic is about, e.g. "Q2 growth wins".
+    description: What the graphic is about, e.g. "Q2 growth wins". For steps or panels, list them in order.
   LAYOUT:
     type: enum
     required: false
-    default: hero
-    description: modern-graphics layout. Stick to text-driven layouts here; chart layouts need data, use chart-creator-mcp instead.
+    default: auto
+    description: >
+      modern-graphics layout. auto picks one from the topic: grid for
+      numbered steps or panels, timeline for dated events, comparison for
+      two sides, hero otherwise. Stick to text-driven layouts here; chart
+      layouts need data, use chart-creator-mcp instead.
     values:
+      - auto
       - hero
       - hero-triptych
       - insight-card
@@ -77,14 +88,23 @@ inputs:
   OUTPUT_DIR:
     type: string
     required: false
-    default: .sua/graphics-output
-    description: Where the rendered file is written, relative to the project root.
+    default: output
+    description: >
+      Where the graphics server saves the file, as the server sees it.
+      "output" is the folder its Docker setup shares with this computer
+      (-v <folder>:/app/output with -w /app, docs/mcp.md), so sua can show
+      the picture and add it to an answer. A folder the server doesn't
+      share stays inside its container.
 
 nodes:
   - id: render
     type: llm-prompt
-    timeout: 120
-    maxTurns: 6
+    timeout: 180
+    maxTurns: 8
+    tools:
+      - modern-graphics-list-themes
+      - modern-graphics-get-layout-help
+      - modern-graphics-generate-graphic
     prompt: |
       You are rendering a single graphic for: **{{inputs.TOPIC}}**
       Audience: {{inputs.AUDIENCE}}
@@ -94,38 +114,43 @@ nodes:
 
       Steps:
 
-      1. THEME — if THEME is blank, call `list_themes` and pick the one that
-         best fits the topic + audience. Note the theme's name.
+      1. LAYOUT — if Layout is "auto", choose it from the topic: "grid"
+         when it lists numbered steps, panels or items (keep every one, in
+         order); "timeline" for dated events; "comparison" for two sides;
+         "hero" for one message. Otherwise use the layout given.
 
-      2. TITLE — write a punchy 4–8 word title from TOPIC. No trailing
+      2. THEME — if THEME is blank, call `modern-graphics-list-themes` and
+         pick the one that best fits the topic + audience.
+
+      3. TITLE — write a punchy 4–8 word title from TOPIC. No trailing
          punctuation. If SUBTITLE is blank, write a one-line supporting
          sentence (≤ 12 words) yourself; otherwise use SUBTITLE verbatim.
 
-      3. RENDER — call `generate_graphic` exactly once with:
-            layout: {{inputs.LAYOUT}}
-            title: <your title>
-            subtitle: <subtitle from step 2>
-            theme: <theme name from step 1>
-            output_path: {{inputs.OUTPUT_DIR}}/{{inputs.LAYOUT}}-<unix-timestamp>.png
+      4. RENDER — call `modern-graphics-get-layout-help` for the layout and
+         shape its args exactly as it says (a grid takes "items", one per
+         step or panel in order, and "columns": 3 for six items, 2 for
+         four). Then call `modern-graphics-generate-graphic` with the
+         layout, those args, the title, subtitle, theme, format png, and
+         output_path: {{inputs.OUTPUT_DIR}}/<short-topic-slug>-<unix-timestamp>.png
 
          If the call fails, inspect the error and retry ONCE with corrected
          arguments. Do not retry more than once.
 
-      4. RETURN — output ONLY a raw JSON object — no markdown fences, no
+      5. RETURN — output ONLY a raw JSON object — no markdown fences, no
          prose, no surrounding text:
 
          {
            "title": "<title you used>",
            "subtitle": "<subtitle you used>",
-           "layout": "{{inputs.LAYOUT}}",
+           "layout": "<layout you used>",
            "theme": "<theme name you used>",
-           "graphic_path": "<absolute path returned by generate_graphic>",
-           "topic": "{{inputs.TOPIC}}"
+           "graphic_path": "<the path generate_graphic returned, as it gave it>",
+           "topic": "<TOPIC, shortened to one line>"
          }
 
       Constraints:
       - Make exactly ONE generate_graphic call (plus at most one retry on error).
-      - Do NOT call any other tools beyond list_themes and generate_graphic.
+      - If a tool is unavailable or rendering fails, return {"error": "<what failed>"}; never invent a path.
       - Output must be valid JSON; the agent's output widget parses it.
 
 signal:

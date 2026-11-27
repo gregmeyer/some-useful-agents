@@ -420,7 +420,7 @@ export {
   assertSafeUrl,
 } from './builtin-tools.js';
 export { extractFramedOutput, buildToolOutput } from './output-framing.js';
-export { callMcpTool, listMcpTools, closeAllMcpClients } from './mcp-client.js';
+export { callMcpTool, listMcpTools, closeAllMcpClients, openMcpClients, setMcpIdleClose } from './mcp-client.js';
 export {
   claudeTemplateGenerator,
   getTemplateGenerator,
@@ -436,6 +436,7 @@ export {
   type McpServerConfig,
   type McpTransport,
 } from './mcp-server-types.js';
+export { dockerShares, mcpSharedFolders, hostPathFor, type McpSharedFolder } from './mcp-shared-folders.js';
 export { parseMcpServersBlob, type ParsedMcpBlob } from './mcp-config-parse.js';
 export { VariablesStore, looksLikeSensitive, type Variable } from './variables-store.js';
 export {

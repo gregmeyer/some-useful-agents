@@ -25,6 +25,8 @@ import { getContext } from '../context.js';
 import { html, type SafeHtml } from '../views/html.js';
 import { renderOutputWidget } from '../views/output-widgets.js';
 import { renderOutcomeRecord } from '../views/outcome-record.js';
+import { answersForThread, runPictures } from '../lib/run-pictures.js';
+import { NotebookStore } from '@some-useful-agents/core';
 import {
   summarizeInline,
   humanInboxStatus,
@@ -133,10 +135,52 @@ export function buildInlineActionWidgets(
     // `outcome:` block and no widget, or vice versa.
     const widget = renderActionWidget(ctx, messageId, meta);
     const outcome = renderOutcomeCard(ctx, meta.runId);
-    if (!widget && !outcome) continue;
-    inlineWidgets[response.id] = html`${widget ?? ''}${outcome ?? ''}`;
+    const pictures = renderRunPictureTools(ctx, messageId, response.id, meta as { agentId: string; runId: string });
+    if (!widget && !outcome && !pictures) continue;
+    inlineWidgets[response.id] = html`${widget ?? ''}${pictures ?? ''}${outcome ?? ''}`;
   }
   return inlineWidgets;
+}
+
+/**
+ * Under a finished run that made a picture: where it went, when it was added
+ * to an answer; a way to add it to one (the conversation's answer first); or,
+ * when sua can't find the file, why, instead of a broken image.
+ */
+function renderRunPictureTools(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  responseId: string,
+  meta: { agentId: string; runId: string },
+): SafeHtml | undefined {
+  const pics = runPictures(ctx, meta.agentId, meta.runId);
+  if (!pics.length) return undefined;
+  let added: Array<{ id: string; title: string }> = [];
+  try {
+    const s = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+    added = s.picturesFromRun(meta.runId).map((p) => s.get(p.notebookId)).filter((nb): nb is NonNullable<typeof nb> => !!nb).map((nb) => ({ id: nb.id, title: nb.title }));
+  } catch { /* no answers here */ }
+  const answers = pics.some((p) => p.file) ? answersForThread(ctx, messageId) : [];
+  const enc = encodeURIComponent;
+  const rows = pics.map((p, i) => {
+    if (!p.file) {
+      return html`<p class="inbox-action__picture-missing"><strong>It made a picture sua can't show.</strong> It said it saved it at <span class="mono">${p.said}</span>. ${p.why ?? ''}</p>`;
+    }
+    const src = `/output-file?path=${enc(p.said)}`;
+    const shown = html`<a class="inbox-action__picture" href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="${p.label}" loading="lazy"></a>`;
+    if (!answers.length) return shown;
+    const fid = `pic-${responseId}-${String(i)}`;
+    return html`${shown}<form method="POST" action="/inbox/${enc(messageId)}/actions/${enc(responseId)}/add-picture" class="inbox-action__keep">
+      <input type="hidden" name="field" value="${p.field}">
+      <label for="${fid}">Add ${pics.length > 1 ? p.label.toLowerCase() : 'this picture'} to</label>
+      <select id="${fid}" name="notebook">${answers.map((nb) => html`<option value="${nb.id}">${nb.title}${nb.archivedAt ? ' (archived)' : ''}</option>`) as unknown as SafeHtml[]}</select>
+      <button type="submit" class="btn btn--sm">Add</button>
+    </form>`;
+  });
+  const done = added.length
+    ? html`<p class="inbox-action__keep-done">Added to ${added.map((nb, i) => html`${i ? ', ' : ''}<a href="/notebooks/${enc(nb.id)}">${nb.title}</a>`) as unknown as SafeHtml[]}.</p>`
+    : html``;
+  return html`<div class="inbox-action__pictures">${done}${rows as unknown as SafeHtml[]}</div>`;
 }
 
 function renderActionWidget(

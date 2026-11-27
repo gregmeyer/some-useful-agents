@@ -432,7 +432,7 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
       state: (x.steps ?? []).length && !(x.steps ?? []).some((st) => st.status !== 'done' && st.status !== 'met' && st.kind !== 'decide' && st.kind !== 'narrow') ? 'done' as const : 'working' as const,
     })) : [];
   } catch { followUps = []; }
-  res.type('html').send(renderNotebookPage({ followUps, nb, unfiled, busy, live, reading: givenReadStates(ctx, nb), givenNotUsed: givenNotUsed(nb, s.passes(nb.id, 60)), liveKey: notebookLiveKey(live), ...(fresh ? { whatsNew: fresh } : {}), ...(coverPhoto ? { cover: coverPhoto } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), stepsKey: stepsKey(ctx, s.get(nb.id) ?? nb), ...(madeBy ? { madeBy } : {}), flash: parseFlash(req) }));
+  res.type('html').send(renderNotebookPage({ followUps, nb, unfiled, busy, live, reading: givenReadStates(ctx, nb), givenNotUsed: givenNotUsed(nb, s.passes(nb.id, 60)), pictures: s.pictureNoteIds(nb.id), liveKey: notebookLiveKey(live), ...(fresh ? { whatsNew: fresh } : {}), ...(coverPhoto ? { cover: coverPhoto } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), stepsKey: stepsKey(ctx, s.get(nb.id) ?? nb), ...(madeBy ? { madeBy } : {}), flash: parseFlash(req) }));
 });
 
 notebooksRouter.post('/notebooks/:id/entries', (req: Request, res: Response) => {
@@ -1688,5 +1688,5 @@ notebooksRouter.get('/notebooks/:id/main', (req: Request, res: Response) => {
   const live = notebookLive(ctx, s.get(nb.id) ?? nb, running ? { step: running.step, of: running.of, startedAt: running.startedAt } : undefined, []);
   res.setHeader('X-Notebook-Live', encodeURIComponent(notebookLiveKey(live)));
   res.setHeader('X-Notebook-Waiting', live.talk?.state === 'waiting' ? encodeURIComponent(live.talk.kind === 'step' ? `Your step: ${live.talk.text}` : live.talk.text) : '');
-  res.type('html').send(renderNotebookMain(nb, compileSurface(surface.doc, notebookEntryItems(nb, entries)), entries, widgetHistory(ctx, s), settingUp, !!running));
+  res.type('html').send(renderNotebookMain(nb, compileSurface(surface.doc, notebookEntryItems(nb, entries)), entries, widgetHistory(ctx, s), settingUp, !!running, s.pictureNoteIds(nb.id)));
 });
