@@ -792,11 +792,34 @@ function entryCard(nb: Notebook, e: NotebookEntry, v?: NotebookViewOption): Safe
     </li>`;
 }
 
-function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory, settingUp = false, running = false): SafeHtml {
+function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory, settingUp = false, running = false, pictures: readonly string[] = []): SafeHtml {
   const note = settingUp
     ? html`<p class="nb-setup" role="status"><span class="working__spin" aria-hidden="true"></span>sua is setting up this answer: what each option records, the stages they go through, and a page that fits what it's for. This page updates when it's done.</p>`
     : html``;
-  return html`${note}${surfaceColumnBody(nb, compiled, entries, history, running)}`;
+  return html`${note}${surfaceColumnBody(nb, compiled, entries, history, running)}${picturesSection(nb, entries, pictures)}`;
+}
+
+/**
+ * Pictures added to the answer (an agent's graphic, added from a
+ * conversation): each at the column's width, its title under it and a link
+ * to the run that made it. Drawn under whatever page it has, so any layout
+ * shows them.
+ */
+export function picturesSection(nb: Notebook, entries: readonly NotebookEntry[], ids: readonly string[]): SafeHtml {
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  const notes = ids.map((id) => byId.get(id)).filter((e): e is NotebookEntry => !!e);
+  if (!notes.length) return html``;
+  const enc = encodeURIComponent;
+  return html`<section class="nb-pictures" aria-labelledby="nb-pictures-${nb.id}">
+    <h2 class="nb-region__title" id="nb-pictures-${nb.id}">Pictures <span class="nb-region__count">${String(notes.length)}</span></h2>
+    ${notes.map((e) => {
+      const src = `/notebooks/${enc(nb.id)}/entries/${enc(e.id)}/photo`;
+      return html`<figure class="nb-picture">
+        <a href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="${e.title}" loading="lazy"></a>
+        <figcaption><strong>${e.title}</strong>${e.runId ? html` · <a href="/runs/${enc(e.runId)}">the run that made it</a>` : html``}</figcaption>
+      </figure>`;
+    }) as unknown as SafeHtml[]}
+  </section>`;
 }
 
 function surfaceColumnBody(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory, running = false): SafeHtml {
@@ -1697,7 +1720,7 @@ export function printLinks(nb: Pick<Notebook, 'fields'>, entries: readonly Noteb
 
 const hostOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return 'the link'; } };
 
-export function renderNotebookPage(args: { followUps?: readonly FollowUp[]; nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; madeBy?: NotebookMadeBy; whatsNew?: WhatsNew; reading?: Record<string, 'working' | 'failed'>; givenNotUsed?: GivenNotUsed; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+export function renderNotebookPage(args: { followUps?: readonly FollowUp[]; nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; madeBy?: NotebookMadeBy; whatsNew?: WhatsNew; reading?: Record<string, 'working' | 'failed'>; givenNotUsed?: GivenNotUsed; pictures?: readonly string[]; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'notebooks', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Answers</a></p>
     ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your answers, Home and Today, and its schedule is off.
@@ -1708,15 +1731,15 @@ export function renderNotebookPage(args: { followUps?: readonly FollowUp[]; nb: 
     
     ${printLinks(args.nb, args.entries)}
     <div class="nb-body">
-      <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-nb-steps="${args.stepsKey ?? ''}" data-nb-live="${args.liveKey ?? ''}" data-nb-running="${args.running || args.busy?.length ? '1' : ''}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp, !!args.running)}</div>
+      <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-nb-steps="${args.stepsKey ?? ''}" data-nb-live="${args.liveKey ?? ''}" data-nb-running="${args.running || args.busy?.length ? '1' : ''}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp, !!args.running, args.pictures ?? [])}</div>
       <aside class="nb-body__side">${sideForms(args.nb, args.entries, args.lastWord, args.unfiled, args.live?.talk, args.followUps ?? [])}</aside>
     </div>
   `));
 }
 
 /** The notebook's sections alone (GET /notebooks/:id/main), for live updates. */
-export function renderNotebookMain(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory, settingUp = false, running = false): string {
-  return render(surfaceColumn(nb, compiled, entries, history, settingUp, running));
+export function renderNotebookMain(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory, settingUp = false, running = false, pictures: readonly string[] = []): string {
+  return render(surfaceColumn(nb, compiled, entries, history, settingUp, running, pictures));
 }
 
 /** A notebook on the list page: its cover picture and what it holds. */

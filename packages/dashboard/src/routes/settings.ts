@@ -1,3 +1,4 @@
+import { cleanUpServerContainers } from '../lib/mcp-containers.js';
 import { ATTACH_FILE_TYPES, attachFileWords, NotebookStore, clearProviderCooldown, formatUsd, startOfLocalDay, providerCooldowns, providerHealthProblems, summarizeProviderHealth } from '@some-useful-agents/core';
 import { Router, type Request, type Response } from 'express';
 import {
@@ -354,6 +355,26 @@ settingsRouter.post('/settings/mcp-servers/toggle', (req: Request, res: Response
     return;
   }
   redirectWith(res, '/tools?tab=servers', 'flash', `${enabled ? 'Enabled' : 'Disabled'} ${id}.`);
+});
+
+// Clean up: remove a Docker-run server's left-over containers (lib/mcp-containers.ts).
+settingsRouter.post('/settings/mcp-servers/clean-up', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const id = typeof body.id === 'string' ? body.id.trim() : '';
+  const server = id ? ctx.toolStore?.getMcpServer(id) : undefined;
+  if (!server) {
+    redirectWith(res, '/tools?tab=servers', 'setError', `Server "${id}" not found.`);
+    return;
+  }
+  try {
+    const { removed, running } = await cleanUpServerContainers(server);
+    const gone = removed ? `Removed ${String(removed)} left-over container${removed === 1 ? '' : 's'} of ${id}.` : `${id} had no left-over containers.`;
+    const still = running ? ` ${String(running)} still running, in use by sua or another program using the same server; each is removed when that program closes it (sua closes its own after 10 minutes unused).` : '';
+    redirectWith(res, '/tools?tab=servers', 'flash', gone + still);
+  } catch (err) {
+    redirectWith(res, '/tools?tab=servers', 'setError', `Couldn't clean up ${id}: ${err instanceof Error ? err.message : String(err)}`);
+  }
 });
 
 settingsRouter.post('/settings/mcp-servers/delete', (req: Request, res: Response) => {

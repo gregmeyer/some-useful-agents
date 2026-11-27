@@ -49,6 +49,11 @@ export type NotebookFieldRole = typeof NOTEBOOK_FIELD_ROLES[number];
 /** A listing's own photo, an example photo of what it is, a company's logo, or a drawing. */
 export type NotebookPhotoKind = 'listing' | 'representative' | 'logo' | 'illustration';
 
+/** The pictures a notebook can be given (addPicture): ones a page shows safely. */
+export const NOTEBOOK_PICTURE_TYPES: readonly string[] = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+/** The largest picture a notebook keeps. */
+export const NOTEBOOK_PICTURE_MAX_BYTES = 10 * 1024 * 1024;
+
 /** A picture chosen for a notebook: where it's from (its page), its credit, what it shows, and when. */
 export interface NotebookChosenPhoto { image: string; page?: string; credit?: string; alt?: string; at: string }
 
@@ -2706,6 +2711,33 @@ export class NotebookStore {
 
   hasPhoto(entryId: string): boolean {
     return !!this.db.prepare('SELECT 1 FROM notebook_photos WHERE entry_id = ? AND bytes IS NOT NULL').get(entryId);
+  }
+
+  /**
+   * Add a picture an agent made (a graphic, an artboard) to a notebook: a note
+   * saying what it is and who made it, holding the image. Only pictures a page
+   * can show safely (PNG, JPEG, GIF, WebP), up to 10 MB.
+   */
+  addPicture(notebookId: string, input: { title: string; body?: string; by: string; runId?: string; contentType: string; bytes: Uint8Array }): NotebookEntry {
+    const type = input.contentType.toLowerCase();
+    if (!NOTEBOOK_PICTURE_TYPES.includes(type)) throw new Error('Only a PNG, JPEG, GIF or WebP picture can be added.');
+    if (!input.bytes.length || input.bytes.length > NOTEBOOK_PICTURE_MAX_BYTES) throw new Error('That picture is empty or over 10 MB.');
+    const entry = this.addEntry(notebookId, { kind: 'note', title: input.title, body: input.body, by: input.by, ...(input.runId ? { runId: input.runId } : {}) });
+    this.savePhoto(notebookId, entry.id, input.runId ? `/runs/${input.runId}` : 'added', { contentType: type, bytes: input.bytes }, { kind: 'listing', what: entry.title });
+    this.touch(notebookId);
+    return entry;
+  }
+
+  /** The answers a run's picture was added to (addPicture), by notebook id. */
+  picturesFromRun(runId: string): Array<{ notebookId: string; entryId: string }> {
+    return (this.db.prepare(`SELECT e.notebook_id AS notebookId, e.id AS entryId FROM notebook_entries e JOIN notebook_photos p ON p.entry_id = e.id AND p.bytes IS NOT NULL
+      WHERE e.run_id = ? AND e.kind = 'note' ORDER BY e.created_at`).all(runId) as Array<{ notebookId: string; entryId: string }>);
+  }
+
+  /** The notes holding a picture someone added (addPicture), oldest first. */
+  pictureNoteIds(notebookId: string): string[] {
+    return (this.db.prepare(`SELECT e.id AS id FROM notebook_entries e JOIN notebook_photos p ON p.entry_id = e.id AND p.bytes IS NOT NULL
+      WHERE e.notebook_id = ? AND e.kind = 'note' ORDER BY e.created_at`).all(notebookId) as Array<{ id: string }>).map((r) => r.id);
   }
 
   /** Keep a photo (or remember that this address didn't give one, so it isn't tried again). */

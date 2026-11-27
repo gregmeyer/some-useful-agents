@@ -80,6 +80,7 @@ import { helpRouter } from './routes/help.js';
 import { versionsRouter } from './routes/versions.js';
 import { imgBlockReportRouter } from './routes/img-block-report.js';
 import { inboxRouter, sendHomePage } from './routes/inbox.js';
+import { inboxPicturesRouter } from './routes/inbox-pictures.js';
 import { inboxEventsRouter } from './routes/inbox-events.js';
 import { inboxCountRouter } from './routes/inbox-count.js';
 import { itemsRouter } from './routes/items.js';
@@ -332,6 +333,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(notebooksRouter);
   app.use(experimentsRouter);
   app.use(inboxEventsRouter);
+  app.use(inboxPicturesRouter);
   app.use(inboxRouter);
   app.use(toolsRouter);
   app.use(skillsRouter);

@@ -98,8 +98,8 @@ inputs:
   OUTPUT_DIR:
     type: string
     required: false
-    default: ".sua/graphics-output"
-    description: Where the rendered file is written.
+    default: "output"
+    description: Where the server writes the file, as it sees it. "output" is the folder its Docker setup shares with this computer (docs/mcp.md); another folder stays inside its container.
   OUTPUT_FORMAT:
     type: enum
     required: false

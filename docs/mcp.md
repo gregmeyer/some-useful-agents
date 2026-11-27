@@ -144,6 +144,17 @@ sua workflow run graphics-creator-mcp \
 
 On Pulse (`/pulse`) the run's output widget will render (assuming the agent has one declared).
 
+### Where a Docker server saves files
+
+A server running in Docker saves inside its container. Only a folder it shares with this computer (`-v /path/to/output:/app/output` above) reaches you, so Graphics creator saves into `output` (its `OUTPUT_DIR`, as the server sees it from its working folder `/app`), and sua reads the file from the matching folder here. sua works this out from the server's own `docker run` command (`-v`, `--volume`, `--mount type=bind`, `-w`): a path the server reports, `/app/output/pbj.png` or `output/pbj.png`, opens as `/path/to/output/pbj.png`. That's how its picture shows in a conversation and on a run's page, and can be added to an answer. Only pictures, pages and PDFs are served from a shared folder. A path outside every shared folder (say `.sua/graphics-output/…`) stayed in the container: the conversation says so rather than showing a broken image.
+
+### Keeping Docker containers from piling up
+
+Each `docker run` makes a container. `--rm` removes it when the server stops, so two things keep them from piling up:
+
+- **sua closes a server it hasn't used for 10 minutes.** Its container stops and is removed, with anything the server saved inside it; the next call starts a fresh one. A long-running worker no longer keeps one container for days.
+- **Clean up** (Tools → Servers, on a server run in Docker) removes the containers of that server's image that are stopped or were made and never started (a start cut short leaves one, and `--rm` doesn't remove it). Running ones are left alone: they're in use, by sua or by another program set up with the same server (an editor or another agent), and each goes when that program closes it.
+
 ## Operational notes
 
 - **First call per server** includes the docker-container or child-process startup cost. Subsequent calls in the same sua process reuse the pooled client.

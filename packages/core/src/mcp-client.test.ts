@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http';
 import { McpServer, createMcpHandler } from '@modelcontextprotocol/server';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { z } from 'zod';
-import { callMcpTool, listMcpTools, closeAllMcpClients } from './mcp-client.js';
+import { callMcpTool, listMcpTools, closeAllMcpClients, openMcpClients, setMcpIdleClose } from './mcp-client.js';
 import type { ToolImplementation } from './tool-types.js';
 
 /**
@@ -55,5 +55,23 @@ describe('mcp-client against a v2 (2026-07-28) HTTP server', () => {
     const out = await callMcpTool(impl, { message: 'hi' });
     expect(out.result).toBe('echo: hi');
     expect(out.isError).toBe(false);
+  });
+
+  it('closes a server once it has sat unused, and opens it again on the next call', async () => {
+    const url = await startServer();
+    const impl: ToolImplementation = { type: 'mcp', mcpTransport: 'http', mcpUrl: url, mcpToolName: 'echo' };
+    setMcpIdleClose(30);
+    try {
+      // Two calls at once share one server, which stays open while either runs.
+      const [a, b] = await Promise.all([callMcpTool(impl, { message: 'a' }), callMcpTool(impl, { message: 'b' })]);
+      expect([a.result, b.result]).toEqual(['echo: a', 'echo: b']);
+      expect(openMcpClients()).toBe(1);
+      await new Promise((r) => setTimeout(r, 80));
+      expect(openMcpClients()).toBe(0);
+      expect((await callMcpTool(impl, { message: 'again' })).result).toBe('echo: again');
+      expect(openMcpClients()).toBe(1);
+    } finally {
+      setMcpIdleClose(10 * 60_000);
+    }
   });
 });
