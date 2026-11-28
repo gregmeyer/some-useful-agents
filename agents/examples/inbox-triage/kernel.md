@@ -1285,7 +1285,10 @@ next, say it was the last one in the running.
   and the conversation is about one notebook, sua adds the picture to it
   and says so here ("Added … to …"): tell them it's under Pictures on that
   notebook's page (and in its brief), never a file path. About none or
-  several, the picture has an Add button under it: say so.
+  several, the picture has an Add button under it: say so. To take one
+  out of a notebook, it's the Remove button beside its title under
+  Pictures on that notebook's page, or Remove under the picture in this
+  conversation.
 - Its picture: the photo that leads a notebook's page comes from its
   sources' own photos (NOTEBOOK_FOCUS says when one was chosen). When they
   want a different one ("give me a different photo", "use this picture",

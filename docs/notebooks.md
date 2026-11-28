@@ -296,7 +296,7 @@ When an agent in a conversation makes a picture (Artboard illustrator's illustra
 - **A conversation about one answer** (it links to it, or the answer was asked from it): the picture goes into that answer by itself, and the conversation says so ("Added … to …"). Under the picture: **In [answer] · Remove**.
 - **About none, or several:** under the picture, **Add to [the answer it's most likely for]**, and the others behind **Another answer**. A picture goes into an answer once; pressing Add again does nothing.
 
-In the answer it's kept as a note (what it is, who made it), with the image. The answer's page shows it under **Pictures**, at the column's width, with its title and a link to the run that made it, whatever layout the page has; its brief has a **Pictures** section too, and a downloaded brief or PDF carries the picture inside it. Only PNG, JPEG, GIF and WebP pictures up to 10 MB are kept.
+In the answer it's kept as a note (what it is, who made it), with the image. The answer's page shows it under **Pictures**, at the column's width, with its title, a link to the run that made it and a **Remove** button that takes it out of the answer, whatever layout the page has; its brief has a **Pictures** section too, and a downloaded brief or PDF carries the picture inside it. Only PNG, JPEG, GIF and WebP pictures up to 10 MB are kept.
 
 If the agent saved its picture somewhere sua can't read (a tool server in Docker keeps what it saves inside its container unless it's in a folder it shares; see [MCP](mcp.md#where-a-docker-server-saves-files)), the conversation says so and gives the path it reported, instead of showing a broken image.
 

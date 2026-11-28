@@ -97,6 +97,14 @@ describe('a picture a run made', () => {
     expect(store.pictureNoteIds(nb.id)).toEqual([]);
     expect(inbox.listResponses(thread.id).at(-1)).toMatchObject({ role: 'system', body: `Took **PB&J in Six Steps** out of [Learn to make a PB&J](/notebooks/${nb.id}).` });
     expect((await get(`/notebooks/${nb.id}`)).text).not.toContain('class="nb-pictures"');
+
+    // On the answer's own page, Remove beside the picture takes it out too.
+    await add();
+    const [again] = store.pictureNoteIds(nb.id);
+    expect((await get(`/notebooks/${nb.id}`)).text).toContain(`<form method="POST" action="/notebooks/${nb.id}/entries/${again}/remove" class="nb-picture__remove">`);
+    expect((await post(`/notebooks/${nb.id}/entries/${again}/remove`, {})).status).toBe(303);
+    expect(store.pictureNoteIds(nb.id)).toEqual([]);
+    expect((await get(`/notebooks/${nb.id}/entries/${again}/photo`)).status).toBe(404);
   });
 
   it('when the run ends in a conversation about one answer, the picture goes into it by itself, said before sua replies', async () => {
