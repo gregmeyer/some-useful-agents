@@ -42,7 +42,7 @@ export const TLDR_LAYOUTS: Record<TldrLayout, string> = {
 };
 
 export const TLDR_PICTURES: Record<TldrPicture, string> = {
-  photos: 'Its own photos (the default): the picture chosen for the notebook, its sources\' photos, who it\'s about; with none, its drawing.',
+  photos: 'Its own photos (the default): the picture chosen for the notebook or the illustration drawn for its answer (whichever was put there last leads), its sources\' photos, who it\'s about; with none, its drawing.',
   drawing: 'The notebook\'s drawing: its own colour and an icon for what it\'s about, the same art as its card on the Notebooks page. For a notebook whose photos say little, or a look that matches its card.',
   none: 'No picture: the words and numbers only.',
 };

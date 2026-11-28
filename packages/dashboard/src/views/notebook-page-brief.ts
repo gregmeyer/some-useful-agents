@@ -17,7 +17,7 @@ import { formatFieldValue } from '../lib/field-format.js';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookLayoutFlags, notebookLayoutValues, notebookWidgetData, emptyPartsGo, drawnNotebookLayout, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
 import { optionInFull, type BriefPicture } from './notebook-brief.js';
-import { chosenPhotoPath, chosenTldrPhoto, showsTldrCard, tldrCard, tldrData, TLDR_CSS } from './notebook-tldr.js';
+import { chosenPhotoPath, chosenTldrPhoto, showsTldrCard, tldrCard, tldrData, tldrIllustrationsOf, TLDR_CSS } from './notebook-tldr.js';
 import type { NotebookOptionHistory } from '../lib/notebook-option.js';
 import { whatsNew, whatsNewLines } from '../lib/notebook-whats-new.js';
 import { saidLike } from '../lib/notebook-clean.js';
@@ -585,7 +585,7 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
     // The picture chosen for the notebook leads its photos, as on the PNG (the copy the file carries).
     const chosenPath = chosenPhotoPath(nb);
     const chosen = chosenTldrPhoto(nb, chosenPath ? aboutSrc(chosenPath) : undefined);
-    return tldrCard(tldrData(nb, args.entries, args.history, args.pictures ?? ((o) => o.image), who && pictured ? { src: pictured, ...(who.logo ? { logo: true } : {}) } : undefined, chosen), { ...(nb.tldr ? { spec: nb.tldr } : {}) });
+    return tldrCard(tldrData(nb, args.entries, args.history, args.pictures ?? ((o) => o.image), who && pictured ? { src: pictured, ...(who.logo ? { logo: true } : {}) } : undefined, chosen, tldrIllustrationsOf(args.added)), { ...(nb.tldr ? { spec: nb.tldr } : {}) });
   };
   // A finding cited by its title is the page it was read on.
   const pageOf = new Map((data.notebook.options as unknown as NotebookViewOption[]).filter((o) => isUrl(o.link)).flatMap((o) => [[o.name, o.link as string], [o.title, o.link as string]] as Array<[string, string]>));

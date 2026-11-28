@@ -51,7 +51,7 @@ import { parseFlash as parseQueryFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { renderNotebookBrief, type BriefPicture } from '../views/notebook-brief.js';
 import { briefIsPage, renderPageBrief } from '../views/notebook-page-brief.js';
-import { chosenPhotoPath, chosenTldrPhoto, renderNotebookTldr, showsTldrCard, tldrData, type TldrData } from '../views/notebook-tldr.js';
+import { chosenPhotoPath, chosenTldrPhoto, renderNotebookTldr, showsTldrCard, tldrData, tldrIllustrationsOf, type TldrData } from '../views/notebook-tldr.js';
 import { renderTldrRedraw } from '../views/notebook-tldr-redraw.js';
 import { startTldrRedraw, tldrRedrawState, clearTldrRedraw, tldrPreferenceFor } from '../lib/notebook-tldr-redraw.js';
 import { localBack } from '../lib/local-back.js';
@@ -467,6 +467,25 @@ function drawOption(nb: Notebook, entry: NotebookEntry): string {
 const BRIEF_PICTURE_MAX = 600 * 1024;
 /** An added picture (an artboard) is bigger than a photo and the point of it: up to 4 MB in a downloaded brief. */
 const BRIEF_ADDED_PICTURE_MAX = 4 * 1024 * 1024;
+
+/**
+ * The pictures added to an answer (an agent's artboard), oldest first: where
+ * each is (its copy inside, when `embed`: a file can't load it from the
+ * dashboard), its title, what made it and when it was added.
+ */
+function answerPictures(ctx: ReturnType<typeof getContext>, s: NotebookStore, nb: Notebook, entries: readonly NotebookEntry[], embed: boolean): Array<{ src: string; title: string; entryId: string; by: string; at: string }> {
+  return s.pictureNoteIds(nb.id).map((eid) => {
+    const e = entries.find((x) => x.id === eid);
+    const photo = embed ? s.photo(eid) : undefined;
+    const src = embed ? (photo && photo.bytes.length <= BRIEF_ADDED_PICTURE_MAX ? `data:${photo.contentType};base64,${Buffer.from(photo.bytes).toString('base64')}` : undefined) : `/notebooks/${encodeURIComponent(nb.id)}/entries/${encodeURIComponent(eid)}/photo`;
+    if (!e || !src) return undefined;
+    const agentId = e.by.startsWith('agent:') ? e.by.slice('agent:'.length) : undefined;
+    const by = agentId ? (ctx.agentStore.getAgent(agentId)?.name ?? agentId) : e.by === 'you' ? 'you' : e.by;
+    return { src, title: e.title, entryId: eid, by, at: e.createdAt };
+  }).filter((x): x is { src: string; title: string; entryId: string; by: string; at: string } => !!x);
+}
+
+
 const BRIEF_PICTURES_MAX = 8 * 1024 * 1024;
 function embeddedPictures(s: NotebookStore, nb: Notebook, entries: readonly NotebookEntry[]): BriefPicture {
   let total = 0;
@@ -1460,12 +1479,7 @@ function briefPage(req: Request, s: NotebookStore, nb: Notebook, o: { embed: boo
   const mode = o.mode ?? (req.query.theme === 'light' || req.query.theme === 'dark' ? req.query.theme : undefined);
   const theme = briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode);
   // Pictures added to it (an agent's artboard): carried in the file when it's a download, linked on screen.
-  const added = s.pictureNoteIds(nb.id).map((eid) => {
-    const e = entries.find((x) => x.id === eid);
-    const photo = o.embed ? s.photo(eid) : undefined;
-    const src = o.embed ? (photo && photo.bytes.length <= BRIEF_ADDED_PICTURE_MAX ? `data:${photo.contentType};base64,${Buffer.from(photo.bytes).toString('base64')}` : undefined) : `/notebooks/${encodeURIComponent(nb.id)}/entries/${encodeURIComponent(eid)}/photo`;
-    return e && src ? { src, title: e.title, entryId: eid } : undefined;
-  }).filter((x): x is { src: string; title: string; entryId: string } => !!x);
+  const added = answerPictures(ctx, s, nb, entries, !!o.embed);
   // A page drawn for the notebook (a meeting briefing) prints as that page; a shortlist, as the shortlist brief.
   const page = briefIsPage(nb) && !latest
     ? renderPageBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(withNew ? { whatsNew: true } : {}), ...(o.charts?.size ? { charts: o.charts } : {}), ...(full ? { full: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries), aboutPicture: embeddedAboutPicture(s, nb) } : {}), ...(added.length ? { added } : {}) })
@@ -1560,7 +1574,9 @@ function tldrPage(req: Request, s: NotebookStore, nb: Notebook, embed: boolean):
   // The picture chosen for the notebook leads its photos (inside the picture when it's made into a file).
   const chosenPath = chosenPhotoPath(nb);
   const chosen = chosenTldrPhoto(nb, chosenPath ? (embed ? embeddedAboutPicture(s, nb)(chosenPath) : chosenPath) : undefined);
-  const page = renderNotebookTldr({ nb, entries, history: widgetHistory(ctx, s), theme: briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode), pictures: embed ? embeddedPictures(s, nb, entries) : (o) => o.image, ...(aboutPicture ? { aboutPicture } : {}), ...(chosen ? { chosen } : {}), ...(spec ? { spec } : {}) });
+  // The newest picture added to the answer (an artboard drawn for it) joins its photos; it leads when it's newer than the chosen one.
+  const illustrations = tldrIllustrationsOf(answerPictures(ctx, s, nb, entries, embed));
+  const page = renderNotebookTldr({ nb, entries, history: widgetHistory(ctx, s), theme: briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode), pictures: embed ? embeddedPictures(s, nb, entries) : (o) => o.image, ...(aboutPicture ? { aboutPicture } : {}), ...(chosen ? { chosen } : {}), ...(illustrations.length ? { illustrations } : {}), ...(spec ? { spec } : {}) });
   return { page, width: TLDR_SIZES[spec?.size ?? 'standard'].width };
 }
 
@@ -1572,7 +1588,9 @@ function tldrPage(req: Request, s: NotebookStore, nb: Notebook, embed: boolean):
 function redrawCard(ctx: ReturnType<typeof getContext>, s: NotebookStore, nb: Notebook): TldrData {
   const kept = nb.about ? s.aboutPhotos(nb.id) : new Set<string>();
   const who = nb.about?.person?.name && kept.has('person') ? 'person' as const : nb.about?.company?.name && !nb.about?.person?.name && kept.has('company') ? 'company' as const : undefined;
-  return tldrData(nb, s.entries(nb.id, 1000), widgetHistory(ctx, s), (o) => o.image, who ? { src: 'kept', ...(s.aboutPhoto(nb.id, who)?.kind === 'logo' ? { logo: true } : {}) } : undefined, nb.photo ? { src: 'chosen', credit: 'chosen', name: nb.photo.alt ?? nb.title } : undefined);
+  const entries = s.entries(nb.id, 1000);
+  const illustrations = tldrIllustrationsOf(answerPictures(ctx, s, nb, entries, false));
+  return tldrData(nb, entries, widgetHistory(ctx, s), (o) => o.image, who ? { src: 'kept', ...(s.aboutPhoto(nb.id, who)?.kind === 'logo' ? { logo: true } : {}) } : undefined, nb.photo ? { src: 'chosen', credit: 'chosen', name: nb.photo.alt ?? nb.title } : undefined, illustrations);
 }
 
 /** The Redraw page: the picture as it is, and a box to say how you'd like it drawn. */

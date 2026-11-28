@@ -27,8 +27,8 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).repl
 /** Markdown's bold and links as plain words (the picture has no links). */
 const plain = (md: string) => md.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/\s+/g, ' ').trim();
 
-/** What a picture is, which decides how it's framed: a photo whole over a blur of itself, a portrait filling its frame, a logo or drawing whole on white, the notebook's own art filling it. */
-export type TldrPictureKind = 'photo' | 'portrait' | 'logo' | 'drawing' | 'art';
+/** What a picture is, which decides how it's framed: a photo whole over a blur of itself, a portrait filling its frame, a logo or drawing whole on white, the notebook's own art filling it, an illustration made for it (an artboard) whole on white, edge to edge. */
+export type TldrPictureKind = 'photo' | 'portrait' | 'logo' | 'drawing' | 'art' | 'illustration';
 export interface TldrBar { name: string; value: number; text: string; lead: boolean; picture?: string; kind?: TldrPictureKind }
 /** Options whose pictures the card may show (a lineup's tiles), at most. */
 const MAX_TILES = 4;
@@ -72,8 +72,23 @@ export interface TldrData {
   drawing?: string;
 }
 
-/** One of the notebook's own photos on the card. */
-export interface TldrPhoto { src: string; credit: string; name: string }
+/**
+ * One of the notebook's own photos on the card. An `illustration` is a
+ * picture an agent made for the answer (under Pictures on its page): shown
+ * whole, never cropped, credited as drawn; `at` is when it was added.
+ */
+export interface TldrPhoto { src: string; credit: string; name: string; kind?: 'illustration'; at?: string }
+
+/** A picture added to the answer, as one of the card's photos. Pure. */
+export function illustrationTldrPhoto(p: { src: string; title: string; by?: string; at?: string }): TldrPhoto {
+  return { src: p.src, credit: p.by ?? '', name: p.title, kind: 'illustration', ...(p.at ? { at: p.at } : {}) };
+}
+
+/** The newest picture added to the answer (they come oldest first), as the TL;DR's illustration. Pure. */
+export const tldrIllustrationsOf = (added: readonly { src: string; title: string; by?: string; at?: string }[] | undefined): TldrPhoto[] => (added ?? []).slice(-1).map(illustrationTldrPhoto);
+
+/** How a photo shown large is credited: a photo by who took it, an illustration by what drew it. */
+export const creditLine = (x: Pick<TldrPhoto, 'credit' | 'kind'>): string => (x.kind === 'illustration' ? `Drawn by ${x.credit}` : `Photo: ${x.credit}`);
 
 /**
  * The picture chosen for the notebook (notebook-photo) as the card's first
@@ -140,12 +155,22 @@ const pictureKind = (o: Pick<NotebookViewOption, 'imageKind'>): TldrPictureKind 
 /**
  * What the picture says, with its pictures: the notebook's chosen photo
  * (`chosen`, as the page shows or a file carries it) leads its photos, and
- * its drawing is there for when it has none or a redraw asks for it. Pure.
+ * its drawing is there for when it has none or a redraw asks for it.
+ * The newest picture added to the answer (`illustrations`, newest first: an
+ * artboard drawn for it) joins them: first when it's newer than the chosen
+ * photo (or there's none), else right after it. Whichever was put there
+ * last leads. Pure.
  */
-export function tldrData(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory, pictures?: BriefPicture, aboutPicture?: { src: string; logo?: boolean }, chosen?: TldrPhoto): TldrData {
+export function tldrData(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory, pictures?: BriefPicture, aboutPicture?: { src: string; logo?: boolean }, chosen?: TldrPhoto, illustrations?: readonly TldrPhoto[]): TldrData {
   const t = tldrDataOf(nb, entries, history, pictures, aboutPicture);
-  const photos = chosen ? [chosen, ...(t.photos ?? []).filter((x) => x.src !== chosen.src)].slice(0, TLDR_PHOTOS_MAX) : t.photos;
-  return { ...t, ...(photos?.length ? { photos } : {}), drawing: drawnCoverSrc(nb) };
+  let photos = chosen ? [chosen, ...(t.photos ?? []).filter((x) => x.src !== chosen.src)] : [...(t.photos ?? [])];
+  const ill = illustrations?.[0];
+  if (ill) {
+    const leads = !chosen || !nb.photo || (ill.at ?? '') > nb.photo.at;
+    photos = leads ? [ill, ...photos] : [photos[0], ill, ...photos.slice(1)];
+  }
+  photos = photos.slice(0, TLDR_PHOTOS_MAX);
+  return { ...t, ...(photos.length ? { photos } : {}), drawing: drawnCoverSrc(nb) };
 }
 
 /**
@@ -424,6 +449,7 @@ export const TLDR_CSS = `
 .tl__frame.is-photo { background: var(--raised); }
 .tl__frame.is-photo::before { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--pic) center / cover no-repeat; filter: blur(34px) saturate(1.15); transform: scale(1.35); opacity: 0.6; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .tl__frame.is-portrait img { object-fit: cover; object-position: center 18%; }
+.tl__frame.is-illustration { background: #fff; }
 /* A wide band would cut a face at the forehead: there the portrait sits whole over a blur of itself, like a photo. */
 .tl--cover .tl__art .tl__frame.is-portrait img { object-fit: contain; }
 .tl--cover .tl__art .tl__frame.is-portrait::before { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--pic) center / cover no-repeat; filter: blur(34px) saturate(1.1); transform: scale(1.35); opacity: 0.75; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -469,6 +495,11 @@ export const TLDR_CSS = `
 .tlv__tk { margin: 0; font-size: 21px; line-height: 1.4; max-width: 40em; }
 .tlv__credit { position: absolute; right: 10px; bottom: 10px; max-width: calc(100% - 20px); padding: 3px 8px; border-radius: 4px; background: rgba(0, 0, 0, 0.62); color: #fff; font: 500 12px/1.3 var(--mono); letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-shadow: none; }
 .tlv__cover.at-bottom .tlv__credit { top: 10px; bottom: auto; }
+/* An illustration made for the answer leads a cover whole, on white, with the words under it in the card's own colours. */
+/* ([class] outranks a size's height and a scrim's gradient, which come earlier with as many classes.) */
+.tlv__cover.is-drawn[class] { height: auto; display: flex; flex-direction: column; background: var(--surface); color: var(--text); }
+.tlv__cover.is-drawn[class] > img { position: static; height: auto; object-fit: contain; background: #fff; }
+.tlv__cover.is-drawn[class] .tlv__over { position: static; transform: none; background: none; padding: 24px 32px 8px; text-shadow: none; }
 .tlv__grid .tl__shot .tl__frame, .tl--landscape .tlv__grid .tl__shot .tl__frame { aspect-ratio: var(--ratio, 4 / 3); }
 .tlv__main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .tlv__row.is-bleed { gap: 0; align-items: stretch; }
@@ -625,7 +656,7 @@ export function tldrBigPicture(t: Pick<TldrData, 'photos' | 'leadPicture' | 'lea
   if (choice === 'none') return undefined;
   const drawing = t.drawing ? { src: t.drawing, kind: 'art' as const } : undefined;
   if (choice === 'drawing') return drawing;
-  if (t.photos?.length) return { src: t.photos[0].src, kind: 'photo' };
+  if (t.photos?.length) return { src: t.photos[0].src, kind: t.photos[0].kind ?? 'photo' };
   return t.leadPicture ? { src: t.leadPicture, kind: t.leadPictureKind ?? 'photo' } : drawing;
 }
 
@@ -705,7 +736,7 @@ export function tldrCard(t: TldrData, o: { now?: Date; spec?: TldrSpec } = {}): 
   // A large photo is the strip's first; a large drawing leaves all the photos to the strip.
   const strip = choice === 'none' ? [] : (t.photos ?? []).slice(large && choice === 'photos' ? 1 : 0, large ? TLDR_PHOTOS_MAX : size.height && layout !== 'gallery' ? 3 : TLDR_PHOTOS_MAX);
   const photos = strip.length >= (layout === 'gallery' ? 2 : 1) ? html`<section class="tl__photos${layout === 'gallery' ? ' is-lead' : ''}">
-    <ol class="tl__shots" style="--shots:${String(strip.length)}">${strip.map((x) => html`<li class="tl__shot">${frame(x.src, 'photo', x.name)}<span class="tl__credit">${x.credit}</span></li>`) as unknown as SafeHtml[]}</ol>
+    <ol class="tl__shots" style="--shots:${String(strip.length)}">${strip.map((x) => html`<li class="tl__shot">${frame(x.src, x.kind ?? 'photo', x.name)}<span class="tl__credit">${x.credit}</span></li>`) as unknown as SafeHtml[]}</ol>
   </section>` : html``;
   const part: Record<TldrPart, SafeHtml> = layout === 'lineup'
     ? { lead: html``, photos: html``, stats, bars: lineup, points: html`` }
@@ -724,9 +755,9 @@ export function tldrCard(t: TldrData, o: { now?: Date; spec?: TldrSpec } = {}): 
   if (large) {
     const big = tldrBigPicture(t, spec?.picture)!;
     // One of its photos shown large is credited on it, as a strip credits each.
-    const credit = t.photos?.find((x) => x.src === big.src)?.credit;
+    const shown = t.photos?.find((x) => x.src === big.src);
     return html`<article class="tl${cls}" aria-label="${t.title}, in short">
-  <div class="tl__art">${frame(big.src, big.kind, t.who ? t.lead : '')}${credit ? html`<span class="tl__artcredit">Photo: ${credit}</span>` : html``}</div>
+  <div class="tl__art">${frame(big.src, big.kind, t.who ? t.lead : '')}${shown?.credit ? html`<span class="tl__artcredit">${creditLine(shown)}</span>` : html``}</div>
   <div class="tl__inner">${header}${every(['lead', 'photos', 'stats', 'bars', 'points'])}${foot}</div>
 </article>`;
   }
@@ -773,7 +804,7 @@ function tldrViewCard(view: readonly ViewComponent[], t: TldrData, spec: TldrSpe
     return v;
   };
   const words = (v: unknown): string => { const x = val(v); return typeof x === 'string' || typeof x === 'number' ? String(x) : ''; };
-  const photo = (v: unknown): TldrPhoto | undefined => { const x = val(v) as Partial<TldrPhoto> | undefined; return x && typeof x === 'object' && typeof x.src === 'string' ? { src: x.src, credit: x.credit ?? '', name: x.name ?? '' } : undefined; };
+  const photo = (v: unknown): TldrPhoto | undefined => { const x = val(v) as Partial<TldrPhoto> | undefined; return x && typeof x === 'object' && typeof x.src === 'string' ? { src: x.src, credit: x.credit ?? '', name: x.name ?? '', ...(x.kind === 'illustration' ? { kind: 'illustration' as const } : {}) } : undefined; };
   const kids = (c: ViewComponent): string[] => (Array.isArray(c.children) ? (c.children as unknown[]).filter((x): x is string => typeof x === 'string') : []);
   let footUsed = false;
   const seen = new Set<string>();
@@ -802,15 +833,16 @@ function tldrViewCard(view: readonly ViewComponent[], t: TldrData, spec: TldrSpe
       case 'PhotoCover': {
         const ph = photo(c.photo);
         const kicker = words(c.kicker), headline = words(c.headline), takeaway = words(c.takeaway);
-        const cls = `tlv__cover is-${String(c.height ?? 'normal')} at-${String(c.align ?? 'bottom')} scrim-${String(c.scrim ?? 'dark')}`;
+        // An illustration is shown whole with the words under it, not over it (they'd cover its panels).
+        const cls = `tlv__cover is-${String(c.height ?? 'normal')} at-${String(c.align ?? 'bottom')} scrim-${String(c.scrim ?? 'dark')}${ph?.kind === 'illustration' ? ' is-drawn' : ''}`;
         const focus = c.focus === 'top' ? '20%' : c.focus === 'bottom' ? '80%' : '50%';
-        return html`<section class="${cls}">${ph ? html`<img src="${ph.src}" alt="${ph.name}" style="object-position:center ${focus}">` : html``}<div class="tlv__over">${kicker ? html`<p class="tlv__kick">${kicker}</p>` : html``}${headline ? html`<h1 class="tlv__hl">${headline}</h1>` : html``}${takeaway ? html`<p class="tlv__tk">${takeaway}</p>` : html``}</div>${ph?.credit ? html`<span class="tlv__credit">Photo: ${ph.credit}</span>` : html``}</section>`;
+        return html`<section class="${cls}">${ph ? html`<img src="${ph.src}" alt="${ph.name}" style="object-position:center ${focus}">` : html``}<div class="tlv__over">${kicker ? html`<p class="tlv__kick">${kicker}</p>` : html``}${headline ? html`<h1 class="tlv__hl">${headline}</h1>` : html``}${takeaway ? html`<p class="tlv__tk">${takeaway}</p>` : html``}</div>${ph?.credit ? html`<span class="tlv__credit">${creditLine(ph)}</span>` : html``}</section>`;
       }
       case 'PhotoGrid': {
         const list = (Array.isArray(val(c.photos)) ? (val(c.photos) as unknown[]) : []).map((x) => photo(x)).filter((x): x is TldrPhoto => !!x).slice(0, typeof c.count === 'number' ? c.count : TLDR_PHOTOS_MAX);
         if (!list.length) return html``;
         const ratio = c.ratio === '1:1' ? '1 / 1' : c.ratio === '16:10' ? '16 / 10' : '4 / 3';
-        return html`<section class="tl__photos tlv__grid" style="--ratio:${ratio}"><ol class="tl__shots" style="--shots:${String(list.length)}">${list.map((x) => html`<li class="tl__shot">${frame(x.src, 'photo', x.name)}${x.credit ? html`<span class="tl__credit">${x.credit}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ol></section>`;
+        return html`<section class="tl__photos tlv__grid" style="--ratio:${ratio}"><ol class="tl__shots" style="--shots:${String(list.length)}">${list.map((x) => html`<li class="tl__shot">${frame(x.src, x.kind ?? 'photo', x.name)}${x.credit ? html`<span class="tl__credit">${x.credit}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ol></section>`;
       }
       default: return html``;
     }
@@ -843,9 +875,9 @@ function tldrViewCard(view: readonly ViewComponent[], t: TldrData, spec: TldrSpe
 }
 
 /** The TL;DR as a page of its own, at the picture's width. */
-export function renderNotebookTldr(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory; pictures?: BriefPicture; aboutPicture?: { src: string; logo?: boolean }; chosen?: TldrPhoto; now?: Date; theme?: BriefTheme; spec?: TldrSpec }): string {
+export function renderNotebookTldr(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory; pictures?: BriefPicture; aboutPicture?: { src: string; logo?: boolean }; chosen?: TldrPhoto; illustrations?: readonly TldrPhoto[]; now?: Date; theme?: BriefTheme; spec?: TldrSpec }): string {
   const theme = args.theme ?? briefTheme(undefined, 'light');
-  const t = tldrData(args.nb, args.entries, args.history, args.pictures, args.aboutPicture, args.chosen);
+  const t = tldrData(args.nb, args.entries, args.history, args.pictures, args.aboutPicture, args.chosen, args.illustrations);
   // Drawn as the notebook's redraw says (or the one asked for); else the standard picture.
   const width = TLDR_SIZES[args.spec?.size ?? 'standard'].width;
   const body = html`<title>${args.nb.title}: TL;DR</title>
