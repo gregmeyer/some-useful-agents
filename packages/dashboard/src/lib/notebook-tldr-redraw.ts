@@ -36,7 +36,7 @@ export function cardForAgent(t: TldrData): Record<string, unknown> {
     ...(t.chart ? { bars: { by: t.chart.label, order: t.chart.order, shown: t.chart.bars.map((b) => ({ name: b.name, value: b.text, ...(b.lead ? { lead: true } : {}) })), more: t.chart.more, topOptionsWithPictures: t.chart.bars.slice(0, 4).filter((b) => b.picture).length } } : {}),
     ...(t.points.length ? { points: { label: t.pointsLabel ?? 'What it found', items: t.points } } : {}),
     // The notebook's own photos (a briefing's sources): how many, and where each is from, so "gallery" and the "photos" part are chosen only when they can be drawn.
-    ...(t.photos?.length ? { photos: { count: t.photos.length, from: t.photos.map((x) => x.credit), each: t.photos.map((x, i) => ({ path: `/tldr/photos/${String(i)}`, credit: x.credit, shows: x.name })) } } : {}),
+    ...(t.photos?.length ? { photos: { count: t.photos.length, from: t.photos.map((x) => x.credit), each: t.photos.map((x, i) => ({ path: `/tldr/photos/${String(i)}`, credit: x.credit, shows: x.name, ...(x.kind === 'illustration' ? { kind: 'illustration (drawn for this answer: shown whole, words go under it, not over it)' } : {}) })) } } : {}),
     // A shortlist that leads with what it wrote: its top options' own photos are the card's photos (/tldr/photo is the first).
     ...(!t.photos?.length && t.optionPhotos?.length ? { photos: { count: t.optionPhotos.length, of: 'the top options', from: t.optionPhotos.map((x) => x.credit), each: t.optionPhotos.map((x, i) => ({ path: `/tldr/photos/${String(i)}`, credit: x.credit, shows: x.name })) } } : {}),
   };

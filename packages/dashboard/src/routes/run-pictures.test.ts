@@ -81,6 +81,10 @@ describe('a picture a run made', () => {
     expect(nbPage).toContain('class="nb-pictures"');
     expect(nbPage).toContain(`<img src="/notebooks/${nb.id}/entries/${ids[0]}/photo" alt="PB&amp;J in Six Steps" loading="lazy">`);
     expect(nbPage).toContain(`<a href="/runs/${runId}">the run that made it</a>`);
+    // The TL;DR picture shows it too, whole, credited to what drew it; a file made from it carries the picture inside.
+    const tldr = (await get(`/notebooks/${nb.id}/tldr.html`)).text;
+    expect(tldr).toContain(`<span class="tl__frame is-illustration"><img src="/notebooks/${nb.id}/entries/${ids[0]}/photo" alt="PB&amp;J in Six Steps">`);
+    expect((await get(`/notebooks/${nb.id}/tldr.html?layout=cover`)).text).toContain('Drawn by Graphics creator (MCP)');
     const brief = (await get(`/notebooks/${nb.id}/brief.html`)).text;
     expect(brief).toMatch(/<section class="pictures" aria-label="Pictures"><h2[^>]*>Pictures<\/h2>/);
     expect(brief).not.toContain('<li>PB&amp;J in Six Steps</li>');

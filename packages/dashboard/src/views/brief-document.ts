@@ -49,7 +49,7 @@ export function briefHead(h: BriefHead): SafeHtml {
 }
 
 /** A picture added to the notebook (an agent's artboard), as the brief carries it. */
-export interface BriefAddedPicture { src: string; title: string; /** Its note in the notebook. */ entryId: string }
+export interface BriefAddedPicture { src: string; title: string; /** Its note in the notebook. */ entryId: string; /** What made it (an agent's name). */ by?: string; /** When it was added. */ at?: string }
 
 /**
  * Pictures added to the notebook, near the end: each at the text's width,

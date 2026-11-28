@@ -19,7 +19,7 @@ import { notebookWidgetData, optionFacets, checksFor, type NotebookWidgetHistory
 import { optionFacts, optionTimeline, type NotebookOptionHistory } from '../lib/notebook-option.js';
 import { bodyWithLinks } from './notebooks.js';
 import { briefPart, type BriefSection } from './notebook-page-brief.js';
-import { chosenPhotoPath, chosenTldrPhoto, tldrCard, tldrData, tldrChart, TLDR_CSS } from './notebook-tldr.js';
+import { chosenPhotoPath, chosenTldrPhoto, tldrCard, tldrData, tldrChart, tldrIllustrationsOf, TLDR_CSS } from './notebook-tldr.js';
 
 /** "**39 in the running**, 22 ruled out": escaped, with its bold kept. */
 function inline(md: string): SafeHtml {
@@ -301,7 +301,7 @@ export function renderNotebookBrief(args: { nb: Notebook; entries: readonly Note
   // Set to Always: the whole TL;DR card leads (as on the page and the page brief's "In short"), drawn as you redrew it; its bars are then in it, not repeated below.
   const chosenPath = chosenPhotoPath(nb);
   const card = tldr && nb.tldrCard === 'always'
-    ? tldrCard(tldrData(nb, args.entries, args.history, args.pictures ?? ((o) => o.image), undefined, chosenTldrPhoto(nb, chosenPath ? (args.aboutPicture ?? ((x: string) => x))(chosenPath) : undefined)), { ...(nb.tldr ? { spec: nb.tldr } : {}) })
+    ? tldrCard(tldrData(nb, args.entries, args.history, args.pictures ?? ((o) => o.image), undefined, chosenTldrPhoto(nb, chosenPath ? (args.aboutPicture ?? ((x: string) => x))(chosenPath) : undefined), tldrIllustrationsOf(args.added)), { ...(nb.tldr ? { spec: nb.tldr } : {}) })
     : undefined;
   // What the write-up and its findings rest on, numbered: a finding named by an option's title is that option's own page.
   const cites = new SourceNotes((label) => d.options.find((o) => (o.name === label || o.title === label) && /^https?:\/\//i.test(o.link ?? ''))?.link);
