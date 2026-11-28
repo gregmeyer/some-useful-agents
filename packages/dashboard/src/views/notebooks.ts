@@ -802,8 +802,8 @@ function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: Noteboo
 /**
  * Pictures added to the answer (an agent's graphic, added from a
  * conversation): each at the column's width, its title under it and a link
- * to the run that made it. Drawn under whatever page it has, so any layout
- * shows them.
+ * to the run that made it, and Remove (which takes it out of the answer). Drawn
+ * under whatever page it has, so any layout shows them.
  */
 export function picturesSection(nb: Notebook, entries: readonly NotebookEntry[], ids: readonly string[]): SafeHtml {
   const byId = new Map(entries.map((e) => [e.id, e]));
@@ -816,7 +816,12 @@ export function picturesSection(nb: Notebook, entries: readonly NotebookEntry[],
       const src = `/notebooks/${enc(nb.id)}/entries/${enc(e.id)}/photo`;
       return html`<figure class="nb-picture">
         <a href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="${e.title}" loading="lazy"></a>
-        <figcaption><strong>${e.title}</strong>${e.runId ? html` · <a href="/runs/${enc(e.runId)}">the run that made it</a>` : html``}</figcaption>
+        <figcaption>
+          <span><strong>${e.title}</strong>${e.runId ? html` · <a href="/runs/${enc(e.runId)}">the run that made it</a>` : html``}</span>
+          <form method="POST" action="/notebooks/${enc(nb.id)}/entries/${enc(e.id)}/remove" class="nb-picture__remove">
+            <button type="submit" class="btn btn--sm btn--ghost" aria-label="Remove “${e.title}” from this answer">Remove</button>
+          </form>
+        </figcaption>
       </figure>`;
     }) as unknown as SafeHtml[]}
   </section>`;
