@@ -48,6 +48,18 @@ export function briefHead(h: BriefHead): SafeHtml {
   </header>`;
 }
 
+/** A picture added to the notebook (an agent's artboard), as the brief carries it. */
+export interface BriefAddedPicture { src: string; title: string; /** Its note in the notebook. */ entryId: string }
+
+/**
+ * Pictures added to the notebook, near the end: each at the text's width,
+ * its title under it. Inline styles, so either brief's own stylesheet takes it.
+ */
+export function briefPictures(pics: readonly BriefAddedPicture[] | undefined): SafeHtml {
+  if (!pics?.length) return html``;
+  return html`<section class="pictures" aria-label="Pictures"><h2>Pictures</h2>${pics.map((p) => html`<figure style="margin:0 0 1.25rem;break-inside:avoid"><img src="${p.src}" alt="${p.title}" style="display:block;width:100%;height:auto;border:1px solid rgba(127,127,127,.3);border-radius:6px"><figcaption style="margin-top:.4rem;font-size:.85em;opacity:.75">${p.title}</figcaption></figure>`) as unknown as SafeHtml[]}</section>`;
+}
+
 /**
  * The document's last lines: where it looked and how much it found, in a
  * sentence (the log itself is in the extended brief and on the notebook),

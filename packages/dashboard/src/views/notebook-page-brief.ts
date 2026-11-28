@@ -21,7 +21,7 @@ import { chosenPhotoPath, chosenTldrPhoto, showsTldrCard, tldrCard, tldrData, TL
 import type { NotebookOptionHistory } from '../lib/notebook-option.js';
 import { whatsNew, whatsNewLines } from '../lib/notebook-whats-new.js';
 import { saidLike } from '../lib/notebook-clean.js';
-import { briefColophon, briefHead, briefPage, briefSources, noteMarks, SourceNotes, traceTag } from './brief-document.js';
+import { briefColophon, briefHead, briefPage, briefSources, noteMarks, SourceNotes, traceTag, briefPictures, type BriefAddedPicture } from './brief-document.js';
 
 /** Whether a notebook's brief is its drawn page (not the shortlist). */
 export function briefIsPage(nb: Pick<Notebook, 'layout'>): boolean {
@@ -546,7 +546,7 @@ function behindThePage(nb: Notebook, entries: readonly NotebookEntry[], d: Data[
     ${active.length ? html`<section class="fullset appendix"><h2>Each one in full<span class="part__note">${String(active.length)}</span></h2>${active.map((o, i) => optionInFull(nb, o, i + 1, entries, history, pic)) as unknown as SafeHtml[]}</section>` : html``}`;
 }
 
-export function renderPageBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; charts?: ReadonlyMap<string, string>; whatsNew?: boolean; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; now?: Date; print?: boolean; full?: boolean; pictures?: BriefPicture; aboutPicture?: (src: string) => string | undefined; theme?: BriefTheme }): string {
+export function renderPageBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; charts?: ReadonlyMap<string, string>; whatsNew?: boolean; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; now?: Date; print?: boolean; full?: boolean; pictures?: BriefPicture; aboutPicture?: (src: string) => string | undefined; theme?: BriefTheme; /** Pictures added to the notebook (an agent's artboard). */ added?: readonly BriefAddedPicture[] }): string {
   const { nb } = args;
   // The dashboard's look (its tokens and brand theme), in your mode.
   const theme = args.theme ?? briefTheme();
@@ -844,6 +844,7 @@ ${TLDR_CSS}
   ${args.full ? behindThePage(nb, args.entries, data.notebook, args.history, pic) : html``}
   ${experiment?.setup?.length ? html`<section class="part part--feature appendix"><div class="part__head"><h2>How it was run</h2>${experiment.runs ? html`<span class="part__note">${experiment.runs}</span>` : html``}</div>
     <div class="facts"><dl>${experiment.setup.map((x) => html`<dt>${x.label}</dt><dd>${x.lines.map((l, i) => html`${i ? html`<br>` : html``}${l}`) as unknown as SafeHtml[]}</dd>`) as unknown as SafeHtml[]}</dl></div></section>` : html``}
+  ${briefPictures(args.added)}
   ${briefSources(notes)}
   ${briefColophon({
     // The research log is a sentence here; the extended brief and the notebook have it line by line.

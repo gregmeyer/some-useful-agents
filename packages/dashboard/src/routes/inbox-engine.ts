@@ -10,6 +10,7 @@
  */
 
 import { startAskedNotebook } from '../lib/notebook-request.js';
+import { fileRunPictures } from '../lib/run-pictures.js';
 import { contextWithAttachments, fileThreadAttachments } from '../lib/conversation-attach.js';
 import { inBackground } from '../lib/background.js';
 import { randomUUID } from 'node:crypto';
@@ -725,6 +726,14 @@ export function finalizeActionFromOutcome(
     // Built as a helper for another agent: work out where that agent calls it.
     const parent = helperFor(ctx, meta);
     if (built && parent && built !== parent) proposeWiring(ctx, messageId, parent, built);
+  }
+
+  // A picture the run made goes into the answer the conversation is about,
+  // said here before sua replies (so it says where it went, not a path).
+  if (nextStatus === 'completed' && runId) {
+    try {
+      if (fileRunPictures(ctx, messageId, { agentId: meta.agentId, runId }) > 0) publishInboxEvent(ctx, messageId, 'message:created', { role: 'system' });
+    } catch { /* it can still be added by hand */ }
   }
 
   if (opts.refire !== false) maybeRefireTriage(ctx, messageId);

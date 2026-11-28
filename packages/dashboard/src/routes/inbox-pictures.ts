@@ -6,8 +6,7 @@
 import { Router, type Request, type Response } from 'express';
 import { NotebookStore } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
-import { extractField } from '../views/output-widgets.js';
-import { readRunPicture, runPictures } from '../lib/run-pictures.js';
+import { pictureTitle, readRunPicture, runPictures } from '../lib/run-pictures.js';
 import { parseActionMeta, publishInboxEvent } from './inbox-shared.js';
 
 export const inboxPicturesRouter: Router = Router();
@@ -30,8 +29,8 @@ inboxPicturesRouter.post('/inbox/:id/actions/:rid/add-picture', (req: Request, r
   const nb = s.get(typeof req.body?.notebook === 'string' ? req.body.notebook : '');
   if (!nb) { fail('Choose an answer to add it to.'); return; }
   const agent = ctx.agentStore.getAgent(meta.agentId);
-  const run = ctx.runStore.getRun(meta.runId);
-  const title = (run?.result ? extractField(run.result, 'title')?.trim() : '') || `A picture from ${agent?.name ?? meta.agentId}`;
+  const title = pictureTitle(ctx, { agentId: meta.agentId, runId: meta.runId }, pic);
+  if (s.picturesFromRun(meta.runId).some((x) => x.notebookId === nb.id)) { res.redirect(303, `${back}?ok=${encodeURIComponent(`It's already in ${nb.title}.`)}`); return; }
   try {
     s.addPicture(nb.id, { title, body: `Made by ${agent?.name ?? meta.agentId}, from [a conversation](${back}).`, by: `agent:${meta.agentId}`, runId: meta.runId, ...image });
   } catch (err) {
@@ -42,4 +41,27 @@ inboxPicturesRouter.post('/inbox/:id/actions/:rid/add-picture', (req: Request, r
   const sys = ctx.inboxStore.addResponse(id, 'system', note);
   publishInboxEvent(ctx, id, 'message:created', { responseId: sys.id, role: 'system', body: note, createdAt: sys.createdAt });
   res.redirect(303, `${back}?ok=${encodeURIComponent(`Added it to ${nb.title}.`)}`);
+});
+
+/** POST /inbox/:id/actions/:rid/remove-picture — take a run's picture back out of an answer. */
+inboxPicturesRouter.post('/inbox/:id/actions/:rid/remove-picture', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = String(req.params.id);
+  const rid = String(req.params.rid);
+  const back = `/inbox/${encodeURIComponent(id)}`;
+  const fail = (why: string) => { res.redirect(303, `${back}?error=${encodeURIComponent(why)}`); };
+  const response = ctx.inboxStore?.getResponse(rid);
+  const meta = response ? parseActionMeta(response) : null;
+  if (!ctx.inboxStore?.get(id) || !response || response.messageId !== id || !meta?.runId) { fail('That run isn’t in this conversation.'); return; }
+  const s = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+  const notebook = typeof req.body?.notebook === 'string' ? req.body.notebook : '';
+  const nb = s.get(notebook);
+  const kept = s.picturesFromRun(meta.runId).filter((x) => x.notebookId === notebook);
+  if (!nb || !kept.length) { fail('That picture isn’t in that answer.'); return; }
+  const title = s.entries(nb.id, 100000).find((e) => e.id === kept[0].entryId)?.title ?? 'The picture';
+  for (const k of kept) s.removeEntry(nb.id, k.entryId);
+  const note = `Took **${title.replace(/[*_[\]]/g, '')}** out of [${nb.title.replace(/[[\]]/g, '')}](/notebooks/${encodeURIComponent(nb.id)}).`;
+  const sys = ctx.inboxStore.addResponse(id, 'system', note);
+  publishInboxEvent(ctx, id, 'message:created', { responseId: sys.id, role: 'system', body: note, createdAt: sys.createdAt });
+  res.redirect(303, `${back}?ok=${encodeURIComponent(`Took it out of ${nb.title}.`)}`);
 });

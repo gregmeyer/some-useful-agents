@@ -143,9 +143,10 @@ export function buildInlineActionWidgets(
 }
 
 /**
- * Under a finished run that made a picture: where it went, when it was added
- * to an answer; a way to add it to one (the conversation's answer first); or,
- * when sua can't find the file, why, instead of a broken image.
+ * Under a finished run that made a picture: the picture (opens full size),
+ * then where it is. In an answer: "In [answer] · Remove". Not yet: one button
+ * for the answer the conversation is about, and the others behind "Another
+ * answer". A picture sua can't find says why, instead of a broken image.
  */
 function renderRunPictureTools(
   ctx: ReturnType<typeof getContext>,
@@ -155,32 +156,44 @@ function renderRunPictureTools(
 ): SafeHtml | undefined {
   const pics = runPictures(ctx, meta.agentId, meta.runId);
   if (!pics.length) return undefined;
-  let added: Array<{ id: string; title: string }> = [];
+  let inAnswers: Array<{ id: string; title: string }> = [];
   try {
     const s = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
-    added = s.picturesFromRun(meta.runId).map((p) => s.get(p.notebookId)).filter((nb): nb is NonNullable<typeof nb> => !!nb).map((nb) => ({ id: nb.id, title: nb.title }));
+    const ids = [...new Set(s.picturesFromRun(meta.runId).map((p) => p.notebookId))];
+    inAnswers = ids.map((id) => s.get(id)).filter((nb): nb is NonNullable<typeof nb> => !!nb).map((nb) => ({ id: nb.id, title: nb.title }));
   } catch { /* no answers here */ }
-  const answers = pics.some((p) => p.file) ? answersForThread(ctx, messageId) : [];
+  const { linked, others } = pics.some((p) => p.file) ? answersForThread(ctx, messageId) : { linked: [], others: [] };
   const enc = encodeURIComponent;
-  const rows = pics.map((p, i) => {
+  const action = (what: string) => `/inbox/${enc(messageId)}/actions/${enc(responseId)}/${what}`;
+  const already = new Set(inAnswers.map((a) => a.id));
+  const rows = pics.map((p) => {
     if (!p.file) {
       return html`<p class="inbox-action__picture-missing"><strong>It made a picture sua can't show.</strong> It said it saved it at <span class="mono">${p.said}</span>. ${p.why ?? ''}</p>`;
     }
     const src = `/output-file?path=${enc(p.said)}`;
-    const shown = html`<a class="inbox-action__picture" href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="${p.label}" loading="lazy"></a>`;
-    if (!answers.length) return shown;
-    const fid = `pic-${responseId}-${String(i)}`;
-    return html`${shown}<form method="POST" action="/inbox/${enc(messageId)}/actions/${enc(responseId)}/add-picture" class="inbox-action__keep">
-      <input type="hidden" name="field" value="${p.field}">
-      <label for="${fid}">Add ${pics.length > 1 ? p.label.toLowerCase() : 'this picture'} to</label>
-      <select id="${fid}" name="notebook">${answers.map((nb) => html`<option value="${nb.id}">${nb.title}${nb.archivedAt ? ' (archived)' : ''}</option>`) as unknown as SafeHtml[]}</select>
-      <button type="submit" class="btn btn--sm">Add</button>
-    </form>`;
+    const shown = html`<a class="inbox-action__picture" href="${src}" target="_blank" rel="noopener" title="Open full size"><img src="${src}" alt="${p.label}" loading="lazy"></a>`;
+    const where = inAnswers.map((nb) => html`<form method="POST" action="${action('remove-picture')}" class="inbox-action__keep">
+        <input type="hidden" name="notebook" value="${nb.id}">
+        <span>In <a href="/notebooks/${enc(nb.id)}">${nb.title}</a></span>
+        <button type="submit" class="btn btn--sm btn--ghost">Remove</button>
+      </form>`);
+    const lead = linked.find((nb) => !already.has(nb.id));
+    const rest = [...linked, ...others].filter((nb) => !already.has(nb.id) && nb.id !== lead?.id);
+    const addTo = (nb: { id: string; title: string }) => html`<form method="POST" action="${action('add-picture')}" class="inbox-action__keep">
+        <input type="hidden" name="field" value="${p.field}"><input type="hidden" name="notebook" value="${nb.id}">
+        <button type="submit" class="btn btn--sm">Add to ${nb.title}</button>
+      </form>`;
+    const another = rest.length ? html`<details class="inbox-action__another"${!lead && !inAnswers.length ? ' open' : ''}>
+        <summary>${lead || inAnswers.length ? 'Another answer' : 'Add to an answer'}</summary>
+        <form method="POST" action="${action('add-picture')}" class="inbox-action__keep">
+          <input type="hidden" name="field" value="${p.field}">
+          <select name="notebook" aria-label="Answer to add it to">${rest.map((nb) => html`<option value="${nb.id}">${nb.title}</option>`) as unknown as SafeHtml[]}</select>
+          <button type="submit" class="btn btn--sm btn--ghost">Add</button>
+        </form>
+      </details>` : html``;
+    return html`${shown}<div class="inbox-action__keep-row">${where as unknown as SafeHtml[]}${lead ? addTo(lead) : html``}${another}</div>`;
   });
-  const done = added.length
-    ? html`<p class="inbox-action__keep-done">Added to ${added.map((nb, i) => html`${i ? ', ' : ''}<a href="/notebooks/${enc(nb.id)}">${nb.title}</a>`) as unknown as SafeHtml[]}.</p>`
-    : html``;
-  return html`<div class="inbox-action__pictures">${done}${rows as unknown as SafeHtml[]}</div>`;
+  return html`<div class="inbox-action__pictures">${rows as unknown as SafeHtml[]}</div>`;
 }
 
 function renderActionWidget(
@@ -206,9 +219,12 @@ function renderActionWidget(
   if (blockedHosts.length > 0) {
     return renderBlockedInlineWidgetNotice(agent.id, messageId, blockedHosts);
   }
-  const surface = renderLegacySurface(`inbox-${messageId}-${run.id}`, legacyWidgetView(agent.outputWidget, run.result), { widget: agent.outputWidget });
+  // A picture the run made is shown under the widget (renderRunPictureTools), so its link isn't repeated here.
+  const shownPictures = new Set(runPictures(ctx, meta.agentId, meta.runId).filter((p) => p.file).map((p) => p.field));
+  const widget = shownPictures.size ? { ...agent.outputWidget, fields: (agent.outputWidget.fields ?? []).filter((f) => !shownPictures.has(f.name)) } : agent.outputWidget;
+  const surface = renderLegacySurface(`inbox-${messageId}-${run.id}`, legacyWidgetView(widget, run.result), { widget });
   if (surface) return surface;
-  return renderOutputWidget(agent.outputWidget, run.result, agent.id);
+  return renderOutputWidget(widget, run.result, agent.id);
 }
 
 /**

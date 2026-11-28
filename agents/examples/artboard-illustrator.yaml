@@ -1,0 +1,110 @@
+# Artboard illustrator — draws an illustrated artboard (numbered panels, each
+# a small scene with a caption) as a picture. The model draws it as an SVG,
+# following the drawing-artboards skill plus any skills it's given (an
+# illustrate-wireframes skill, a house style), and the picture-from-svg tool
+# turns that into a PNG kept with the run (docs/tools/picture-from-svg.md).
+#
+# Its result is JSON with graphic_path, so the picture shows in a
+# conversation and can be added to an answer (docs/notebooks.md "Pictures an
+# agent made"). Nothing outside this computer is used: one model call.
+#
+# For a text graphic from a template (a hero card, a numbered list of cards,
+# a chart), use graphics-creator-mcp or chart-creator-mcp instead.
+id: artboard-illustrator
+name: Artboard illustrator
+description: >
+  Draws an illustrated artboard (numbered panels, each a small scene with a
+  caption) from a brief, as a picture you can add to an answer.
+status: active
+source: examples
+mcp: false
+skills: [drawing-artboards]
+skillsFromInput: SKILLS
+tags:
+  - illustration
+  - artboard
+  - drawing
+  - image
+  - graphics
+entryConditions:
+  - user wants an illustration, artboard, storyboard or illustrated steps drawn (pictures of the steps, not just text cards)
+  - user wants a wireframe turned into an illustrated artboard
+nonEntryConditions:
+  - user wants a chart plotted from numbers (use chart-creator-mcp)
+  - user wants a text-only hero card or title graphic (use graphics-creator-mcp)
+sampleQuestions:
+  - Draw an illustrated six-step artboard for my PB&J notebook.
+  - Turn these steps into an illustrated storyboard.
+  - Illustrate this wireframe as an artboard.
+
+inputs:
+  BRIEF:
+    type: string
+    required: true
+    description: >
+      What to draw: the panels in order, each with what happens in it and its
+      caption, and anything about the look. A wireframe's layout goes here too.
+  TITLE:
+    type: string
+    required: false
+    default: ""
+    description: The artboard's title. Blank lets it write one from the brief.
+  SIZE:
+    type: string
+    required: false
+    default: "1600x1000"
+    description: Width x height in px.
+  SKILLS:
+    type: string
+    required: false
+    default: ""
+    description: More skills to follow, by name, comma-separated (an illustrate-wireframes skill, a house style).
+
+outputs:
+  title: string
+  graphic_path: string
+  width: number
+  height: number
+
+nodes:
+  - id: draw
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 300
+    outputContract:
+      mustMatch: '<svg\b[\s\S]*</svg>'
+      description: one <svg> drawing with a width and height
+    prompt: |
+      Draw one illustrated artboard as a single SVG, following the know-how
+      above (drawing-artboards, and any other skill given).
+
+      The brief: {{inputs.BRIEF}}
+      Title (blank: write a short one from the brief): {{inputs.TITLE}}
+      Size: {{inputs.SIZE}} (width x height, px)
+
+      Each panel is a small drawn scene of what happens in it, built from
+      shapes, with its number and a short caption. Keep the brief's panels,
+      order and wording; don't add steps.
+
+      Reply with the title on the first line as `TITLE: <title>`, then the
+      drawing: one <svg …>…</svg> with width, height and viewBox set to the
+      size. Nothing after it.
+
+  - id: render
+    type: shell
+    dependsOn: [draw]
+    tool: picture-from-svg
+    toolInputs:
+      svg: "{{upstream.draw.result}}"
+      title: "{{inputs.TITLE}}"
+
+signal:
+  title: Artboard
+  template: text-image
+  size: 2x2
+
+outputWidget:
+  type: dashboard
+  fields:
+    - { name: title,        type: text,    label: Title }
+    - { name: graphic_path, type: preview, label: Artboard }

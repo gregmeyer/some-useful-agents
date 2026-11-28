@@ -9,7 +9,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import { readFileSync, existsSync, statSync } from 'node:fs';
-import { resolve, extname } from 'node:path';
+import { resolve, extname, join } from 'node:path';
 import { hostPathFor, mcpSharedFolders, type McpServerConfig } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 
@@ -69,10 +69,12 @@ export function addAllowedOutputDir(dir: string): void {
  * Check if a resolved file path is inside an allowed directory, or a folder a
  * Docker-run tool server shares with this computer.
  */
-function isAllowed(filePath: string, servers: readonly McpServerConfig[] = []): boolean {
+function isAllowed(filePath: string, servers: readonly McpServerConfig[] = [], dataRoot?: string): boolean {
   const abs = resolve(filePath);
   const inside = (dir: string) => abs.startsWith(dir + '/') || abs === dir;
   if (getAllowedDirs().some(inside)) return true;
+  // A run's own pictures (a screenshot, a drawing: run-files.ts).
+  if (dataRoot && /\.png$/i.test(abs) && inside(resolve(join(dataRoot, 'run-files')))) return true;
   // A shared folder may hold anything its server can see, so only what a
   // server makes to look at (pictures, pages, PDFs) is served from one.
   return SHARED_TYPES.test(abs) && mcpSharedFolders(servers).some((f) => inside(resolve(f.host)));
@@ -86,6 +88,11 @@ export function knownMcpServers(locals: Record<string, unknown>): McpServerConfi
   try { return mcpServersIn(getContext(locals)); } catch { return []; }
 }
 
+/** Where sua keeps its data (runs' own files are under it), when known. */
+export function dataRootIn(ctx: { agentStore?: { dataRoot?: string } }): string | undefined {
+  try { return ctx.agentStore?.dataRoot; } catch { return undefined; }
+}
+
 /** The tool servers a context knows, or none. */
 export function mcpServersIn(ctx: { toolStore?: { listMcpServers(): McpServerConfig[] } }): McpServerConfig[] {
   try { return ctx.toolStore?.listMcpServers() ?? []; } catch { return []; }
@@ -96,12 +103,12 @@ export function mcpServersIn(ctx: { toolStore?: { listMcpServers(): McpServerCon
  * shown. A path a Docker-run tool server reported (inside its container) is
  * read from the folder it shares; one that stayed in the container says so.
  */
-export function resolveOutputFile(rawPath: string, servers: readonly McpServerConfig[]): { path: string } | { status: number; message: string } {
+export function resolveOutputFile(rawPath: string, servers: readonly McpServerConfig[], dataRoot?: string): { path: string } | { status: number; message: string } {
   if (!rawPath) return { status: 400, message: 'Missing ?path= parameter' };
   const shared = hostPathFor(rawPath, servers);
   if (shared && SHARED_TYPES.test(shared) && existsSync(shared)) return { path: resolve(shared) };
   const absPath = resolve(rawPath);
-  if (!isAllowed(absPath, servers)) {
+  if (!isAllowed(absPath, servers, dataRoot)) {
     return { status: 403, message: `File not in an allowed directory. Allowed: ${[...getAllowedDirs(), ...mcpSharedFolders(servers).map((f) => f.host)].join(', ')}` };
   }
   if (!existsSync(absPath)) {
@@ -116,7 +123,9 @@ export function resolveOutputFile(rawPath: string, servers: readonly McpServerCo
  */
 outputFilesRouter.get('/output-file', (req: Request, res: Response) => {
   const rawPath = typeof req.query.path === 'string' ? req.query.path : '';
-  const found = resolveOutputFile(rawPath, knownMcpServers(req.app.locals));
+  let dataRoot: string | undefined;
+  try { dataRoot = dataRootIn(getContext(req.app.locals)); } catch { dataRoot = undefined; }
+  const found = resolveOutputFile(rawPath, knownMcpServers(req.app.locals), dataRoot);
   if ('status' in found) {
     res.status(found.status).type('text/plain').send(found.message);
     return;

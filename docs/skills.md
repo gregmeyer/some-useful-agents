@@ -134,6 +134,7 @@ sua skill show <name>    # its full text, as agents get it
 | `writing-skills` | skill-drafter | How to write a skill: one kind of work, rules with their reasons, under 6 KB, never a template or a manual. |
 | `evaluate-software` | template-drafter (when named) | Evaluate software for a job: a job statement, gates, 5–8 candidates with reasons, evidence, a recommendation and a proof plan; Quick and Standard modes. |
 | `software-rubric` | software-scorer; template-drafter (when named) | Score 0–4 against anchors for the job, unknown never zero, default weights, evidence with confidence, bounds and coverage, a 36-month cost view. |
+| `drawing-artboards` | artboard-illustrator | Draw an illustrated artboard as one SVG: numbered panels, each a small scene built from shapes with a short caption, flat style, readable text, nothing it would fetch. |
 
 ## Skills, behaviors and memory
 

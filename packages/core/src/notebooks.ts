@@ -2716,12 +2716,19 @@ export class NotebookStore {
   /**
    * Add a picture an agent made (a graphic, an artboard) to a notebook: a note
    * saying what it is and who made it, holding the image. Only pictures a page
-   * can show safely (PNG, JPEG, GIF, WebP), up to 10 MB.
+   * can show safely (PNG, JPEG, GIF, WebP), up to 10 MB. A run's picture already
+   * in that answer is given back, not added again.
    */
   addPicture(notebookId: string, input: { title: string; body?: string; by: string; runId?: string; contentType: string; bytes: Uint8Array }): NotebookEntry {
     const type = input.contentType.toLowerCase();
     if (!NOTEBOOK_PICTURE_TYPES.includes(type)) throw new Error('Only a PNG, JPEG, GIF or WebP picture can be added.');
     if (!input.bytes.length || input.bytes.length > NOTEBOOK_PICTURE_MAX_BYTES) throw new Error('That picture is empty or over 10 MB.');
+    // A run's picture is added to an answer once.
+    if (input.runId) {
+      const had = this.picturesFromRun(input.runId).find((p) => p.notebookId === notebookId);
+      const entry = had ? this.entries(notebookId, 100000).find((e) => e.id === had.entryId) : undefined;
+      if (entry) return entry;
+    }
     const entry = this.addEntry(notebookId, { kind: 'note', title: input.title, body: input.body, by: input.by, ...(input.runId ? { runId: input.runId } : {}) });
     this.savePhoto(notebookId, entry.id, input.runId ? `/runs/${input.runId}` : 'added', { contentType: type, bytes: input.bytes }, { kind: 'listing', what: entry.title });
     this.touch(notebookId);

@@ -52,32 +52,84 @@ describe('a picture a run made', () => {
     expect((await get('/output-file?path=%2Fapp%2Foutput%2F..%2F..%2Fetc%2Fpasswd')).status).toBe(403);
   });
 
-  it('shows in the conversation with Add to an answer, the conversation’s answer first; adding it puts it on the answer’s page', async () => {
+  it('shows in the conversation with one Add button for the conversation’s answer, others behind Another answer; adding puts it on the answer’s page and brief, once; Remove takes it out', async () => {
     const { store, inbox, nb, other, thread, action, runId, get, post } = await setup('output/pbj.png');
     const page = (await get(`/inbox/${thread.id}/fragment`)).text;
-    expect(page).toContain(`action="/inbox/${thread.id}/actions/${action.id}/add-picture"`);
-    expect(page).toMatch(new RegExp(`<select id="pic-${action.id}-0" name="notebook"><option value="${nb.id}">Learn to make a PB&amp;J</option><option value="${other.id}">`));
-    expect(page).toContain('<a class="inbox-action__picture" href="/output-file?path=output%2Fpbj.png" target="_blank" rel="noopener"><img src="/output-file?path=output%2Fpbj.png" alt="Output" loading="lazy"></a>');
+    expect(page).toContain('<a class="inbox-action__picture" href="/output-file?path=output%2Fpbj.png" target="_blank" rel="noopener" title="Open full size"><img src="/output-file?path=output%2Fpbj.png" alt="Output" loading="lazy"></a>');
+    expect(page).toContain('Add to Learn to make a PB&amp;J</button>');
+    expect(page).toMatch(new RegExp(`<summary>Another answer</summary>[\\s\\S]*<option value="${other.id}">Something else</option>`));
+    // The widget's own link to the file isn't repeated.
+    expect(page).not.toContain('Open Output');
 
-    const res = await post(`/inbox/${thread.id}/actions/${action.id}/add-picture`, { field: 'graphic_path', notebook: nb.id });
+    const add = async () => post(`/inbox/${thread.id}/actions/${action.id}/add-picture`, { field: 'graphic_path', notebook: nb.id });
+    const res = await add();
     expect(res.status).toBe(303);
     expect(res.headers.location).toContain('ok=');
+    // Pressed twice: still one.
+    expect((await add()).headers.location).toContain(encodeURIComponent('already in'));
     const ids = store.pictureNoteIds(nb.id);
     expect(ids).toHaveLength(1);
     expect(store.picturesFromRun(runId)).toEqual([{ notebookId: nb.id, entryId: ids[0] }]);
     expect(store.photo(ids[0])).toMatchObject({ contentType: 'image/png', sourceUrl: `/runs/${runId}` });
-    expect(inbox.listResponses(thread.id).at(-1)).toMatchObject({ role: 'system', body: `Added **PB&J in Six Steps** to [Learn to make a PB&J](/notebooks/${nb.id}).` });
+    expect(inbox.listResponses(thread.id).filter((r) => r.role === 'system').map((r) => r.body)).toEqual([`Added **PB&J in Six Steps** to [Learn to make a PB&J](/notebooks/${nb.id}).`]);
 
-    // The thread says where it went; the answer's page shows it, whatever its layout.
-    expect((await get(`/inbox/${thread.id}/fragment`)).text).toContain(`Added to <a href="/notebooks/${nb.id}">Learn to make a PB&amp;J</a>.`);
+    // Where it is, with Remove; no second Add for that answer.
+    const after = (await get(`/inbox/${thread.id}/fragment`)).text;
+    expect(after).toMatch(new RegExp(`<span>In <a href="/notebooks/${nb.id}">Learn to make a PB&amp;J</a></span>\\s*<button type="submit" class="btn btn--sm btn--ghost">Remove</button>`));
+    expect(after).not.toContain('Add to Learn to make a PB&amp;J');
     const nbPage = (await get(`/notebooks/${nb.id}`)).text;
     expect(nbPage).toContain('class="nb-pictures"');
     expect(nbPage).toContain(`<img src="/notebooks/${nb.id}/entries/${ids[0]}/photo" alt="PB&amp;J in Six Steps" loading="lazy">`);
     expect(nbPage).toContain(`<a href="/runs/${runId}">the run that made it</a>`);
+    const brief = (await get(`/notebooks/${nb.id}/brief.html`)).text;
+    expect(brief).toMatch(/<section class="pictures" aria-label="Pictures"><h2[^>]*>Pictures<\/h2>/);
+    expect(brief).not.toContain('<li>PB&amp;J in Six Steps</li>');
+    expect(brief).toContain(`<img src="/notebooks/${nb.id}/entries/${ids[0]}/photo" alt="PB&amp;J in Six Steps"`);
+    const saved = (await get(`/notebooks/${nb.id}/brief.html?download=1`)).text;
+    expect(saved).toContain(`<img src="data:image/png;base64,${PNG.toString('base64')}" alt="PB&amp;J in Six Steps"`);
     const img = await get(`/notebooks/${nb.id}/entries/${ids[0]}/photo`);
     expect(img.status).toBe(200);
     expect(Buffer.from(img.body as Buffer).equals(PNG)).toBe(true);
     expect((await get(`/notebooks/${other.id}`)).text).not.toContain('class="nb-pictures"');
+
+    const rm = await post(`/inbox/${thread.id}/actions/${action.id}/remove-picture`, { notebook: nb.id });
+    expect(rm.headers.location).toContain('ok=');
+    expect(store.pictureNoteIds(nb.id)).toEqual([]);
+    expect(inbox.listResponses(thread.id).at(-1)).toMatchObject({ role: 'system', body: `Took **PB&J in Six Steps** out of [Learn to make a PB&J](/notebooks/${nb.id}).` });
+    expect((await get(`/notebooks/${nb.id}`)).text).not.toContain('class="nb-pictures"');
+  });
+
+  it('when the run ends in a conversation about one answer, the picture goes into it by itself, said before sua replies', async () => {
+    const { store, inbox, nb, thread, runId } = await setup('output/pbj.png');
+    const { finalizeActionFromOutcome } = await import('./inbox-engine.js');
+    const running = inbox.addResponse(thread.id, 'action', 'Draw it again.', JSON.stringify({ kind: 'action', status: 'running', agentId: 'graphics-creator-mcp', effect: 'write', inputs: {} }));
+    const meta = JSON.parse(running.metaJson!) as never;
+    finalizeActionFromOutcome(S.ctx as never, thread.id, running.id, meta, { id: runId, status: 'completed', result: 'done' }, { refire: false });
+    expect(store.pictureNoteIds(nb.id)).toHaveLength(1);
+    expect(inbox.listResponses(thread.id).at(-1)).toMatchObject({ role: 'system', body: `Added **PB&J in Six Steps** to [Learn to make a PB&J](/notebooks/${nb.id}). It's under Pictures on its page.` });
+    // Settled again (a restart): not added twice.
+    finalizeActionFromOutcome(S.ctx as never, thread.id, running.id, meta, { id: runId, status: 'completed', result: 'done' }, { refire: false });
+    expect(store.pictureNoteIds(nb.id)).toHaveLength(1);
+  });
+
+  it('a conversation about no answer waits for you to choose', async () => {
+    const { store, inbox, nb, other, runId } = await setup('output/pbj.png');
+    const { finalizeActionFromOutcome } = await import('./inbox-engine.js');
+    const t2 = inbox.add({ priority: 'medium', source: 'manual', title: 'draw me something', body: '(empty)' })!;
+    const r = inbox.addResponse(t2.id, 'action', 'Draw it.', JSON.stringify({ kind: 'action', status: 'running', agentId: 'graphics-creator-mcp', effect: 'write', inputs: {} }));
+    finalizeActionFromOutcome(S.ctx as never, t2.id, r.id, JSON.parse(r.metaJson!) as never, { id: runId, status: 'completed', result: 'done' }, { refire: false });
+    expect(store.pictureNoteIds(nb.id)).toEqual([]);
+    expect(store.pictureNoteIds(other.id)).toEqual([]);
+  });
+
+  it('a picture kept with a run (an artboard drawn by picture-from-svg) is served too; nothing else from there', async () => {
+    const { get } = await setup('output/pbj.png');
+    const dir = join(S.agentStore.dataRoot, 'run-files', 'run-art');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'render-1.png'), PNG);
+    writeFileSync(join(dir, 'notes.txt'), 'private');
+    expect((await get(`/output-file?path=${encodeURIComponent(join(dir, 'render-1.png'))}`)).status).toBe(200);
+    expect((await get(`/output-file?path=${encodeURIComponent(join(dir, 'notes.txt'))}`)).status).toBe(403);
   });
 
   it('left inside the container, it says so instead, and can’t be added', async () => {
